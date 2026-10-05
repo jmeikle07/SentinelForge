@@ -217,3 +217,15 @@ def test_env_example_optional_variables_are_commented_out():
     for var in ("LAB_ADMIN_TOKEN", "SF_LAB_DIR", "SF_LOG_DIR", "SF_AUTHOR", "SF_REPO_URL", "MODEL_NAME"):
         assert f"# {var}=" in text, var
         assert f"\n{var}=" not in text, f"{var} must not be set empty by default"
+
+
+@responses.activate
+def test_query_elasticsearch_warns_when_capped(monkeypatch, caplog):
+    monkeypatch.setenv("ELASTIC_URL", "https://es.test:9200")
+    monkeypatch.setattr(generate_rule, "MAX_EVENTS", 3)
+    hits = [{"_source": {"i": i}, "sort": [i, i]} for i in range(10)]
+    responses.add(responses.POST, "https://es.test:9200/logs-*/_search", json={"hits": {"hits": hits}})
+    with caplog.at_level("WARNING"):
+        events = generate_rule.query_elasticsearch(60)
+    assert len(events) == 3 and generate_rule.query_elasticsearch.truncated is True
+    assert any("truncated" in r.message for r in caplog.records)

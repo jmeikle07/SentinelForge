@@ -22,7 +22,6 @@ import subprocess
 import functools
 from datetime import datetime, timezone, timedelta
 from email.message import EmailMessage
-from itertools import islice
 from pathlib import Path
 
 import anthropic
@@ -35,7 +34,7 @@ from lab import config as lab_config
 from lab import coverage as lab_coverage
 from lab import ecs as lab_ecs
 from lab import state as lab_state
-from lab.es import search_all, SearchError
+from lab.es import search_all_capped, SearchError
 from lab.http import session as make_session
 from sf_safety import sanitize_text
 
@@ -348,9 +347,13 @@ def query_elasticsearch(lookback_minutes):
         }}
     }
     try:
-        hits = islice(search_all(make_session(timeout=30, retry_post=True), "logs-*", body,  # read-only search
-                                 base_url=settings.elastic_url, api_key=settings.elastic_api_key),
-                      MAX_EVENTS)
+        hits, truncated = search_all_capped(make_session(timeout=30, retry_post=True), "logs-*", body,  # read-only search
+                                            MAX_EVENTS, base_url=settings.elastic_url,
+                                            api_key=settings.elastic_api_key)
+        if truncated:
+            _log.warning("Elasticsearch result truncated at MAX_EVENTS=%d: the window has more events; "
+                         "only the first %d (newest first) were analysed", MAX_EVENTS, MAX_EVENTS)
+        query_elasticsearch.truncated = truncated
         return [h["_source"] for h in hits]
     except SearchError as exc:
         _log.error("Elasticsearch error: %s", exc)
@@ -1641,6 +1644,7 @@ def main():
     with _con.status("[cyan]Querying Elasticsearch...[/]", spinner="dots", spinner_style="cyan"):
         try:
             events = query_elasticsearch(lookback)
+            trunc_extra = {"truncated": True} if getattr(query_elasticsearch, "truncated", False) else {}
         except lab_config.ConfigError as exc:
             _con.print(f"[red]Error:[/] {exc}")
             sys.exit(1)
@@ -1695,7 +1699,7 @@ def main():
             "timestamp":now_ts, "result":reason.replace(" ","_"),
             "technique_id":analysis["technique_id"],
             "technique_name":analysis["technique_name"],
-            "confidence":analysis["confidence"], "lookback":lookback
+            "confidence":analysis["confidence"], "lookback":lookback, **trunc_extra
         })
         save_state(seen, last, log, digest)
         _try_push_state()
@@ -1735,7 +1739,7 @@ def main():
             "technique_id": analysis["technique_id"],
             "technique_name": analysis["technique_name"],
             "confidence": analysis["confidence"],
-            "rule_id": rule_id, "lookback": lookback,
+            "rule_id": rule_id, "lookback": lookback, **trunc_extra,
         })
         save_state(seen, last, log, digest)
         _try_push_state()
@@ -1775,7 +1779,7 @@ def main():
         "technique_id":analysis["technique_id"],
         "technique_name":analysis["technique_name"],
         "confidence":analysis["confidence"],
-        "rule_id":rule_id, "filepath":filepath, "lookback":lookback
+        "rule_id":rule_id, "filepath":filepath, "lookback":lookback, **trunc_extra
     })
     save_state(seen, last, log, digest)
     _try_push_state()

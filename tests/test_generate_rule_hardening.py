@@ -65,7 +65,7 @@ def test_query_elasticsearch_propagates_search_error(monkeypatch):
 
     def boom(*a, **k):
         raise SearchError("401")
-    monkeypatch.setattr(gr, "search_all", boom)
+    monkeypatch.setattr(gr, "search_all_capped", boom)
     with pytest.raises(SearchError):
         gr.query_elasticsearch(60)
 
