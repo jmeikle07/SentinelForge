@@ -1,8 +1,11 @@
 title: HideFileExt Registry Value Set via reg.exe
 id: 57053051-8d37-43fc-b572-c3c2c320da81
 status: experimental
+related:
+    - id: 0acbfe83-9428-4eda-8c9c-6482e4d60c0a
+      type: similar
 description: Detects reg.exe being used to set HideFileExt to 1 under the current user Explorer Advanced registry key, a technique used to hide file extensions and make malicious files appear benign.
-author: 1xLoZec
+author: Jahsean Meikle
 date: 2026/05/10
 references:
     - https://attack.mitre.org/techniques/T1564/001/

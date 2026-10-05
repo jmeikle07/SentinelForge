@@ -2,7 +2,7 @@ title: System Owner/User Discovery via Scripting Engine Parent Process
 id: 0d36e12f-4b63-4cf0-8483-8552b1d57090
 status: experimental
 description: Detects whoami.exe or HOSTNAME.EXE spawned by common scripting engines such as powershell.exe, wscript.exe, cscript.exe, or cmd.exe, indicative of system owner and user discovery activity.
-author: 1xLoZec
+author: Jahsean Meikle
 date: 2026/05/11
 references:
     - https://attack.mitre.org/techniques/T1033/

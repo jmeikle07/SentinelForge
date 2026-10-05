@@ -1,131 +1,129 @@
 """
-validate_rule.py — tallkitchen_water self-healing validation pipeline
+validate_rule.py - SentinelForge autonomous rule engine: self-healing validation pipeline
 
 Stages:
-  1. YAML lint — catch malformed YAML before burning API calls
-  2. Sigma → Lucene conversion
-  3. Backtest — verify query matches real data in Elasticsearch
-  4. 3-AI validation — Claude + Gemini + Ollama score the rule
-  5. Self-heal — Claude rewrites failing rules using structured feedback
-  6. Circuit breaker — email alert after 3 failed attempts
+  1. YAML lint - catch malformed YAML before burning API calls
+  2. Sigma -> Lucene conversion
+  3. Backtest - verify query matches real data in Elasticsearch (7-day window)
+  4. 3-AI validation - Claude + Gemini + Ollama score the rule (run concurrently)
+  5. Self-heal - Claude rewrites failing rules using structured feedback
+  6. Circuit breaker - email alert after 3 failed attempts
 
 Max 3 attempts. Healed rule written back to file for git commit.
+An unreachable Elasticsearch is a FAILED backtest (never a silent pass).
 """
 
-import sys
+import concurrent.futures
+import html as html_lib
 import json
+import logging
 import os
-import time
+import re
 import smtplib
-import requests
+import ssl
+import sys
+import time
 import yaml
-from email.message import EmailMessage
-from sigma.collection import SigmaCollection
-from sigma.backends.elasticsearch import LuceneBackend
-from sigma.pipelines.sysmon import sysmon_pipeline
-from sigma.pipelines.windows import windows_logsource_pipeline as windows_pipeline
-from sigma.processing.resolver import ProcessingPipelineResolver
-from sigma.processing.pipeline import ProcessingPipeline, ProcessingItem
-from sigma.processing.transformations import FieldMappingTransformation, DropDetectionItemTransformation
-from sigma.processing.conditions import IncludeFieldCondition
+import requests
 from datetime import datetime, timezone
+from email.message import EmailMessage
+from pathlib import Path
+from string import Template
+
+from lab import ecs
+from lab import config as lab_config
+from lab import state as lab_state
+from lab.http import session as make_session
+
+log = logging.getLogger("sf.validate")
+
+HERE = Path(__file__).resolve().parent
+MODEL_DEFAULT = "claude-sonnet-4-6"
+BACKTEST_WINDOW = "now-7d"
+MAX_ATTEMPTS = 3
 
 
-# ── Sigma conversion ──────────────────────────────────────────────────────────
+class MissingApiKey(RuntimeError):
+    """A validator's API key is not configured; that voter is skipped."""
 
-def _ecs_fieldmap_pipeline():
-    """Same Sysmon->ECS field mapping used by deploy_rule.py — our Elastic data is ECS,
-    not raw Sysmon. Without this the backtest queries EventID/Image and gets 0 hits,
-    which wrongly fails good rules."""
-    return ProcessingPipeline(name="sysmon-to-ecs-fieldmap", priority=100, items=[
-        ProcessingItem(
-            transformation=DropDetectionItemTransformation(),
-            field_name_conditions=[IncludeFieldCondition(fields=["Channel"])],
-        ),
-        ProcessingItem(transformation=FieldMappingTransformation({
-            "EventID": "event.code",
-            "Image": "process.executable",
-            "ParentImage": "process.parent.executable",
-            "CommandLine": "process.command_line",
-            "ParentCommandLine": "process.parent.command_line",
-            "TargetFilename": "file.path",
-            "DestinationIp": "destination.ip",
-            "DestinationPort": "destination.port",
-            "User": "user.name",
-        })),
-    ])
+
+def model_name():
+    return os.environ.get("MODEL_NAME") or MODEL_DEFAULT
+
+
+# -- Sigma conversion (single shared copy lives in lab.ecs) --------------------
 
 def convert_sigma(rule_path):
     """Convert a Sigma YAML file to a Lucene query string (ECS field names)."""
-    resolver = ProcessingPipelineResolver()
-    resolver.add_pipeline_class(windows_pipeline())
-    resolver.add_pipeline_class(sysmon_pipeline())
-    resolved = resolver.resolve(resolver.pipelines) + _ecs_fieldmap_pipeline()
-    backend  = LuceneBackend(processing_pipeline=resolved)
-    rules    = SigmaCollection.load_ruleset([rule_path])
-    result   = backend.convert(rules)
+    result = ecs.convert_path(rule_path)
     return result[0] if result else None
 
 
 def convert_sigma_text(rule_text):
     """Convert Sigma YAML text (not a file) to a Lucene query string."""
-    import tempfile
-    with tempfile.NamedTemporaryFile(mode='w', suffix='.yml', delete=False) as tmp:
-        tmp.write(rule_text)
-        tmp_path = tmp.name
-    try:
-        return convert_sigma(tmp_path)
-    finally:
-        os.unlink(tmp_path)
+    result = ecs.convert(rule_text)
+    return result[0] if result else None
 
 
-# ── Stage 1: YAML lint ────────────────────────────────────────────────────────
+# -- Stage 1: YAML lint --------------------------------------------------------
 
 def lint_sigma_yaml(rule_text):
     """Check YAML syntax and required Sigma fields before burning API calls."""
     try:
         parsed   = yaml.safe_load(rule_text)
-        required = ["title", "id", "logsource", "detection"]
-        missing  = [f for f in required if f not in parsed]
-        if missing:
-            return False, f"Missing required fields: {missing}"
-        return True, "OK"
     except yaml.YAMLError as e:
         return False, f"YAML syntax error: {e}"
+    if not isinstance(parsed, dict):
+        return False, "Rule is not a YAML mapping"
+    required = ["title", "id", "logsource", "detection"]
+    missing  = [f for f in required if f not in parsed]
+    if missing:
+        return False, f"Missing required fields: {missing}"
+    return True, "OK"
 
 
-# ── Stage 3: Backtest ─────────────────────────────────────────────────────────
+# -- Stage 3: Backtest ---------------------------------------------------------
 
 def backtest_query(query):
     """
-    Run the Lucene query against logs-* and check if it matches any data.
-    Returns (hit_count, error_message).
-    A count of 0 means field names are wrong or rule logic is unreachable.
+    Run the Lucene query against logs-* over the last 7 days and count matches.
+    Returns (hit_count, error_message). error_message is set when Elasticsearch is
+    unconfigured, unreachable or errors; callers must treat that as a FAILED backtest.
+    A count of 0 with no error means field names are wrong or the logic is unreachable.
     """
-    elastic_url = os.environ.get("ELASTIC_URL", "https://10.0.0.1:9200")
-    elastic_key = os.environ.get("ELASTIC_API_KEY", "")
-
     try:
-        resp = requests.post(
-            f"{elastic_url}/logs-*/_count",
-            headers={
-                "Authorization": f"ApiKey {elastic_key}",
-                "Content-Type": "application/json",
-            },
-            json={"query": {"query_string": {"query": query, "analyze_wildcard": True}}},
-            verify=False,
-            timeout=15,
-        )
-        if resp.status_code == 200:
-            return resp.json().get("count", 0), None
-        return 0, f"Elasticsearch returned {resp.status_code}: {resp.text[:200]}"
-    except Exception as e:
+        settings = lab_config.load()
+    except lab_config.ConfigError as e:
+        return 0, f"Backtest not configured: {e}"
+
+    headers = {"Content-Type": "application/json"}
+    if settings.elastic_api_key:
+        headers["Authorization"] = f"ApiKey {settings.elastic_api_key}"
+    body = {"query": {"bool": {
+        "must": [{"query_string": {"query": query, "analyze_wildcard": True}}],
+        "filter": [{"range": {"@timestamp": {"gte": BACKTEST_WINDOW}}}],
+    }}}
+    try:
+        resp = make_session(timeout=15).post(
+            f"{settings.elastic_url}/logs-*/_count", headers=headers, json=body)
+    except requests.RequestException as e:
         return 0, f"Backtest connection error: {e}"
+    if resp.status_code != 200:
+        return 0, f"Elasticsearch returned {resp.status_code}: {resp.text[:200]}"
+    try:
+        return int(resp.json().get("count", 0)), None
+    except (ValueError, AttributeError) as e:
+        return 0, f"Backtest returned an unreadable response: {e}"
 
 
-# ── Stage 4: AI validators ────────────────────────────────────────────────────
+def passes(approvals, avg_score, hit_count, backtest_err):
+    """Pass condition: 2+ approvals, avg >= 6, and a SUCCESSFUL backtest with > 0 hits."""
+    return approvals >= 2 and avg_score >= 6 and backtest_err is None and hit_count > 0
 
-VALIDATION_PROMPT = """You are a detection engineering expert reviewing a Sigma rule for a home detection lab.
+
+# -- Stage 4: AI validators ----------------------------------------------------
+
+VALIDATION_PROMPT = Template("""You are a detection engineering expert reviewing a Sigma rule for a home detection lab.
 
 Score this rule 1-10 using these exact criteria:
 - 8-10: Valid logsource, correct ECS fields, logical detection condition, ATT&CK tags present, would realistically fire on attacker behavior
@@ -136,57 +134,72 @@ This is a lab environment with Sysmon + Elastic Agent on Windows. Be practical, 
 A score of 6+ with approve=true means deploy it. Do not fail rules for being imperfect — fail them only if they are fundamentally broken.
 
 Rule:
-{rule_text}
+$rule_text
 
 Elastic Query:
-{query}
+$query
 
-Respond with JSON only: {{"score": 1-10, "approve": true/false, "issues": [], "reasoning": ""}}"""
+Respond with JSON only: {"score": 1-10, "approve": true/false, "issues": [], "reasoning": ""}""")
+
+
+def build_validation_prompt(rule_text, query):
+    # Template (not str.format): rule text and queries may contain braces freely.
+    return VALIDATION_PROMPT.substitute(rule_text=rule_text, query=query)
 
 
 def parse_llm_response(text):
     try:
         clean = text.replace("```json", "").replace("```", "").strip()
-        return json.loads(clean)
-    except Exception:
-        return {"score": 5, "approve": False, "issues": ["Could not parse response"], "reasoning": text[:200]}
+        parsed = json.loads(clean)
+        if isinstance(parsed, dict):
+            return parsed
+    except (ValueError, AttributeError):
+        pass
+    return {"score": 5, "approve": False, "issues": ["Could not parse response"], "reasoning": str(text)[:200]}
 
 
 def ask_ollama(rule_text, query):
-    prompt = VALIDATION_PROMPT.format(rule_text=rule_text, query=query)
-    response = requests.post(
-        "http://localhost:11434/api/generate",
-        json={"model": "qwen2.5:14b", "prompt": prompt, "stream": False},
-        timeout=120,
+    prompt = build_validation_prompt(rule_text, query)
+    base = os.environ.get("OLLAMA_URL", "http://localhost:11434").rstrip("/")
+    response = make_session(timeout=120).post(
+        f"{base}/api/generate",
+        json={"model": os.environ.get("OLLAMA_MODEL", "qwen2.5:14b"), "prompt": prompt, "stream": False},
     )
+    response.raise_for_status()
     return parse_llm_response(response.json().get("response", ""))
 
 
 def ask_claude(rule_text, query):
-    prompt = VALIDATION_PROMPT.format(rule_text=rule_text, query=query)
-    response = requests.post(
+    key = os.environ.get("ANTHROPIC_API_KEY")
+    if not key:
+        raise MissingApiKey("ANTHROPIC_API_KEY is not set")
+    prompt = build_validation_prompt(rule_text, query)
+    response = make_session(timeout=60).post(
         "https://api.anthropic.com/v1/messages",
         headers={
-            "x-api-key": os.environ["ANTHROPIC_API_KEY"],
+            "x-api-key": key,
             "anthropic-version": "2023-06-01",
             "content-type": "application/json",
         },
         json={
-            "model": "claude-sonnet-4-6",
+            "model": model_name(),
             "max_tokens": 1024,
             "messages": [{"role": "user", "content": prompt}],
         },
-        timeout=60,
     )
+    response.raise_for_status()
     return parse_llm_response(response.json()["content"][0]["text"])
 
 
 def ask_gemini(rule_text, query):
-    prompt = VALIDATION_PROMPT.format(rule_text=rule_text, query=query)
-    response = requests.post(
-        f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={os.environ['GEMINI_API_KEY']}",
+    key = os.environ.get("GEMINI_API_KEY")
+    if not key:
+        raise MissingApiKey("GEMINI_API_KEY is not set")
+    prompt = build_validation_prompt(rule_text, query)
+    response = make_session(timeout=60).post(
+        "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent",
+        headers={"x-goog-api-key": key},
         json={"contents": [{"parts": [{"text": prompt}]}]},
-        timeout=60,
     )
     resp = response.json()
     if "candidates" not in resp:
@@ -195,49 +208,59 @@ def ask_gemini(rule_text, query):
 
 
 def validate_rule_text(rule_text, query):
-    """Run all 3 validators. Returns approvals, avg_score, feedback_by_validator."""
-    print("  Validating with Ollama...")
-    ollama = ask_ollama(rule_text, query)
-    print(f"  Ollama:  score={ollama.get('score')} approve={ollama.get('approve')}")
+    """Run the 3 validators concurrently. Returns approvals, avg_score, feedback_by_validator.
 
-    print("  Validating with Claude...")
-    claude = ask_claude(rule_text, query)
-    print(f"  Claude:  score={claude.get('score')} approve={claude.get('approve')}")
+    A voter whose API key is missing is skipped with a warning (not counted). A voter that
+    errors is logged and counted as a rejection with score 0."""
+    voters = {"Ollama": ask_ollama, "Claude": ask_claude, "Gemini": ask_gemini}
+    feedback = {}
+    with concurrent.futures.ThreadPoolExecutor(max_workers=len(voters)) as pool:
+        futures = {pool.submit(fn, rule_text, query): name for name, fn in voters.items()}
+        results = {}
+        for fut in concurrent.futures.as_completed(futures):
+            name = futures[fut]
+            try:
+                results[name] = fut.result()
+            except MissingApiKey as e:
+                log.warning("skipping %s validator: %s", name, e)
+            except (requests.RequestException, KeyError, IndexError, ValueError) as e:
+                log.error("%s validator failed: %s", name, e)
+                results[name] = {"score": 0, "approve": False,
+                                 "issues": [f"validator error: {e}"], "reasoning": str(e)[:200]}
+    for name in voters:  # stable order
+        if name in results:
+            feedback[name] = results[name]
+            print(f"  {name}:  score={results[name].get('score')} approve={results[name].get('approve')}")
 
-    print("  Validating with Gemini...")
-    gemini = ask_gemini(rule_text, query)
-    print(f"  Gemini:  score={gemini.get('score')} approve={gemini.get('approve')}")
+    approvals = sum(bool(r.get("approve", False)) for r in feedback.values())
+    avg_score = (sum(r.get("score", 0) for r in feedback.values()) / len(feedback)) if feedback else 0.0
 
-    feedback = {"Ollama": ollama, "Claude": claude, "Gemini": gemini}
-    approvals = sum(r.get("approve", False) for r in feedback.values())
-    avg_score = sum(r.get("score", 0) for r in feedback.values()) / 3
-
-    print(f"  Results: {approvals}/3 approved · avg score {avg_score:.1f}/10")
+    print(f"  Results: {approvals}/{len(feedback)} approved - avg score {avg_score:.1f}/10")
     return approvals, avg_score, feedback
 
 
 # ── Stage 5: Self-healer ──────────────────────────────────────────────────────
 
-HEAL_PROMPT = """You are a detection engineering expert. This Sigma rule failed validation on attempt {attempt}.
+HEAL_PROMPT = Template("""You are a detection engineering expert. This Sigma rule failed validation on attempt $attempt.
 
 ORIGINAL RULE:
-{rule_text}
+$rule_text
 
 ELASTIC QUERY IT PRODUCED:
-{query}
+$query
 
 BACKTEST RESULT:
-{backtest_info}
+$backtest_info
 
 STRUCTURED VALIDATOR FEEDBACK:
-{feedback}
+$feedback
 
 REFERENCE — A GOOD SIGMA RULE (use this as a template for structure and field names):
 title: PowerShell Encoded Command Execution
 id: a2b1c3d4-e5f6-7890-abcd-ef1234567890
 status: experimental
 description: Detects PowerShell execution with encoded command argument, commonly used to obfuscate malicious code.
-author: 1xLoZec
+author: Example Author
 date: 2026/05/10
 tags:
     - attack.execution
@@ -271,7 +294,12 @@ RULES FOR YOUR REWRITE:
 5. Keep the same rule id (UUID)
 6. If the backtest showed 0 hits, simplify the detection to match more broadly
 
-Return ONLY the complete fixed Sigma YAML. No explanation. No markdown fences."""
+Return ONLY the complete fixed Sigma YAML. No explanation. No markdown fences.""")
+
+
+def build_heal_prompt(rule_text, query, backtest_info, feedback, attempt):
+    return HEAL_PROMPT.substitute(attempt=attempt, rule_text=rule_text, query=query,
+                                  backtest_info=backtest_info, feedback=feedback)
 
 
 def heal_rule(rule_text, query, backtest_count, feedback_by_validator, attempt):
@@ -285,33 +313,30 @@ def heal_rule(rule_text, query, backtest_count, feedback_by_validator, attempt):
             structured += f"  reasoning: {result.get('reasoning')[:300]}\n"
 
     backtest_info = (
-        f"Query returned {backtest_count} hits against logs-* — field names appear valid"
+        f"Query returned {backtest_count} hits against logs-* - field names appear valid"
         if backtest_count > 0
-        else "Query returned 0 hits against logs-* — field names are likely wrong or logic is unreachable"
+        else "Query returned 0 hits against logs-* (or the backtest could not run) - field names are likely wrong or logic is unreachable"
     )
 
-    prompt = HEAL_PROMPT.format(
-        attempt=attempt,
-        rule_text=rule_text,
-        query=query,
-        backtest_info=backtest_info,
-        feedback=structured,
-    )
+    prompt = build_heal_prompt(rule_text, query, backtest_info, structured, attempt)
 
-    response = requests.post(
+    key = os.environ.get("ANTHROPIC_API_KEY")
+    if not key:
+        raise MissingApiKey("ANTHROPIC_API_KEY is not set; cannot self-heal")
+    response = make_session(timeout=90).post(
         "https://api.anthropic.com/v1/messages",
         headers={
-            "x-api-key": os.environ["ANTHROPIC_API_KEY"],
+            "x-api-key": key,
             "anthropic-version": "2023-06-01",
             "content-type": "application/json",
         },
         json={
-            "model": "claude-sonnet-4-6",
+            "model": model_name(),
             "max_tokens": 2048,
             "messages": [{"role": "user", "content": prompt}],
         },
-        timeout=90,
     )
+    response.raise_for_status()
     healed = response.json()["content"][0]["text"].strip()
     return healed.replace("```yaml", "").replace("```", "").strip()
 
@@ -319,15 +344,17 @@ def heal_rule(rule_text, query, backtest_count, feedback_by_validator, attempt):
 # ── Circuit breaker email ─────────────────────────────────────────────────────
 
 def send_circuit_breaker_email(rule_path, attempts, feedback_history):
-    """Email when self-healing gives up — HTML design matching tallkitchen_water emails."""
-    gmail_from = os.environ.get("GMAIL_FROM", "")
-    gmail_to   = os.environ.get("GMAIL_TO", "")
-    gmail_pass = os.environ.get("GMAIL_APP_PASSWORD", "")
-    if not all([gmail_from, gmail_to, gmail_pass]):
+    """Email when self-healing gives up - HTML design matching the autonomous rule engine emails."""
+    smtp_host = os.environ.get("SMTP_HOST", "")
+    smtp_port = int(os.environ.get("SMTP_PORT", "587") or 587)
+    smtp_user = os.environ.get("SMTP_USER", "")
+    smtp_pass = os.environ.get("SMTP_PASSWORD", "")
+    mail_from = os.environ.get("SMTP_FROM", "") or smtp_user
+    mail_to   = os.environ.get("SMTP_TO", "")
+    if not all([smtp_host, mail_from, mail_to]):
         print("  [circuit breaker] email credentials not set — skipping notification")
         return
 
-    from datetime import datetime, timezone
     now       = datetime.now(timezone.utc).strftime("%B %d, %Y at %I:%M %p UTC")
     rule_name = rule_path.split("/")[-1].replace(".yml", "").replace("-", " ").title()
 
@@ -350,11 +377,18 @@ def send_circuit_breaker_email(rule_path, attempts, feedback_history):
             s_color   = "#4caf50" if (isinstance(score, int) and score >= 7) else "#ff9800" if (isinstance(score, int) and score >= 5) else RED
             feedback_rows += f"""<tr style="border-bottom:1px solid {BORD};"><td style="padding:8px 14px;font-size:13px;color:{TEXT};font-weight:600;">{validator}</td><td style="padding:8px 14px;text-align:center;"><span style="background:{s_color}22;color:{s_color};border:1px solid {s_color}55;border-radius:4px;padding:2px 8px;font-size:11px;font-weight:700;font-family:monospace;">{score}/10</span></td><td style="padding:8px 14px;text-align:center;"><span style="background:{a_color}22;color:{a_color};border:1px solid {a_color}55;border-radius:4px;padding:2px 8px;font-size:11px;font-weight:700;font-family:monospace;">{a_label}</span></td><td style="padding:8px 14px;font-size:12px;color:{MUTED};font-style:italic;">{reasoning}</td></tr>"""
 
-    html = f"""<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>tallkitchen_water</title></head>
+    repo_url = os.environ.get("SF_REPO_URL", "").rstrip("/")
+    rule_link = ""
+    if repo_url:
+        rule_link = (f'<table cellpadding="0" cellspacing="0"><tr><td><a href="{html_lib.escape(repo_url)}/blob/main/{html_lib.escape(rule_path)}" '
+                     f'style="display:inline-block;background:{RED};color:#ffffff;text-decoration:none;padding:10px 20px;'
+                     f'border-radius:6px;font-size:13px;font-weight:700;">View Rule on GitHub</a></td></tr></table>')
+
+    html = f"""<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>SentinelForge</title></head>
 <body style="margin:0;padding:0;background:{BG};font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;">
 <table width="100%" cellpadding="0" cellspacing="0" style="background:{BG};"><tr><td align="center" style="padding:32px 16px;">
 <table width="580" cellpadding="0" cellspacing="0" style="background:{CARD};border-radius:10px;border:1px solid {BORD};overflow:hidden;">
-<tr><td style="padding:22px 36px 16px;border-bottom:1px solid {BORD};"><p style="margin:0;font-size:10px;font-weight:600;letter-spacing:2px;color:{MUTED};text-transform:uppercase;">1xLoZec Detection Lab</p></td></tr>
+<tr><td style="padding:22px 36px 16px;border-bottom:1px solid {BORD};"><p style="margin:0;font-size:10px;font-weight:600;letter-spacing:2px;color:{MUTED};text-transform:uppercase;">SentinelForge Detection Lab</p></td></tr>
 <tr><td style="padding:20px 36px;"><p style="margin:0;font-size:13px;color:{MUTED};">{now}</p><h1 style="margin:6px 0 0;font-size:20px;font-weight:700;color:{TEXT};">Circuit Breaker Fired</h1></td></tr>
 <tr><td style="padding:0 36px 20px;"><p style="margin:0;font-size:14px;color:{TEXT};line-height:1.7;padding:14px 16px;background:{BG};border-left:3px solid {RED};border-radius:0 6px 6px 0;">The self-healing pipeline tried to fix this rule <strong>{attempts} times</strong> and failed every attempt. Manual review or deletion required.</p></td></tr>
 <tr><td style="padding:0 36px 20px;">
@@ -373,78 +407,81 @@ def send_circuit_breaker_email(rule_path, attempts, feedback_history):
 </td></tr>
 <tr><td style="padding:0 36px 28px;">
   <p style="margin:0 0 10px;font-size:10px;font-weight:600;letter-spacing:1.5px;color:{MUTED};text-transform:uppercase;">Action Required</p>
-  <p style="margin:0;font-size:14px;color:{TEXT};line-height:1.7;padding:14px 16px;background:{BG};border:1px solid {BORD};border-radius:6px;">Delete <code style="font-family:monospace;background:{CARD};padding:2px 6px;border-radius:3px;color:{RED};">{rule_path}</code> and let tallkitchen_water regenerate, or manually fix the Sigma YAML.</p>
+  <p style="margin:0;font-size:14px;color:{TEXT};line-height:1.7;padding:14px 16px;background:{BG};border:1px solid {BORD};border-radius:6px;">Delete <code style="font-family:monospace;background:{CARD};padding:2px 6px;border-radius:3px;color:{RED};">{rule_path}</code> and let the SentinelForge rule engine regenerate, or manually fix the Sigma YAML.</p>
   <br>
-  <table cellpadding="0" cellspacing="0"><tr><td><a href="https://github.com/1xLoZec/detection-lab/blob/main/{rule_path}" style="display:inline-block;background:{RED};color:#ffffff;text-decoration:none;padding:10px 20px;border-radius:6px;font-size:13px;font-weight:700;">View Rule on GitHub</a></td></tr></table>
+  {rule_link}
 </td></tr>
 </table></td></tr></table></body></html>"""
 
     msg = EmailMessage()
     msg["Subject"] = f"[Circuit Breaker] {rule_name} — failed after {attempts} attempts"
-    msg["From"]    = gmail_from
-    msg["To"]      = gmail_to
+    msg["From"]    = mail_from
+    msg["To"]      = mail_to
     msg.set_content(f"Circuit breaker fired on {rule_path} after {attempts} attempts.")
     msg.add_alternative(html, subtype="html")
 
     try:
-        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as s:
-            s.login(gmail_from, gmail_pass)
+        ctx = ssl.create_default_context()
+        if smtp_port == 465:
+            server = smtplib.SMTP_SSL(smtp_host, smtp_port, context=ctx, timeout=30)
+        else:
+            server = smtplib.SMTP(smtp_host, smtp_port, timeout=30)
+        with server as s:
+            if smtp_port != 465:
+                s.starttls(context=ctx)
+            if smtp_user:
+                s.login(smtp_user, smtp_pass)
             s.send_message(msg)
-        print(f"  [circuit breaker] email sent to {gmail_to}")
-    except Exception as e:
-        print(f"  [circuit breaker] email failed: {e}")
+        print(f"  [circuit breaker] email sent to {mail_to}")
+    except (smtplib.SMTPException, OSError) as e:
+        log.error("circuit breaker email failed: %s", e)
+
+
+_ID_RE = re.compile(r"^id:\s*(.+)$", re.MULTILINE)
+_TITLE_RE = re.compile(r"^title:\s*(.+)$", re.MULTILINE)
 
 
 def save_validation(rule_path, rule_text, feedback_history, approvals, avg_score, attempt, backtest_hits, outcome):
-    """Persist the real 3-AI vote receipts so the Water page can show them (no invented data)."""
-    import json as _json, re as _re
-    base = os.path.dirname(os.path.abspath(__file__))
-    vfile = os.path.join(base, "state", "rule_validations.json")
-    # pull rule id + title from the yaml text
-    rid = None; title = None
-    m = _re.search(r'^id:\s*(.+)$', rule_text, _re.MULTILINE)
-    if m: rid = m.group(1).strip()
-    mt = _re.search(r'^title:\s*(.+)$', rule_text, _re.MULTILINE)
-    if mt: title = mt.group(1).strip()
-    if not rid:
-        rid = os.path.basename(rule_path)
-    try:
-        data = _json.loads(open(vfile).read())
-    except Exception:
-        data = {}
-    # build per-attempt vote records from feedback_history
+    """Persist the real 3-AI vote receipts so the dashboard can show them (no invented data)."""
+    vfile = HERE / "state" / "rule_validations.json"
+    m, mt = _ID_RE.search(rule_text), _TITLE_RE.search(rule_text)
+    rid = m.group(1).strip() if m else os.path.basename(rule_path)
+    title = mt.group(1).strip() if mt else None
+    data = lab_state.read(vfile, default={})  # StateCorrupt propagates: never overwrite a corrupt file
     attempts = []
     for i, fb in enumerate(feedback_history, 1):
-        votes = {}
-        for validator, r in fb.items():
-            votes[validator] = {"score": r.get("score"), "approve": r.get("approve")}
+        votes = {v: {"score": r.get("score"), "approve": r.get("approve")} for v, r in fb.items()}
         attempts.append({"attempt": i, "votes": votes})
     data[rid] = {
         "title": title,
         "rule_file": os.path.basename(rule_path),
         "outcome": outcome,                 # "approved" or "failed"
         "final_attempt": attempt,
-        "approvals": approvals,             # final approvals out of 3
+        "approvals": approvals,             # final approvals
         "avg_score": round(avg_score, 1),
         "backtest_hits": backtest_hits,
         "attempts": attempts,
         "validated_at": datetime.now(timezone.utc).isoformat(),
     }
-    os.makedirs(os.path.dirname(vfile), exist_ok=True)
-    with open(vfile, "w") as fh:
-        fh.write(_json.dumps(data, indent=2))
+    lab_state.write(vfile, data)
+
+
+def _safe_heal(rule_text, query, hits, feedback, attempt):
+    """heal_rule that never raises: a failed heal keeps the current text for the next attempt."""
+    try:
+        return heal_rule(rule_text, query, hits, feedback, attempt)
+    except (MissingApiKey, requests.RequestException, KeyError, IndexError, ValueError) as e:
+        log.error("self-heal failed: %s", e)
+        return None
 
 
 def main():
-    import urllib3
-    urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-
+    logging.basicConfig(level="INFO", format="%(message)s")
     rule_path = sys.argv[1]
 
-    with open(rule_path, "r") as f:
+    with open(rule_path, "r", encoding="utf-8") as f:
         original_rule_text = f.read()
 
-    MAX_ATTEMPTS     = 3
     rule_text        = original_rule_text
     feedback_history = []
     last_backtest    = 0
@@ -462,12 +499,12 @@ def main():
             if attempt < MAX_ATTEMPTS:
                 print("  Sending to Claude for structural repair...")
                 time.sleep(2)
-                rule_text = heal_rule(
+                rule_text = _safe_heal(
                     rule_text, "N/A — YAML invalid", 0,
                     {"lint": {"score": 0, "approve": False,
                               "issues": [lint_msg], "reasoning": lint_msg}},
                     attempt
-                )
+                ) or rule_text
                 continue
             else:
                 send_circuit_breaker_email(rule_path, attempt, feedback_history)
@@ -477,22 +514,26 @@ def main():
 
         # Stage 2: Convert to Lucene
         print("  Stage 2: Converting to Lucene query...")
-        if rule_text == original_rule_text:
-            query = convert_sigma(rule_path)
-        else:
-            query = convert_sigma_text(rule_text)
+        try:
+            if rule_text == original_rule_text:
+                query = convert_sigma(rule_path)
+            else:
+                query = convert_sigma_text(rule_text)
+        except Exception as e:  # pySigma raises many distinct error types
+            log.error("Sigma conversion error: %s", e)
+            query = None
 
         if not query:
             print("  Conversion FAILED: pySigma could not convert this rule")
             if attempt < MAX_ATTEMPTS:
                 time.sleep(2)
-                rule_text = heal_rule(
+                rule_text = _safe_heal(
                     rule_text, "N/A — conversion failed", 0,
                     {"converter": {"score": 0, "approve": False,
                                    "issues": ["pySigma could not convert this rule"],
                                    "reasoning": "Rule could not be converted to Lucene query"}},
                     attempt
-                )
+                ) or rule_text
                 continue
             else:
                 send_circuit_breaker_email(rule_path, attempt, feedback_history)
@@ -501,12 +542,12 @@ def main():
         print(f"  Query: {query[:120]}{'...' if len(query) > 120 else ''}")
 
         # Stage 3: Backtest against Elasticsearch
-        print("  Stage 3: Backtesting against logs-*...")
+        print("  Stage 3: Backtesting against logs-* (7d)...")
         hit_count, backtest_err = backtest_query(query)
         last_backtest = hit_count
 
         if backtest_err:
-            print(f"  Backtest warning: {backtest_err} — continuing anyway")
+            print(f"  Backtest FAILED: {backtest_err}")
         elif hit_count == 0:
             print("  Backtest: 0 hits — field names may be wrong")
         else:
@@ -517,12 +558,11 @@ def main():
         approvals, avg_score, feedback = validate_rule_text(rule_text, query)
         feedback_history.append(feedback)
 
-        # Pass condition: 2/3 approve + avg >= 6 + backtest > 0
-        backtest_ok = hit_count > 0 or backtest_err is not None  # allow if ES unreachable
-        if approvals >= 2 and avg_score >= 6 and backtest_ok:
+        # Pass condition: 2 approvals + avg >= 6 + a successful backtest with > 0 hits
+        if passes(approvals, avg_score, hit_count, backtest_err):
             # Write healed rule back if it changed
             if rule_text != original_rule_text:
-                with open(rule_path, "w") as f:
+                with open(rule_path, "w", encoding="utf-8") as f:
                     f.write(rule_text)
                 print(f"  Self-healed rule written back to {rule_path}")
             save_validation(rule_path, rule_text, feedback_history, approvals, avg_score, attempt, last_backtest, "approved")
@@ -535,14 +575,16 @@ def main():
             reasons.append(f"only {approvals}/3 validators approved")
         if avg_score < 6:
             reasons.append(f"avg score {avg_score:.1f} < 6")
-        if hit_count == 0 and not backtest_err:
+        if backtest_err:
+            reasons.append(f"backtest failed: {backtest_err}")
+        elif hit_count == 0:
             reasons.append("0 backtest hits — fields likely wrong")
         print(f"  Failed: {', '.join(reasons)}")
 
         if attempt < MAX_ATTEMPTS:
             print(f"\n  Attempt {attempt} failed — Claude is rewriting the rule...")
             time.sleep(3)
-            healed = heal_rule(rule_text, query, hit_count, feedback, attempt)
+            healed = _safe_heal(rule_text, query, hit_count, feedback, attempt)
             if healed and len(healed) > 100:
                 rule_text = healed
                 print("  Rule rewritten — retrying...\n")
@@ -551,6 +593,7 @@ def main():
         else:
             print(f"\nCIRCUIT BREAKER: Rule failed after {MAX_ATTEMPTS} attempts")
             send_circuit_breaker_email(rule_path, MAX_ATTEMPTS, feedback_history)
+            save_validation(rule_path, rule_text, feedback_history, approvals, avg_score, attempt, last_backtest, "failed")
             print("FAIL: Rule could not be self-healed — manual review required")
             sys.exit(1)
 

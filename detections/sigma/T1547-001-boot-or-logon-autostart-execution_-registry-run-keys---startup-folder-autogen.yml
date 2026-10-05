@@ -2,7 +2,7 @@ title: Suspicious sdbinst.exe Silent Background Shim Database Installation with 
 id: d54e55da-9600-4e18-92a2-25a442b3efab
 status: experimental
 description: Detects sdbinst.exe executing with silent background flags (-m -bg) combined with registry key creation or modification under AppCompatFlags SdbUpdates, indicative of shim database persistence installation. This pattern matches T1547.001 where attackers install shim databases to redirect legitimate application execution to attacker-controlled code.
-author: 1xLoZec
+author: Jahsean Meikle
 date: 2026/05/10
 references:
     - https://attack.mitre.org/techniques/T1547/001/

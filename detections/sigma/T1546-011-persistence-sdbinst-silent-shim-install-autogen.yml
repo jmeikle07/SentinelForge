@@ -1,8 +1,15 @@
 title: Sdbinst Silent Machine-Wide Shim Installation
 id: 5c8ea8be-7a0e-4809-b65a-2d26f91ee077
 status: experimental
+related:
+    - id: c27fffce-2372-458e-ae4b-4f247823dc2c
+      type: similar
+    - id: 9d19c38d-a376-4e18-a517-db535a8322be
+      type: similar
+    - id: 575160f3-5822-495e-afce-54fee80dca9a
+      type: similar
 description: Detects sdbinst.exe executing with -m and -bg flags indicating silent machine-wide shim database installation, a technique used for application shimming persistence and defense evasion (T1546.011). Also detects associated registry writes to AppCompatFlags\SdbUpdates.
-author: 1xLoZec
+author: Jahsean Meikle
 date: 2026/05/11
 references:
     - https://attack.mitre.org/techniques/T1546/011/

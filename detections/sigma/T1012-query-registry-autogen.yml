@@ -2,7 +2,7 @@ title: Registry Query Against HotPatch Key by Non-SYSTEM User
 id: 40c64994-869e-4907-967b-6ff05bd0f8d8
 status: experimental
 description: Detects reg.exe executing a query against HKLM\SYSTEM\CurrentControlSet\Control\HotPatch under a non-SYSTEM user context, indicative of T1012 registry enumeration for patch management reconnaissance.
-author: 1xLoZec
+author: Jahsean Meikle
 date: 2026/05/11
 references:
   - https://attack.mitre.org/techniques/T1012/

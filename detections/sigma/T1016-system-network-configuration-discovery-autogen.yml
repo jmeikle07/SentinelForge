@@ -2,7 +2,7 @@ title: DNS Query to NCSI Connectivity-Check Domain from Unexpected Process Conte
 id: 1020dcc4-0817-41c0-ba1e-7d3034e816c6
 status: experimental
 description: Detects Sysmon Event ID 22 DNS queries to www.msftconnecttest.com or similar NCSI connectivity-check domains originating from non-standard or unexpected parent processes. Adversaries may abuse this behavior to confirm outbound internet access from a compromised host, potentially masquerading as legitimate Windows Update or NCSI activity.
-author: 1xLoZec
+author: Jahsean Meikle
 date: 2026/05/15
 tags:
   - attack.discovery

@@ -1,8 +1,11 @@
 title: Silent MSI Execution via CMD or PowerShell Proxy
 id: b8ee8991-c2af-4d5e-9dd8-4702f01a2e14
 status: experimental
+related:
+    - id: c1ced7af-9d77-402a-aebd-b93426ebec3a
+      type: similar
 description: Detects cmd.exe or powershell.exe spawning msiexec.exe with silent installation flags targeting suspicious paths, consistent with T1218.007 proxy execution abuse via system scripting.
-author: 1xLoZec
+author: Jahsean Meikle
 date: 2026/05/10
 references:
     - https://attack.mitre.org/techniques/T1216/

@@ -1,8 +1,15 @@
 title: Suspicious sdbinst.exe Execution
 id: c27fffce-2372-458e-ae4b-4f247823dc2c
 status: experimental
+related:
+    - id: 9d19c38d-a376-4e18-a517-db535a8322be
+      type: similar
+    - id: 5c8ea8be-7a0e-4809-b65a-2d26f91ee077
+      type: similar
+    - id: 575160f3-5822-495e-afce-54fee80dca9a
+      type: similar
 description: Detects suspicious execution of sdbinst.exe associated with application shimming persistence techniques
-author: 1xLoZec
+author: Jahsean Meikle
 date: 2026/05/08
 references:
     - https://attack.mitre.org/techniques/T1546/011/

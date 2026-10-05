@@ -2,7 +2,7 @@ title: PowerShell Process Injection via Invoke-MalDoc and Raw GitHub Payload Fet
 id: c17705f9-58e7-4834-a3fb-8eba1da3b0b0
 status: experimental
 description: Detects PowerShell spawning with command lines referencing Invoke-MalDoc and fetching T1055 injection payloads from raw.githubusercontent.com, indicative of Atomic Red Team process injection tests or real T1055 activity delivered via Office macro triggers.
-author: 1xLoZec
+author: Jahsean Meikle
 date: 2026/05/10
 references:
     - https://attack.mitre.org/techniques/T1055/

@@ -2,7 +2,7 @@ title: Internet Connection Discovery via Network Enumeration Tools Under cmd.exe
 id: f7f59eb3-ad8b-4d57-b1cc-fe60a5418b39
 status: experimental
 description: Detects cmd.exe spawning common network enumeration tools (ipconfig, netsh, arp, nbtstat, net) consistent with T1016.001 Internet Connection Discovery.
-author: 1xLoZec
+author: Jahsean Meikle
 date: 2026/05/10
 references:
     - https://attack.mitre.org/techniques/T1016/001/

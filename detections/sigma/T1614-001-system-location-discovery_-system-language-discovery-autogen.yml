@@ -2,7 +2,7 @@ title: System Language Discovery via Chained Systeminfo and Disk Enum Registry Q
 id: b8765da9-bc02-4c22-8b48-01096420d98a
 status: experimental
 description: Detects cmd.exe executing a chained command combining systeminfo with reg query against HKLM\SYSTEM\CurrentControlSet\Services\Disk\Enum, which can reveal storage layout and virtualization indicators used for environment fingerprinting.
-author: 1xLoZec
+author: Jahsean Meikle
 date: 2026/05/11
 references:
     - https://attack.mitre.org/techniques/T1614/001/

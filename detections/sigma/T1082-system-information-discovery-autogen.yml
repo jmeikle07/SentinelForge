@@ -2,7 +2,7 @@ title: System Information Discovery via CMD Enumeration Utilities
 id: 99975fcf-52cb-4595-a905-0c45242c30db
 status: experimental
 description: Detects cmd.exe spawning common system and network enumeration utilities indicative of host reconnaissance activity associated with T1082 System Information Discovery.
-author: 1xLoZec
+author: Jahsean Meikle
 date: 2026/05/10
 references:
     - https://attack.mitre.org/techniques/T1082/

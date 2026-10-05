@@ -1,8 +1,15 @@
 title: Application Shimming via AppCompatFlags Registry Write
 id: 575160f3-5822-495e-afce-54fee80dca9a
 status: experimental
+related:
+    - id: c27fffce-2372-458e-ae4b-4f247823dc2c
+      type: similar
+    - id: 9d19c38d-a376-4e18-a517-db535a8322be
+      type: similar
+    - id: 5c8ea8be-7a0e-4809-b65a-2d26f91ee077
+      type: similar
 description: Detects registry writes to HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\SdbUpdates by processes other than sdbinst.exe, indicating potential Application Shimming persistence (T1546.011). Legitimate shim installations are performed by sdbinst.exe; writes from other processes may indicate abuse.
-author: 1xLoZec
+author: Jahsean Meikle
 date: 2026/05/10
 references:
   - https://attack.mitre.org/techniques/T1546/011/

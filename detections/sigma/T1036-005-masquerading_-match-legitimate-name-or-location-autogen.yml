@@ -2,7 +2,7 @@ title: Masquerading System Utilities via Path Mismatch or Suspicious Parent
 id: 73cfc61f-1ee0-4dcc-ad78-edb3fda1ed6c
 status: experimental
 description: Detects system utility binaries (whoami.exe, hostname.exe, svchost.exe, etc.) executing from paths outside their expected system directories, indicating potential masquerading consistent with T1036.005.
-author: 1xLoZec
+author: Jahsean Meikle
 date: 2026/05/10
 references:
     - https://attack.mitre.org/techniques/T1036/005/

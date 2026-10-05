@@ -2,8 +2,8 @@ title: PowerShell HTTP POST Exfiltration via Invoke-WebRequest
 id: 723b2878-ced4-4052-ab1c-05629a5f4127
 status: experimental
 description: Detects PowerShell processes executing Invoke-WebRequest or Invoke-RestMethod with HTTP POST methods transmitting data, indicative of T1048.003 exfiltration over unencrypted HTTP.
-author: 1xLoZec
-date: 2024/05/10
+author: Jahsean Meikle
+date: 2026/05/10
 references:
     - https://attack.mitre.org/techniques/T1048/003/
 tags:
