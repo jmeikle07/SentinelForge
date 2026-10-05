@@ -64,3 +64,28 @@ def test_session_verifies_tls_by_default(monkeypatch):
 def test_session_insecure_only_via_env(monkeypatch):
     monkeypatch.setenv("LAB_INSECURE_TLS", "1")
     assert http.session().verify is False
+
+
+def _effective_verify(s, **kw):
+    prep = s.prepare_request(requests.Request("GET", "https://x.test/"))
+    return s.merge_environment_settings(prep.url, {}, None, kw.get("verify"), None)["verify"]
+
+
+def test_insecure_overrides_ca_bundle_env(monkeypatch):
+    monkeypatch.setenv("LAB_INSECURE_TLS", "1")
+    monkeypatch.setenv("REQUESTS_CA_BUNDLE", "/nonexistent/bundle.pem")
+    monkeypatch.setenv("CURL_CA_BUNDLE", "/nonexistent/bundle.pem")
+    assert _effective_verify(http.session()) is False
+
+
+def test_secure_default_still_honours_ca_bundle_env(monkeypatch):
+    monkeypatch.delenv("LAB_INSECURE_TLS", raising=False)
+    monkeypatch.setenv("REQUESTS_CA_BUNDLE", "/some/bundle.pem")
+    assert _effective_verify(http.session()) == "/some/bundle.pem"
+
+
+def test_explicit_verify_param_matches_settings(monkeypatch):
+    monkeypatch.delenv("LAB_INSECURE_TLS", raising=False)
+    monkeypatch.setenv("REQUESTS_CA_BUNDLE", "/nonexistent/bundle.pem")
+    assert _effective_verify(http.session(verify=False)) is False
+    assert http.session(verify=True).verify is True
