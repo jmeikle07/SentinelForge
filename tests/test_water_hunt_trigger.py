@@ -135,7 +135,7 @@ def _files(h):
     return sorted(p.name for p in h.out.glob("*")) if h.out.exists() else []
 
 
-@pytest.mark.parametrize("ioc", ["10.0.0.1", "127.0.0.1", "192.168.0.5"])
+@pytest.mark.parametrize("ioc", ["10.20.30.40", "127.0.0.1", "192.168.0.5"])
 def test_private_and_loopback_ioc_never_generates(harness, ioc):
     n, _ = harness.run([_good(ioc=ioc)])
     assert n == 0 and harness.calls == [] and _files(harness) == [] and harness.lim.used == 0

@@ -79,7 +79,7 @@ def test_no_legacy_strings_in_safety_module():
 
 # ── B3: format validation of ioc / hunt_id ───────────────────────────────────
 
-@pytest.mark.parametrize("ioc", ["10.0.0.1", "127.0.0.1", "192.168.1.1", "169.254.1.1", "203.0.113.9",
+@pytest.mark.parametrize("ioc", ["10.20.30.40", "127.0.0.1", "192.168.1.1", "169.254.1.1", "203.0.113.9",
                                  "8.8.4.4\n# injected", "::1", "2001:4860::8888", "not-an-ip", "08.8.4.4", None, 5])
 def test_non_global_or_malformed_ioc_rejected(ioc):
     assert not sf_safety.validate_hunt_record_for_water(_record(ioc=ioc)).passed
