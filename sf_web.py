@@ -104,12 +104,16 @@ def _run_hunt(ioc: str) -> dict:
         elif is_domain:
             external = tk.bucket_external_domain(conn, ioc)
         else:
-            # IP path needs internal SIEM; degrade gracefully if unreachable
+            # External IP sources only (no internal SIEM/T-Pot on this route); a failure here
+            # leaves external empty, which yields an INSUFFICIENT DATA verdict, never a benign one.
             try:
                 external = tk.bucket_external_ip(conn, ioc)
             except Exception as e:  # noqa: BLE001 - degrade gracefully, but never silently
                 log.warning("external IP enrichment for %s failed: %r", ioc, e)
                 external = {}
+        # No T-Pot data on the web route: bucket_verdict renormalises over the sources that
+        # actually answered, so the same inputs give the same verdict as the CLI (which passes
+        # real observed data; an empty/errored one carries no weight).
         verdict = tk.bucket_verdict({}, external, ioc_type)
     finally:
         conn.close()

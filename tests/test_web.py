@@ -125,6 +125,61 @@ def test_run_hunt_logs_failure_of_ip_enrichment_and_still_returns(monkeypatch, c
     assert any("siem down" in r.getMessage() or "203.0.113.9" in r.getMessage() for r in caplog.records)
 
 
+def _stub_enrichment(monkeypatch, external):
+    class Conn:
+        def close(self):
+            pass
+
+    monkeypatch.setattr(sf_web.tk, "memory_init", lambda: Conn())
+    monkeypatch.setattr(sf_web.tk, "bucket_external_ip", lambda c, ip: external)
+
+
+_ALL_MALICIOUS = {
+    "virustotal": {"available": True, "malicious": 60, "suspicious": 0, "total_engines": 90},
+    "abuseipdb": {"available": True, "abuse_score": 100},
+    "greynoise": {"available": True, "classification": "malicious"},
+    "threatfox": {"available": True, "match_count": 9},
+    "otx": {"available": True, "pulse_count": 50},
+    "spamhaus_drop": {"available": True, "in_drop": False},
+}
+
+
+def test_web_route_all_sources_malicious_is_malicious(monkeypatch):
+    _stub_enrichment(monkeypatch, _ALL_MALICIOUS)
+    v = sf_web._run_hunt("198.51.100.7")["verdict"]
+    assert v["verdict"] == "malicious" and v["action"] == "BLOCK"
+
+
+def test_web_route_matches_bucket_verdict_directly(monkeypatch):
+    ext = dict(_ALL_MALICIOUS, spamhaus_drop={"available": True, "in_drop": True})
+    _stub_enrichment(monkeypatch, ext)
+    via_web = sf_web._run_hunt("198.51.100.7")["verdict"]
+    assert via_web == sf_web.tk.bucket_verdict({}, ext, "ipv4")
+    assert via_web["verdict"] == "malicious"      # DROP not capped at SUSPICIOUS
+
+
+def test_web_route_all_sources_failing_is_not_benign(monkeypatch):
+    down = {k: {"available": False, "reason": "429"} for k in _ALL_MALICIOUS}
+    _stub_enrichment(monkeypatch, down)
+    v = sf_web._run_hunt("8.8.8.8")["verdict"]     # sentinel input: a famously clean IP
+    assert v["verdict"] != "benign" and v["verdict"] == "unknown"
+    assert v["insufficient_data"] is True and v["action"] == "INSUFFICIENT DATA"
+
+
+def test_web_route_string_typed_api_fields_do_not_500(client, monkeypatch):
+    ext = dict(_ALL_MALICIOUS, abuseipdb={"available": True, "abuse_score": "100"})
+    _stub_enrichment(monkeypatch, ext)
+    r = client.get("/api/hunt", params={"ioc": "198.51.100.7"})
+    assert r.status_code == 200 and r.json()["verdict"]["verdict"] == "malicious"
+
+
+def test_index_page_never_says_safe_to_allow_for_insufficient_data():
+    html = (Path(sf_web.__file__).parent / "web" / "index.html").read_text(encoding="utf-8")
+    assert "insufficient_data" in html
+    branch = html.index("insufficient_data")
+    assert branch < html.index("safe to allow")      # the insufficient branch is checked first
+
+
 def test_api_pending_reads_state_and_logs_corrupt_file(client, tmp_path, monkeypatch, caplog):
     monkeypatch.setattr(sf_web, "HERE", tmp_path)
     (tmp_path / "state").mkdir()

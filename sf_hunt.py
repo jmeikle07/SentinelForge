@@ -1194,12 +1194,59 @@ def bucket_external_domain(conn: sqlite3.Connection, domain: str) -> dict:
     })
 
 
+# Minimum number of independent sources that must have actually answered before a verdict
+# is issued. Below this the verdict is UNKNOWN / INSUFFICIENT DATA, never BENIGN: "every source
+# was down" must not read as "safe". A Spamhaus DROP *miss* and an empty honeypot result are not
+# evidence, so they do not count as answers (a DROP *hit* does).
+MIN_SOURCES_ANSWERED = 2
+
+_NUM_FIELDS = frozenset({"abuse_score", "total_reports", "malicious", "suspicious", "total_engines",
+                         "match_count", "pulse_count", "vendor_count", "urls_online"})
+_BOOL_FIELDS = frozenset({"available", "in_corpus", "in_drop", "listed", "is_whitelisted", "riot"})
+_STR_FIELDS = frozenset({"classification", "name", "signature"})
+
+
+def _num(value, default: float = 0) -> float:
+    """Coerce an untrusted API field to a finite number (numeric strings accepted)."""
+    import math
+    if isinstance(value, bool):
+        return default
+    try:
+        f = float(value)
+    except (TypeError, ValueError, OverflowError):
+        return default
+    return f if math.isfinite(f) else default
+
+
+def _sanitize_external(external: dict) -> dict:
+    """Return a copy of the enrichment results with every field the verdict math reads coerced to a
+    safe type. Non-dict payloads are dropped; API data is untrusted and must never raise here."""
+    clean = {}
+    for name, src in (external if isinstance(external, dict) else {}).items():
+        if not isinstance(src, dict):
+            continue
+        c = dict(src)
+        for k, v in src.items():
+            if k in _NUM_FIELDS:
+                c[k] = _num(v)
+            elif k in _BOOL_FIELDS:
+                c[k] = v is True
+            elif k in _STR_FIELDS:
+                c[k] = v if isinstance(v, str) else ""
+        clean[name] = c
+    return clean
+
+
+def _clamp_signal(x: float) -> float:
+    return max(-1.0, min(1.0, x))
+
+
 def _signal_tpot(observed: dict) -> float:
     """T-Pot: event_count → signal strength. log scale to avoid overweighting one-offs."""
     import math
     if observed.get("error"):
         return 0.0
-    count = observed.get("event_count", 0) or 0
+    count = _num(observed.get("event_count", 0))
     if count <= 0:
         return 0.0
     # log10(count) / 4 — so 1 event = 0%, 100 = 50%, 10k = 100%, capped at 1.0
@@ -1366,6 +1413,10 @@ def bucket_verdict(observed: dict, external: dict, ioc_type: str = "ipv4") -> di
     """
     is_hash = ioc_type in ("md5", "sha1", "sha256")
     is_domain = ioc_type == "domain"
+    external = _sanitize_external(external)
+    observed = dict(observed) if isinstance(observed, dict) else {}
+    if "event_count" in observed:
+        observed["event_count"] = _num(observed["event_count"])
 
     # 1) Compute signal strength per source (only valid sources for this IOC type)
     if is_hash:
@@ -1396,12 +1447,30 @@ def bucket_verdict(observed: dict, external: dict, ioc_type: str = "ipv4") -> di
         }
         weights, weights_total = SOURCE_WEIGHTS, SOURCE_WEIGHTS_TOTAL
 
+    signals = {k: _clamp_signal(v) for k, v in signals.items()}
+
+    # Which sources actually answered? Only those carry weight (renormalisation below), so a
+    # source that is down/unconfigured/absent (e.g. T-Pot on the web route) neither dilutes the
+    # others nor, when everything is down, produces a "clean" verdict out of nothing.
+    answered = [n for n in signals if n != "tpot" and n != "spamhaus_drop"
+                and (external.get(n) or {}).get("available")]
+    if (external.get("spamhaus_drop") or {}).get("in_drop"):
+        answered.append("spamhaus_drop")
+    if "tpot" in signals and not observed.get("error") and observed.get("event_count", 0) > 0:
+        answered.append("tpot")
+    weights_total = sum(weights[n] for n in answered)
+
     # 2) Weighted contribution per source (may be negative for anti-signals)
     contributions = {name: weights[name] * sig for name, sig in signals.items()}
 
-    # 3) Raw weighted score, normalized to 0-100
-    raw_total = sum(contributions.values())
-    raw_score = max(0.0, min(100.0, (raw_total / weights_total) * 100.0))
+    # 3) Raw weighted score, normalized to 0-100 over the weights of the answered sources
+    raw_total = sum(contributions[n] for n in answered)
+    raw_score = max(0.0, min(100.0, (raw_total / weights_total) * 100.0)) if weights_total else 0.0
+
+    if len(answered) < MIN_SOURCES_ANSWERED:
+        # A single answer renormalises to 0 or 100 by itself; that is an artefact, not a measurement.
+        # Only the explicit override floors below may raise the score in that case.
+        raw_score = 0.0
 
     # 4) Apply override rules — these are not "fudging" — they encode operational truth
     #    (Tier-1 ISPs autoblock on DROP; high T-Pot event counts are direct observation)
@@ -1477,9 +1546,17 @@ def bucket_verdict(observed: dict, external: dict, ioc_type: str = "ipv4") -> di
                 safety_brake_applied = True
                 floors.append(f"GreyNoise RIOT ({gn.get('name') or 'known service'}) → cap at unknown")
 
-    verdict, action = _band_for_score(floor_score)
+    insufficient = len(answered) < MIN_SOURCES_ANSWERED and not floors
+    if insufficient:
+        # Too little data to say anything: do not report a score that looks like a measurement.
+        floor_score, raw_score = 0.0, 0.0
+        verdict, action = "unknown", "INSUFFICIENT DATA"
+    else:
+        verdict, action = _band_for_score(floor_score)
 
     return {
+        "insufficient_data":   insufficient,
+        "sources_answered":    answered,
         "score":               round(floor_score, 1),
         "raw_score":           round(raw_score, 1),
         "verdict":             verdict,

@@ -466,7 +466,9 @@ function render(data){
 
   // bottom line: what it is + what to do, plain english, built from real data
   let bottom='';
-  if(v.verdict==='malicious'){
+  if(v.insufficient_data){
+    bottom = '<b>Action: not enough data to decide.</b> Too few sources answered (lookups may have failed, hit a limit, or be unconfigured), so this tool cannot say whether it is safe or dangerous. This is NOT a clean result. Do not treat it as safe; try again later or check it another way.';
+  } else if(v.verdict==='malicious'){
     const what = family ? ('This is known malware, called '+esc(family)+'. ') : 'Trusted security sources agree this is dangerous. ';
     bottom = '<b>Action: block it.</b> '+what+'Do not open or run it, and check any computer that already touched it.';
   } else if(v.verdict==='suspicious'){
