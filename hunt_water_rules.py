@@ -14,7 +14,7 @@ CRITICAL DIFFERENCES vs the Water-side bridge:
     so the analyst can see them too (transparency: "Water already generated
     this from your last hunt, awaiting your review").
 
-The technique inference reuses water_hunt_trigger's HONEYPOT_TO_TECHNIQUE map
+The technique inference reuses water_hunt_trigger's honeypot-to-technique map (_mapping_for)
 so both pillars use the same honeypot→ATT&CK semantics — no drift possible.
 """
 
@@ -24,7 +24,7 @@ from pathlib import Path
 
 import yaml
 
-from water_hunt_trigger import HONEYPOT_TO_TECHNIQUE
+from water_hunt_trigger import _mapping_for
 
 log = logging.getLogger(__name__)
 
@@ -52,7 +52,7 @@ def _infer_techniques_from_observed(observed: dict) -> list:
     for hp in honeypots:
         name = hp.get("name") or ""
         count = hp.get("count", 0) or 0
-        mapping = HONEYPOT_TO_TECHNIQUE.get(name)
+        mapping = _mapping_for(name)
         if not mapping:
             continue
         tid = mapping["id"]

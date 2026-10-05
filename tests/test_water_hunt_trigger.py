@@ -289,3 +289,69 @@ def test_missing_rules_dir_means_no_rules_not_a_crash(harness, monkeypatch, tmp_
     hwr._PARSE_CACHE.clear()
     n, _ = harness.run([_good()])
     assert n == 1
+
+
+# ── W17: technique inference, tactics, detection focus ───────────────────────
+
+def test_passive_sensors_do_not_vote_for_a_technique():
+    observed = {"honeypots": [{"name": "P0f", "count": 395966}, {"name": "Suricata", "count": 137470},
+                              {"name": "Fatt", "count": 99999}, {"name": "Cowrie", "count": 383}]}
+    inferred = wht.infer_technique_from_observed(observed)
+    assert inferred["technique_id"] == "T1110.001"
+    assert inferred["honeypots_seen"] == ["Cowrie"]
+
+
+def test_only_passive_sensors_means_no_technique():
+    observed = {"honeypots": [{"name": "P0f", "count": 10}, {"name": "Suricata", "count": 10}]}
+    assert wht.infer_technique_from_observed(observed) is None
+
+
+def test_passive_sensors_are_not_in_the_mapping_at_all():
+    for name in wht.PASSIVE_SENSORS:
+        assert name not in wht.HONEYPOT_TO_TECHNIQUE
+
+
+def test_honeypot_names_match_case_insensitively():
+    inferred = wht.infer_technique_from_observed({"honeypots": [{"name": "cowrie", "count": 3}]})
+    assert inferred and inferred["technique_id"] == "T1110.001"
+
+
+def test_all_mapped_tactics_are_valid_attack_tactics():
+    from lab import coverage
+    for name, m in wht.HONEYPOT_TO_TECHNIQUE.items():
+        assert m["tactic"] in coverage.TACTICS, name
+        for t in m.get("tactics", []):
+            assert t in coverage.TACTICS, (name, t)
+
+
+def test_valid_accounts_is_not_credential_access():
+    m = wht.HONEYPOT_TO_TECHNIQUE["Redishoneypot"]
+    assert m["id"] == "T1078" and m["tactic"] != "credential-access"
+    assert set(m["tactics"]) == {"initial-access", "persistence", "privilege-escalation", "defense-evasion"}
+    assert m["tactic"] in m["tactics"]
+
+
+def test_inference_reports_all_tactics():
+    inferred = wht.infer_technique_from_observed({"honeypots": [{"name": "Redishoneypot", "count": 4}]})
+    assert "persistence" in inferred["tactics"] and inferred["tactic"] == "initial-access"
+
+
+def test_detection_focus_follows_technique(harness):
+    def focus(honeypot):
+        rec = _good()
+        rec["result"]["observed"]["honeypots"] = [{"name": honeypot, "count": 9}]
+        harness.calls.clear()
+        harness.run([rec])
+        return harness.calls[0][1]["detection_focus"].lower()
+
+    ssh = focus("Cowrie")
+    assert "brute" in ssh or "password" in ssh
+    assert "port" not in ssh.replace("distinct", "")
+    assert "exploit" in focus("Tanner")
+    scan = focus("Honeytrap")
+    assert "port" in scan and "scan" in scan
+
+
+def test_detection_focus_has_generic_fallback_for_unlisted_technique():
+    text = wht.detection_focus_for("T9999", "Something New", "8.8.4.4")
+    assert "8.8.4.4" in text and "Something New" in text and "T9999" in text

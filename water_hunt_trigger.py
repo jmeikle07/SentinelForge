@@ -55,33 +55,81 @@ HUNT_LOG_INDEX = "sf-hunt-logs"
 HUNT_TRIGGERED_RULES_DIR = Path(__file__).resolve().parent / "detections" / "sigma" / "hunt-triggered"
 
 # Per-technique mapping: which ATT&CK technique does each honeypot hit suggest?
-# Source: T-Pot honeypot capabilities + MITRE ATT&CK reconnaissance/initial-access
-# techniques. Mapping is conservative — when honeypots don't strongly imply a
-# specific technique, we leave it unmapped (and Water skips that verdict).
+# Source: T-Pot honeypot capabilities + MITRE ATT&CK. Mapping is conservative:
+# when a honeypot does not strongly imply a specific technique it is left unmapped
+# (and Water skips that verdict).
+#   "tactic"  = the single primary tactic handed to Water's rule generator (it
+#               becomes the one attack.<tactic> tag, so it must be one valid tactic);
+#   "tactics" = optional full list of tactics ATT&CK assigns to the technique.
+# Reviewed in W17: Valid Accounts spans four tactics and is not credential-access;
+# Mailoney (an SMTP relay trap sees spam relaying, not phishing of this org) is no
+# longer mapped to T1566; ICS honeypots (ConPot, Dicompot) see protocol probing, which
+# is service scanning rather than exploitation.
 HONEYPOT_TO_TECHNIQUE = {
     # SSH/Telnet brute force
     "Cowrie":        {"id": "T1110.001", "name": "Brute Force: Password Guessing", "tactic": "credential-access"},
-    # Industrial control systems
-    "ConPot":        {"id": "T1190",     "name": "Exploit Public-Facing Application", "tactic": "initial-access"},
-    "Dicompot":      {"id": "T1190",     "name": "Exploit Public-Facing Application", "tactic": "initial-access"},
+    # Industrial control system protocol probing
+    "ConPot":        {"id": "T1046",     "name": "Network Service Scanning", "tactic": "discovery"},
+    "Dicompot":      {"id": "T1046",     "name": "Network Service Scanning", "tactic": "discovery"},
     # Generic network service scanners
     "Honeytrap":     {"id": "T1046",     "name": "Network Service Scanning", "tactic": "discovery"},
-    "Suricata":      {"id": "T1046",     "name": "Network Service Scanning", "tactic": "discovery"},
-    "P0f":           {"id": "T1046",     "name": "Network Service Scanning", "tactic": "discovery"},
     # Malware/exploit honeypots
     "Dionaea":       {"id": "T1190",     "name": "Exploit Public-Facing Application", "tactic": "initial-access"},
     "ElasticPot":    {"id": "T1190",     "name": "Exploit Public-Facing Application", "tactic": "initial-access"},
     "Tanner":        {"id": "T1190",     "name": "Exploit Public-Facing Application", "tactic": "initial-access"},
     "H0neytr4p":     {"id": "T1190",     "name": "Exploit Public-Facing Application", "tactic": "initial-access"},
     # Service-specific
-    "Mailoney":      {"id": "T1566",     "name": "Phishing", "tactic": "initial-access"},
-    "Redishoneypot": {"id": "T1078",     "name": "Valid Accounts", "tactic": "credential-access"},
+    "Redishoneypot": {"id": "T1078",     "name": "Valid Accounts", "tactic": "initial-access",
+                      "tactics": ["initial-access", "persistence", "privilege-escalation", "defense-evasion"]},
     "Ipphoney":      {"id": "T1046",     "name": "Network Service Scanning", "tactic": "discovery"},
     "Miniprint":     {"id": "T1046",     "name": "Network Service Scanning", "tactic": "discovery"},
     "Honeyaml":      {"id": "T1190",     "name": "Exploit Public-Facing Application", "tactic": "initial-access"},
-    "Fatt":          {"id": "T1046",     "name": "Network Service Scanning", "tactic": "discovery"},
     "Ciscoasa":      {"id": "T1190",     "name": "Exploit Public-Facing Application", "tactic": "initial-access"},
 }
+
+# Passive / IDS sensors describe traffic that crossed the wire, not an attacker
+# action against a decoy. They log huge volumes for any IP (P0f fingerprints every
+# connection), so letting them vote made almost every verdict T1046. They never vote.
+PASSIVE_SENSORS = frozenset({"P0f", "Suricata", "Fatt"})
+
+_MAPPING_BY_LOWER_NAME = {k.lower(): v for k, v in HONEYPOT_TO_TECHNIQUE.items()}
+_PASSIVE_LOWER = frozenset(n.lower() for n in PASSIVE_SENSORS)
+
+
+def _mapping_for(honeypot_name):
+    """Technique mapping for a honeypot name (case-insensitive); None if unmapped or passive."""
+    name = str(honeypot_name or "").strip().lower()
+    if name in _PASSIVE_LOWER:
+        return None
+    return _MAPPING_BY_LOWER_NAME.get(name)
+
+
+# What the generated rule should look for, per technique. The IP is context, not the
+# detection: the focus describes the behaviour. Anything not listed gets a generic text.
+_DETECTION_FOCUS = {
+    "T1110.001": ("Repeated SSH or Telnet authentication attempts from source IP {ioc} or similar sources: "
+                  "many failed logins, or many distinct usernames and passwords, in a short window. "
+                  "This is the signature of password guessing (brute force) rather than a legitimate user."),
+    "T1190":     ("Inbound requests from source IP {ioc} or similar sources that carry exploit payloads "
+                  "against internet-facing applications: injection strings, path traversal, known CVE "
+                  "probe URLs or unexpected admin endpoints. Focus on the exploit attempt, not the volume."),
+    "T1078":     ("Authentication to exposed services from source IP {ioc} or similar external sources "
+                  "using valid, default or guessed accounts: successful logins from unusual external "
+                  "addresses, followed by account or configuration activity."),
+    "T1046":     ("Inbound network activity from source IP {ioc} or similar high-volume scanners. "
+                  "Look for connection attempts across multiple distinct ports/services in a short window, "
+                  "the signature of mass scanning behaviour rather than legitimate targeted use."),
+}
+
+
+def detection_focus_for(technique_id: str, technique_name: str, ioc: str) -> str:
+    """Detection focus text for the rule-generation prompt, chosen by technique id."""
+    template = _DETECTION_FOCUS.get(technique_id)
+    if template is not None:
+        return template.format(ioc=ioc)
+    return (f"Inbound activity from source IP {ioc} or similar sources that is consistent with "
+            f"{technique_name} ({technique_id}). Detect the behaviour that distinguishes this technique, "
+            f"not just the address.")
 
 
 def _es_search(es_url: str, api_key: str, index: str, query: dict) -> dict:
@@ -175,7 +223,7 @@ def infer_technique_from_observed(observed: dict) -> dict:
     """
     Map the attacker's honeypot hit profile to a single ATT&CK technique.
     Picks the technique with the most event volume across the honeypots
-    that maped to it. Returns None if no honeypots map to known techniques.
+    that mapped to it. Passive/IDS sensors (PASSIVE_SENSORS) never vote. Returns None if no honeypots map to known techniques.
     """
     honeypots = observed.get("honeypots", []) or []
     if not honeypots:
@@ -186,7 +234,7 @@ def infer_technique_from_observed(observed: dict) -> dict:
     for hp in honeypots:
         name = hp.get("name") or ""
         count = hp.get("count", 0) or 0
-        mapping = HONEYPOT_TO_TECHNIQUE.get(name)
+        mapping = _mapping_for(name)
         if not mapping:
             continue
         tid = mapping["id"]
@@ -204,6 +252,7 @@ def infer_technique_from_observed(observed: dict) -> dict:
         "technique_id":   best["info"]["id"],
         "technique_name": best["info"]["name"],
         "tactic":         best["info"]["tactic"],
+        "tactics":        list(best["info"].get("tactics") or [best["info"]["tactic"]]),
         "total_events":   best["total_events"],
         "honeypots_seen": best["honeypots"],
     }
@@ -375,11 +424,7 @@ def process_hunt_triggered_verdicts(generate_fn, save_and_push_fn, log: list, _c
             "triggered_by_ioc":       ioc,
 
             # ── Fields that generate_sigma_rule's prompt template reads ──
-            "detection_focus": (
-                f"Inbound network activity from source IP {ioc} or similar high-volume scanners. "
-                f"Look for connection attempts across multiple distinct ports/services in a short window — "
-                f"the signature of mass scanning behaviour rather than legitimate targeted use."
-            ),
+            "detection_focus": detection_focus_for(inferred["technique_id"], inferred["technique_name"], ioc),
             "key_indicators": [
                 f"source IP {ioc}",
                 f"ASN {sanitize_text(identity.get('asn')) or '?'} ({sanitize_text(identity.get('asn_org')) or 'unknown'})",
@@ -549,7 +594,7 @@ if __name__ == "__main__":
     inferred = infer_technique_from_observed(sample_observed)
     print(f"  inferred: {inferred}")
     assert inferred is not None
-    # Largest cumulative is T1046 (P0f+Suricata+Honeytrap all map there)
+    # P0f/Suricata are passive and do not vote; Honeytrap (T1046) 64853 beats Cowrie 383
     assert inferred["technique_id"] == "T1046", f"expected T1046 got {inferred['technique_id']}"
     print(f"  ✓ correctly picked T1046 Network Service Scanning (cumulative {inferred['total_events']} events)\n")
 
