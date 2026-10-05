@@ -172,7 +172,7 @@
     {
       "techniqueID": "T1059.001",
       "color": "#4caf50",
-      "comment": "Deployed: 2026-05-10 | Confidence: HIGH | Tactic: Execution, Discovery | Rules: 2",
+      "comment": "Deployed: 2026-05-10 | Confidence: HIGH | Tactic: Execution, Discovery, Command And Control | Rules: 3",
       "enabled": true,
       "score": 1,
       "metadata": []
@@ -180,7 +180,7 @@
     {
       "techniqueID": "T1105",
       "color": "#9e9e9e",
-      "comment": "Confidence: not assessed | Tactic: Execution | Rules: 1",
+      "comment": "Confidence: not assessed | Tactic: Execution, Command And Control | Rules: 2",
       "enabled": true,
       "score": 1,
       "metadata": []

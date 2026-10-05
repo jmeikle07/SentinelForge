@@ -1,0 +1,37 @@
+id: 1020dcc4-0817-41c0-ba1e-7d3034e816c6
+positive:
+- name: PowerShell resolves the NCSI probe host
+  event: &ev
+    event.code: "22"
+    process.name: powershell.exe
+    process.executable: C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe
+    dns.question.name: www.msftconnecttest.com
+    dns.question.type: A
+    user.name: bob
+- name: curl checks the legacy NCSI domain
+  event:
+    <<: *ev
+    process.name: curl.exe
+    process.executable: C:\Windows\System32\curl.exe
+    dns.question.name: dns.msftncsi.com
+- name: svchost.exe copied outside System32 is not the NlaSvc host
+  event:
+    <<: *ev
+    process.name: svchost.exe
+    process.executable: C:\Users\Public\svchost.exe
+negative:
+- name: the real Network Location Awareness host (svchost.exe in System32)
+  event:
+    <<: *ev
+    process.name: svchost.exe
+    process.executable: C:\Windows\System32\svchost.exe
+    user.name: NT AUTHORITY\NETWORK SERVICE
+- name: other domain queried by PowerShell
+  event:
+    <<: *ev
+    dns.question.name: www.example.com
+- name: process creation event, not a DNS event
+  event:
+    event.code: "1"
+    process.name: powershell.exe
+    process.command_line: powershell.exe -c "nslookup www.msftconnecttest.com"

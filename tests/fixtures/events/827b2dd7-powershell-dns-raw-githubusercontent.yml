@@ -1,0 +1,29 @@
+id: 827b2dd7-e596-4d2a-a16b-6fcdbc1f7aed
+positive:
+- name: powershell.exe resolves raw.githubusercontent.com
+  event: &ev
+    event.code: "22"
+    process.name: powershell.exe
+    process.executable: C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe
+    dns.question.name: raw.githubusercontent.com
+    dns.question.type: A
+- name: pwsh.exe resolves raw.githubusercontent.com
+  event:
+    <<: *ev
+    process.name: pwsh.exe
+    process.executable: C:\Program Files\PowerShell\7\pwsh.exe
+negative:
+- name: browser resolves raw.githubusercontent.com
+  event:
+    <<: *ev
+    process.name: msedge.exe
+    process.executable: C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe
+- name: powershell resolves another host
+  event:
+    <<: *ev
+    dns.question.name: www.example.com
+- name: process creation event
+  event:
+    event.code: "1"
+    process.name: powershell.exe
+    process.command_line: powershell.exe raw.githubusercontent.com

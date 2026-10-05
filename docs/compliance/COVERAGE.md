@@ -9,7 +9,7 @@ ISC2 Certified in Cybersecurity (CC) domains, NIST SP 800-53 rev5 controls and
 CIS Controls v8 safeguards. IDs are validated against
 `docs/compliance/objectives.yml`.
 
-Rules covered: **40**
+Rules covered: **41**
 
 ## Rules
 
@@ -21,7 +21,7 @@ Rules covered: **40**
 | Archive Utility Spawned by CMD or PowerShell for Data Staging | `e1bed71c-47d5-4f71-b9f0-a1b6717c06e2` | T1560.001 | 3.3, 4.4 | D5 | AC-4, SC-7, SI-4 | 3.3, 3.13, 8.8, 13.4 |
 | Brute Force Password Guessing via Net Use IPC$ Share with FOR Loop | `77ecdffa-3fa9-462a-a86d-ea87e42455d0` | T1110.001 | 2.4, 4.6 | D3, D5 | AC-7, IA-5, SI-4 | 5.2, 6.3, 8.11 |
 | Cmdkey Credential Store Followed by MSTSC RDP Lateral Movement | `43846fcf-f24e-420e-8469-6a61e6201646` | T1021.001 | 2.2, 3.2, 4.6 | D3, D4 | AC-17, IA-2, SC-7 | 4.4, 6.4, 13.4, 13.5 |
-| DNS Query to NCSI Connectivity-Check Domain from Unexpected Process Context | `1020dcc4-0817-41c0-ba1e-7d3034e816c6` | T1016 | 2.4, 4.4 | D4, D5 | AU-12, SI-4 | 8.5, 8.6 |
+| DNS Query to NCSI Connectivity-Check Domain from a Process Other Than the Real svchost.exe | `1020dcc4-0817-41c0-ba1e-7d3034e816c6` | T1016 | 2.4, 4.4 | D4, D5 | AU-12, SI-4 | 8.5, 8.6 |
 | Domain Group Enumeration Chain via Net.exe at High Integrity | `10edaa6c-50ec-48e8-af0f-8d2a19f0c9a1` | T1069.002 | 2.4, 4.4, 4.6 | D3, D5 | AC-2, AU-6, SI-4 | 5.1, 6.8, 8.5 |
 | Domain Trust Discovery via Net View Command Chaining | `61399e8c-6e6d-46d7-8257-ada4b2f3ea76` | T1482 | 2.4, 4.4 | D4, D5 | CA-7, SI-4 | 8.5, 13.1 |
 | File and Directory Discovery via Recursive Dir and Tree Commands | `86f471c5-c658-4531-a4b6-2ddc0b1de64e` | T1083 | 2.4, 4.4 | D5 | AC-3, SI-4 | 3.3, 8.5 |
@@ -34,9 +34,10 @@ Rules covered: **40**
 | Network Service Scanning from Known Mass Scanner IPs | `3f9a6b93-3242-4661-b8bc-e6871b802615` | T1046 | 2.2, 4.4 | D4, D5 | CA-7, SC-7, SI-4 | 8.5, 12.2, 13.3, 13.6 |
 | PowerShell HTTP POST Exfiltration via Invoke-WebRequest | `723b2878-ced4-4052-ab1c-05629a5f4127` | T1048.003 | 3.3, 4.4, 4.5 | D4, D5 | AC-4, SC-7, SI-4 | 3.13, 13.4, 13.10 |
 | PowerShell IEX Remote Download Targeting Office Macro Execution via raw.githubusercontent.com | `27b56c7b-ad80-4099-8416-bdb353facd67` | T1204.002 | 2.2, 2.4, 4.5, 5.6 | D2, D5 | AT-2, SI-3, SI-4 | 8.8, 9.6, 10.1, 14.2 |
-| PowerShell Invoke-WebRequest Download to Temp Directory | `28a2bef3-af7f-4b3a-8e7f-08616e25b694` | T1059.001, T1105 | 2.4, 4.1, 4.4, 4.5 | D4, D5 | AU-2, CM-7, SC-7, SI-4 | 2.7, 8.8, 9.3, 10.7, 13.10 |
+| PowerShell Invoke-WebRequest -OutFile Download to a User-Writable Directory | `28a2bef3-af7f-4b3a-8e7f-08616e25b694` | T1059.001, T1105 | 2.4, 4.1, 4.4, 4.5 | D4, D5 | AU-2, CM-7, SC-7, SI-4 | 2.7, 8.8, 9.3, 10.7, 13.10 |
 | PowerShell Launching .bat/.cmd File via Start-Process or Invoke-Expression | `e6f5978e-b45f-4713-a7a2-104d1217ffa1` | T1059.003 | 2.4, 4.1 | D5 | AU-2, CM-7, SI-4 | 2.7, 8.8 |
 | PowerShell Process Injection via Invoke-MalDoc and Raw GitHub Payload Fetch | `c17705f9-58e7-4834-a3fb-8eba1da3b0b0` | T1055, T1204.002 | 2.2, 2.4, 4.1, 4.5, 5.6 | D2, D5 | AT-2, AU-6, SI-16, SI-3, SI-4 | 8.8, 8.11, 9.6, 10.1, 10.5, 10.7, 14.2 |
+| PowerShell Resolves raw.githubusercontent.com | `827b2dd7-e596-4d2a-a16b-6fcdbc1f7aed` | T1059.001, T1105 | 2.4, 4.1, 4.4, 4.5 | D4, D5 | AU-2, CM-7, SC-7, SI-4 | 2.7, 8.8, 9.3, 10.7, 13.3, 13.10 |
 | PowerShell SMB Mapping via QUIC Transport with Certificate Check Disabled | `a4a0b85e-6503-452f-8506-f9c30505ce72` | T1021.002 | 2.2, 3.2 | D4 | AC-17, SC-7, SC-8 | 3.10, 4.4, 13.4 |
 | PowerShell Spawning Reconnaissance Commands | `1bab9cc9-362e-4106-9b1a-ce23d86833cc` | T1059.001 | 2.4, 4.1, 4.4 | D5 | AU-2, CM-7, SI-4 | 2.7, 8.5, 8.8, 10.7 |
 | Process Discovery via Scripting Interpreter - whoami and hostname Execution | `446e7f75-e0c5-48f7-a701-807d8b0a481c` | T1057 | 2.4, 4.4 | D5 | AU-12, SI-4 | 8.5, 8.8 |

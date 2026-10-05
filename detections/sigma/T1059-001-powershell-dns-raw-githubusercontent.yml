@@ -1,0 +1,58 @@
+title: PowerShell Resolves raw.githubusercontent.com
+id: 827b2dd7-e596-4d2a-a16b-6fcdbc1f7aed
+status: experimental
+related:
+- id: 28a2bef3-af7f-4b3a-8e7f-08616e25b694
+  type: similar
+description: |
+  Detects Sysmon Event ID 22 (DNS query) lookups of raw.githubusercontent.com made by powershell.exe or pwsh.exe, a common download-cradle destination for staged PowerShell payloads (T1059.001, T1105). Split out of 28a2bef3-af7f-4b3a-8e7f-08616e25b694: that rule evaluates process creation, whose events cannot also carry a DNS query name, so this DNS branch could never match there. A DNS query shows only that PowerShell resolved the name, not what was downloaded; correlate with the process creation rule and script block logs. Level low because administrators and package tooling also fetch from GitHub with PowerShell.
+
+  Defender notes:
+  - Hardening control: Enable PowerShell script block and module logging, apply Constrained Language Mode, and allowlist approved scripts.
+  - IR step: Collect script block logs, identify the download source and parent process, and quarantine any written files.
+  - Risk treatment: Mitigate: logging and language constraints; accept residual risk for administrators who need full PowerShell.
+author: Jahsean Meikle
+date: 2026/10/05
+references:
+- https://attack.mitre.org/techniques/T1059/001/
+- https://attack.mitre.org/techniques/T1105/
+tags:
+- attack.execution
+- attack.t1059.001
+- attack.command_and_control
+- attack.t1105
+- cert.secplus.2.4
+- cert.secplus.4.1
+- cert.secplus.4.4
+- cert.secplus.4.5
+- cert.isc2cc.d4
+- cert.isc2cc.d5
+- nist.800-53.au-2
+- nist.800-53.cm-7
+- nist.800-53.sc-7
+- nist.800-53.si-4
+- cis.v8.2.7
+- cis.v8.8.8
+- cis.v8.9.3
+- cis.v8.10.7
+- cis.v8.13.3
+- cis.v8.13.10
+logsource:
+  category: dns_query
+  product: windows
+detection:
+  selection:
+    process.name:
+    - powershell.exe
+    - pwsh.exe
+    dns.question.name: raw.githubusercontent.com
+  condition: selection
+falsepositives:
+- Administrators, package managers and installers that legitimately download scripts from GitHub with PowerShell
+- Developer workstations running build or bootstrap scripts
+level: low
+fields:
+- process.name
+- process.executable
+- dns.question.name
+- event.code
