@@ -308,3 +308,83 @@ def test_main_delete_bad_id_exits_nonzero(monkeypatch):
     with pytest.raises(SystemExit) as ei:
         deploy_rule.main(["--delete", "nope"])
     assert ei.value.code == 1
+
+
+# ---- lineage across intentional retags, and deprecated rules --------------------------------
+
+@responses.activate
+def test_parent_and_subtechnique_count_as_the_same_lineage(rule_file):
+    # a rule moved from T1059 to T1059.001 (or back) is the same rule
+    _conflict({"rule_id": RULE_ID, "tags": ["attack.t1059"]})
+    responses.add(responses.PATCH, URL, json={}, status=200)
+    deploy_rule.deploy_to_kibana(rule_file, _settings())
+    assert responses.calls[-1].request.method == "PATCH"
+
+
+@responses.activate
+def test_cross_technique_retag_is_refused_by_default_and_allowed_explicitly(rule_file):
+    _conflict({"rule_id": RULE_ID, "tags": ["attack.t1046"], "name": "was a discovery rule"})
+    with pytest.raises(deploy_rule.DeployError, match="allow-retag"):
+        deploy_rule.deploy_to_kibana(rule_file, _settings())
+    assert [c.request.method for c in responses.calls] == ["POST", "GET"]
+
+    responses.reset()
+    _conflict({"rule_id": RULE_ID, "tags": ["attack.t1046"], "name": "was a discovery rule"})
+    responses.add(responses.PATCH, URL, json={}, status=200)
+    deploy_rule.deploy_to_kibana(rule_file, _settings(), allow_retag=True)
+    body = json.loads(responses.calls[-1].request.body)
+    assert responses.calls[-1].request.method == "PATCH"
+    assert "attack.t1059.001" in body["tags"]  # the new technique replaces the old one
+
+
+@responses.activate
+def test_allow_retag_still_refuses_a_different_rule_id(rule_file):
+    _conflict({"rule_id": "99999999-2222-3333-4444-555555555555", "tags": ["attack.t1046"]})
+    with pytest.raises(deploy_rule.DeployError, match="different rule_id"):
+        deploy_rule.deploy_to_kibana(rule_file, _settings(), allow_retag=True)
+    assert [c.request.method for c in responses.calls] == ["POST", "GET"]
+
+
+def test_main_accepts_allow_retag_flag(rule_file, monkeypatch):
+    seen = {}
+    monkeypatch.setattr(deploy_rule, "load", lambda: _settings())
+    monkeypatch.setattr(deploy_rule, "deploy_to_kibana",
+                        lambda path, settings, session=None, allow_retag=False: seen.update(path=path, retag=allow_retag))
+    deploy_rule.main([rule_file, "--allow-retag"])
+    assert seen == {"path": rule_file, "retag": True}
+    deploy_rule.main([rule_file])
+    assert seen["retag"] is False
+
+
+DEPRECATED_RULE = RULE.replace("status: test", "status: deprecated")
+
+
+@pytest.fixture
+def deprecated_file(tmp_path):
+    p = tmp_path / "old.yml"
+    p.write_text(DEPRECATED_RULE, encoding="utf-8")
+    return str(p)
+
+
+@responses.activate
+def test_deprecated_rule_is_never_created_and_a_deployed_one_is_disabled_not_deleted(deprecated_file):
+    responses.add(responses.GET, URL, json={"rule_id": RULE_ID, "enabled": True, "exceptions_list": [{"id": "x"}]},
+                  status=200)
+    responses.add(responses.PATCH, URL, json={}, status=200)
+    deploy_rule.deploy_to_kibana(deprecated_file, _settings())
+    assert [c.request.method for c in responses.calls] == ["GET", "PATCH"]  # no POST, no DELETE
+    assert json.loads(responses.calls[1].request.body) == {"rule_id": RULE_ID, "enabled": False}
+
+
+@responses.activate
+def test_deprecated_rule_not_in_kibana_is_a_no_op(deprecated_file):
+    responses.add(responses.GET, URL, json={"message": "not found"}, status=404)
+    deploy_rule.deploy_to_kibana(deprecated_file, _settings())
+    assert [c.request.method for c in responses.calls] == ["GET"]
+
+
+@responses.activate
+def test_deprecated_rule_kibana_error_other_than_404_raises(deprecated_file):
+    responses.add(responses.GET, URL, json={}, status=500)
+    with pytest.raises(deploy_rule.DeployError):
+        deploy_rule.deploy_to_kibana(deprecated_file, _settings())

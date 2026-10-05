@@ -3,6 +3,7 @@
 Configuration comes from the environment via lab.config (ELASTIC_URL, KIBANA_URL,
 ELASTIC_API_KEY, LAB_INSECURE_TLS). Library code raises DeployError/ConfigError; only main() exits.
 
+Deprecated rules (status: deprecated) are never created; one already in Kibana is disabled.
 Redeploy never resets analyst work: on a 409 the existing rule is fetched, checked to be the
 same lineage, and updated with PATCH using only the engine-owned fields (see
 lab.kibana_rule.ENGINE_OWNED_FIELDS). enabled/exceptions_list/actions/note are never sent on update.
@@ -69,30 +70,67 @@ def _fetch_existing(http, url, headers, rule_id) -> dict:
     return existing
 
 
-def _check_same_lineage(existing: dict, new_payload: dict) -> None:
+def _parent(tag: str) -> str:
+    """attack.t1016.001 -> attack.t1016 (a technique is its own parent)."""
+    return tag.rsplit(".", 1)[0] if re.search(r"\.\d{3}$", tag) else tag
+
+
+def _check_same_lineage(existing: dict, new_payload: dict, allow_retag: bool = False) -> None:
     """Refuse to overwrite a Kibana rule that is not an earlier version of this one.
 
     The lookup is by rule_id, so equal rule_ids prove nothing (that is how a collision looks);
-    the evidence is a shared ATT&CK technique tag."""
+    the evidence is a shared ATT&CK technique tag, where a technique and its own sub-technique
+    (T1016 / T1016.001) count as the same. A deliberate move to a different technique (the rule
+    was found to detect something else) must be requested with allow_retag / --allow-retag."""
     rid = new_payload["rule_id"]
     if str(existing.get("rule_id") or rid) != rid:
         raise DeployError(f"Kibana returned a different rule_id for {rid}; refusing to overwrite")
+    if allow_retag:
+        return
     new_t = technique_tags(new_payload.get("tags"))
     old_t = technique_tags(existing.get("tags"))
-    if not (new_t & old_t):
+    if not ({_parent(t) for t in new_t} & {_parent(t) for t in old_t}):
         raise DeployError(
             f"existing Kibana rule {rid} ('{existing.get('name')}') is not the same rule: its technique "
             f"tags {sorted(old_t)} share nothing with {sorted(new_t)}; refusing to overwrite "
-            f"(possible rule id collision)")
+            f"(possible rule id collision). If this retag is intentional, redeploy with --allow-retag")
 
 
-def deploy_to_kibana(path: str, settings: Settings, session=None) -> dict:
+def _retire_deprecated(metadata: dict, settings: Settings, session, headers: dict) -> dict:
+    """A deprecated rule is never created. If Kibana already has it, disable it (not delete):
+    deleting would throw away analyst exceptions, notes and alert history."""
+    rule_id = str(metadata["id"]).strip()
+    http = session or make_session()
+    url = _url(settings)
+    try:
+        resp = http.get(url, headers=headers, params={"rule_id": rule_id})
+        if resp.status_code == 404:
+            log.info("Deprecated rule %s is not in Kibana; nothing to do", rule_id)
+            return {}
+        if resp.status_code != 200:
+            raise DeployError(f"deprecated rule {rule_id}: could not read it from Kibana: "
+                              f"{resp.status_code} {resp.text[:300]}")
+        resp = http.patch(url, headers=headers, json={"rule_id": rule_id, "enabled": False})
+        if resp.status_code not in (200, 201):
+            raise DeployError(f"could not disable deprecated rule {rule_id}: {resp.status_code} {resp.text[:300]}")
+    except requests.RequestException as exc:
+        raise DeployError(f"Kibana request failed: {exc}") from exc
+    log.info("Disabled deprecated rule %s in Kibana", rule_id)
+    try:
+        return resp.json()
+    except ValueError:
+        return {}
+
+
+def deploy_to_kibana(path: str, settings: Settings, session=None, allow_retag: bool = False) -> dict:
     metadata = load_rule_metadata(path)
     if not isinstance(metadata, dict):
         raise DeployError(f"{path}: not a Sigma rule mapping")
     if not str(metadata.get("id") or "").strip():
         raise DeployError(f"{path}: Sigma rule has no id; refusing to deploy")
     headers = _headers(settings)  # ConfigError on empty key, before any conversion or HTTP
+    if str(metadata.get("status") or "").strip().lower() == "deprecated":
+        return _retire_deprecated(metadata, settings, session, headers)
     try:
         queries = convert_sigma(path)
     except Exception as exc:  # pySigma raises many distinct error types
@@ -118,7 +156,7 @@ def deploy_to_kibana(path: str, settings: Settings, session=None) -> dict:
             log.info("Deployed '%s' to Kibana", title)
         elif response.status_code == 409:
             existing = _fetch_existing(http, url, headers, kibana_rule["rule_id"])
-            _check_same_lineage(existing, kibana_rule)
+            _check_same_lineage(existing, kibana_rule, allow_retag)
             response = http.patch(url, headers=headers, json=build_update_payload(kibana_rule))
             if response.status_code not in (200, 201):
                 raise DeployError(f"could not update rule: {response.status_code} {response.text[:300]}")
@@ -156,9 +194,11 @@ def delete_rule(rule_id, settings: Settings, session=None) -> None:
 def main(argv=None):
     argv = sys.argv[1:] if argv is None else argv
     logging.basicConfig(level="INFO", format="%(message)s")
+    allow_retag = "--allow-retag" in argv
+    argv = [a for a in argv if a != "--allow-retag"]
     delete = len(argv) == 2 and argv[0] == "--delete"
     if not delete and len(argv) != 1:
-        print("usage: deploy_rule.py <sigma-rule.yml> | --delete <rule_id>", file=sys.stderr)
+        print("usage: deploy_rule.py <sigma-rule.yml> [--allow-retag] | --delete <rule_id>", file=sys.stderr)
         sys.exit(2)
     try:
         settings = load()
@@ -166,7 +206,7 @@ def main(argv=None):
             delete_rule(argv[1], settings)
             print(f"SUCCESS: deleted {argv[1]}")
         else:
-            deploy_to_kibana(argv[0], settings)
+            deploy_to_kibana(argv[0], settings, allow_retag=allow_retag)
             print(f"SUCCESS: deployed {argv[0]}")
     except (ConfigError, DeployError) as exc:
         print(f"FAIL: {exc}", file=sys.stderr)
