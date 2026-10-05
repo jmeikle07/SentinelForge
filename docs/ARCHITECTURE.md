@@ -73,6 +73,41 @@ This document describes the components and how data moves between them. It descr
 
 Runtime state is JSON under `state/` (pending rules, validations, hunt log, efficacy, rate-limit counters). `lab.state` writes atomically (temporary file plus `os.replace`, with a lock). A corrupt file is moved aside to `<name>.corrupt` and raises `StateCorrupt` instead of being overwritten with an empty list. The files committed under `state/` are example runtime snapshots from earlier runs; they contain no secrets and may be regenerated or deleted.
 
+## Case sensitivity
+
+Sigma compares strings case-insensitively. `lab.ecs.convert` renders the literals into a Lucene `query_string`, and whether Elasticsearch then ignores case depends on the field mapping: ECS `keyword` fields (`process.name`, `registry.value`, `dns.question.name`, ...) and `wildcard` fields (`process.command_line`, `process.executable`, `file.path`, `registry.key` in the Elastic Agent mappings) are case-sensitive; only analysed `text` / `match_only_text` subfields fold case. Windows binaries, paths, registry keys, switches and DNS names are case-insensitive in practice (`HOSTNAME.EXE` on disk, `hostname.exe` in scripts, `reg SAVE`, `/Create`), so a rule written in one casing would silently miss the others. The lab's own mapping could not be queried offline, so the fix does not depend on it.
+
+**What happens.** A late pipeline step in `lab/ecs.py` (`CaseVariantTransformation`, applied by `convert` and `convert_path`) expands each string literal on a defined field set into case variants: as written, lower, UPPER and Title (first letter of each word, after space, `\`, `/`, `:`, `-`; a `.` does not start a word, so `cmd.exe` becomes `Cmd.exe`), deduplicated. `startswith` / `endswith` / `contains` wildcards are kept, `contains|all` keeps its AND (each value becomes its own OR group), and hand-written variants in a rule (`Domain Admins` next to `domain admins`) collapse into the generated set. Rule YAML is not touched, so rule ids and sources do not change; only the deployed query grows.
+
+**Fields covered** (`CASE_INSENSITIVE_FIELDS`): `process.{name,executable,command_line,working_directory,pe.original_file_name}`, the same under `process.parent.*`, `file.{name,path,directory,extension}`, `dll.{name,path}`, `registry.{path,key,value}`, `dns.question.name`, `{source,destination}.domain`, `user.{name,domain}` and the Sysmon-only `winlog.event_data.{Image,ParentImage,SourceImage,TargetImage,ImageLoaded,CommandLine,ParentCommandLine,CurrentDirectory,TargetFilename,TargetObject,PipeName,OriginalFileName,QueryName}`. Not touched: hashes, `event.code` / `event.action`, ports and IPs, `registry.data.strings` (the data written, where case can matter), `winlog.event_data.IntegrityLevel` (Sysmon emits a fixed vocabulary), free-text descriptions, hex fields, `|re` and `|cidr` values, base64 / wide values, and non-Windows log sources. `|cased` cannot occur: pySigma's Lucene backend raises `NotImplementedError` for it, and the step would skip it anyway.
+
+**Bounds.** At most 4 variants per literal. At most 200 leaf clauses per generated query (`QUERY_CLAUSE_BUDGET`; `lab.ecs.clause_count` counts them). If a rule would exceed the budget, `convert` degrades in steps: as written + lower + UPPER; the same only for value lists of at most 10 entries; no expansion at all. Each degradation logs one warning naming the rule (`lab.ecs` logger). Of the 41 shipped rules, 39 get the full four variants and one (`T1595`, an IP rule) has nothing to expand; `T1035` (Svchost service-group allowlist, 144 `-k <group>` literals) keeps those as written and only its short lists are expanded (148 to 152 clauses). Across the shipped rules the mean clause count goes from 12.0 to 25.1 (max 152) and the mean query length from about 326 to 581 characters (max 4204).
+
+**Switch.** `SF_CASE_VARIANTS=0` in the environment turns the step off (queries are then rendered verbatim, as before); it is read on every conversion and defaults to on. Use it to compare a deployed query with the old one when debugging.
+
+**Residual risk.**
+- Only the four variants are generated. A literal whose real spelling is CamelCase (`PowerShell.exe`, `WinRAR.exe`, a user typing `-InFile` against a rule with `-infile`) is matched only if it equals one of them; list such spellings in the rule or rely on a mapping that folds case.
+- `contains`-style values are expanded per literal, not per event: `*Hello World*` does not match `Hello world`.
+- Values whose case is meaningful (passwords, tokens, base64) on a covered field are expanded too; that only widens the match, and the rule text is the place to avoid it (use another field or a regex).
+- Matching on fields outside the list above stays exactly as case-sensitive as the mapping makes it.
+- Larger queries: the Lucene `max_clause_count` (`indices.query.bool.max_clause_count`) bounds clauses of a single boolean query and wildcard terms rewrite into more; with at most 200 leaves per query we are well below the default of 1024, but this was not exercised against the live cluster. Leading-wildcard terms (`*x*`) on `wildcard` fields are what the cluster already handles for these rules; on plain `keyword` fields they scan the terms dictionary, so the extra variants cost proportionally more per rule run.
+- Not verified offline: the live mapping of the lab's indices, any `normalizer`, and Kibana's behaviour for very long rule queries (the longest generated query is about 4.2 kB). I could not browse the Elastic documentation from the environment this was built in; the statements about `query_string` rely on the documented behaviour that term-level queries on `keyword` fields are exact unless the field has a lowercase normalizer, and on `query_string` having no per-query case-insensitivity switch.
+
+**Check the live index.** The first request shows how the field is mapped (`type`, and a `normalizer` on the keyword); the second pair shows whether a verbatim query ignores case (the counts are equal if the mapping already folds case, different if not; either way the converted queries now match all spellings):
+
+```
+GET logs-*/_mapping/field/process.name,process.command_line,registry.key
+
+GET logs-*/_search
+{"size": 0, "track_total_hits": true,
+ "query": {"query_string": {"query": "process.name:hostname.exe"}}}
+GET logs-*/_search
+{"size": 0, "track_total_hits": true,
+ "query": {"query_string": {"query": "process.name:HOSTNAME.EXE"}}}
+```
+
+To my knowledge ECS core defines the `.text` (`match_only_text`) multi-fields but no case-insensitive `.caseless` subfield (any such subfield would be an Elastic Agent / Endpoint mapping detail; this could not be checked offline), so nothing here depends on one being present.
+
 ## Trust boundaries and secrets
 
 - The web app and the engine read credentials from environment variables (`.env` locally, repository secrets in CI). Nothing secret is in a tracked file.
