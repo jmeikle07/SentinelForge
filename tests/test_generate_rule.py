@@ -6,6 +6,7 @@ from types import SimpleNamespace
 
 import pytest
 import responses
+import yaml
 
 import generate_rule
 
@@ -13,6 +14,13 @@ ROOT = Path(__file__).resolve().parent.parent
 ANALYSIS = {"technique_id": "T1059", "technique_name": "Command Interpreter", "tactic": "execution",
             "already_covered": False, "confidence": "high", "detection_focus": "f",
             "key_indicators": ["a"], "reasoning": "r"}
+
+VALID_SIGMA = yaml.safe_dump({
+    "title": "Command Interpreter Use",
+    "logsource": {"category": "process_creation", "product": "windows"},
+    "tags": ["attack.execution", "attack.t1059"], "level": "medium",
+    "detection": {"selection": {"process.name": "cmd.exe"}, "condition": "selection"},
+}, sort_keys=False)
 
 
 class FakeClient:
@@ -24,6 +32,19 @@ class FakeClient:
     def _create(self, **kw):
         self.calls.append(kw)
         text = self.texts.pop(0) if len(self.texts) > 1 else self.texts[0]
+        return SimpleNamespace(content=[SimpleNamespace(text=text)])
+
+
+class RoutingClient(FakeClient):
+    """Answers each stage with the right shape: analysis JSON, Sigma YAML, or a context sentence."""
+    def __init__(self, *a, **k):
+        super().__init__(["unused"])
+
+    def _create(self, **kw):
+        self.calls.append(kw)
+        prompt = kw["messages"][0]["content"]
+        text = (VALID_SIGMA if "writing a Sigma rule" in prompt
+                else json.dumps(ANALYSIS) if "Return JSON only" in prompt else "context sentence")
         return SimpleNamespace(content=[SimpleNamespace(text=text)])
 
 
@@ -60,10 +81,10 @@ def test_generate_malformed_then_valid_json_succeeds_on_retry(monkeypatch):
 def test_generate_reuses_one_anthropic_client(monkeypatch):
     made = []
 
-    class Counting(FakeClient):
+    class Counting(RoutingClient):
         def __init__(self, *a, **k):
             made.append(1)
-            super().__init__([json.dumps(ANALYSIS)])
+            super().__init__()
     monkeypatch.setattr(generate_rule.anthropic, "Anthropic", Counting)
     generate_rule.analyze_with_claude({}, 1, {}, 60)
     generate_rule.analyze_with_claude({}, 1, {}, 60)
@@ -74,7 +95,7 @@ def test_generate_reuses_one_anthropic_client(monkeypatch):
 
 def test_model_name_comes_from_env(monkeypatch):
     monkeypatch.setenv("MODEL_NAME", "my-test-model")
-    fake = FakeClient([json.dumps(ANALYSIS)])
+    fake = RoutingClient()
     monkeypatch.setattr(generate_rule, "get_client", lambda: fake)
     generate_rule.analyze_with_claude({}, 1, {}, 60)
     generate_rule.generate_sigma_rule({}, ANALYSIS)
@@ -165,7 +186,7 @@ def test_query_elasticsearch_error_raises_and_logs(monkeypatch, caplog):
 
 
 def test_generate_prompt_author_not_hardcoded(monkeypatch):
-    fake = FakeClient(["title: x"])
+    fake = FakeClient([VALID_SIGMA])
     monkeypatch.setattr(generate_rule, "get_client", lambda: fake)
     monkeypatch.setenv("SF_AUTHOR", "Jahsean Meikle")
     generate_rule.generate_sigma_rule({}, ANALYSIS)
@@ -182,7 +203,7 @@ def test_no_legacy_branding_or_lab_ip_in_pipeline_scripts():
 
 def test_empty_sf_author_env_falls_back_to_default(monkeypatch):
     """`cp .env.example .env` with SF_AUTHOR= left blank must not blank the rule author."""
-    fake = FakeClient(["title: x"])
+    fake = FakeClient([VALID_SIGMA])
     monkeypatch.setattr(generate_rule, "get_client", lambda: fake)
     monkeypatch.setenv("SF_AUTHOR", "")
     generate_rule.generate_sigma_rule({}, ANALYSIS)
