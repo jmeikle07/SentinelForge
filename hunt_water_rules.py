@@ -68,102 +68,45 @@ def _infer_techniques_from_observed(observed: dict) -> list:
     return [t["id"] for t in sorted_techniques[:3]]
 
 
-def _parse_rule_file_uncached(path: Path) -> dict:
-    """
-    Parse a Sigma YAML file. Returns minimal dict with the fields Hunt needs.
-    Handles the provenance comment block at the top of hunt-triggered rules.
-    Returns None if file is unparseable or missing required fields.
+_TECHNIQUE_TAG = re.compile(r"attack\.(t\d{4}(?:\.\d{3})?)$", re.IGNORECASE)
 
-    We don't need full Sigma semantics — just enough to display rule cards
-    (title, technique tags, status, IOC if hunt-triggered).
-    """
-    try:
-        text = path.read_text(encoding="utf-8")
-    except (OSError, UnicodeDecodeError) as exc:
-        log.warning("cannot read rule file %s: %s", path, exc)
-        return None
 
-    # Strip any leading comment-block (hunt-triggered rules have a # provenance header)
-    yaml_lines = []
+class RuleLoadError(RuntimeError):
+    """One or more production rule files could not be read or parsed."""
+
+
+def _parse_rule_text(path: Path, text: str) -> dict:
+    """Parse one rule file's text. Returns {"meta": display dict, "raw": parsed rule}.
+    Raises ValueError for anything that is not a valid YAML mapping: a file that does not
+    parse is NEVER partially recovered, so a broken rule can never count as coverage
+    (same rule as lab.coverage, which raises CoverageError)."""
     triggered_by_hunt_id = None
     triggered_by_ioc = None
-    in_yaml = False
     for line in text.splitlines():
-        # Comment-block parsing — extract provenance hints before YAML starts
-        if not in_yaml:
-            if line.startswith("# Triggered by hunt_id:"):
-                triggered_by_hunt_id = line.split(":", 1)[1].strip()
-                continue
-            if line.startswith("# IOC:"):
-                triggered_by_ioc = line.split(":", 1)[1].strip()
-                continue
-            if line.startswith("#") or line.strip() == "":
-                continue
-            # First non-comment non-blank line — YAML starts here
-            in_yaml = True
-        yaml_lines.append(line)
-
-    yaml_text = "\n".join(yaml_lines)
-    if not yaml_text.strip():
-        return None
-
-    # Full YAML parse; if it fails, regex-extract the fields we need (and say so)
-    parsed = None
+        # Provenance hints live in the leading comment block of hunt-triggered rules
+        if line.startswith("# Triggered by hunt_id:"):
+            triggered_by_hunt_id = line.split(":", 1)[1].strip()
+        elif line.startswith("# IOC:"):
+            triggered_by_ioc = line.split(":", 1)[1].strip()
+        elif not (line.startswith("#") or line.strip() == ""):
+            break
     try:
-        parsed = yaml.safe_load(yaml_text)
-        if not isinstance(parsed, dict):
-            parsed = None
+        parsed = yaml.safe_load(text)
     except yaml.YAMLError as exc:
-        log.warning("rule file %s is not valid YAML (%s); falling back to field regex", path, exc)
-        parsed = None
+        raise ValueError(f"not valid YAML ({exc})") from exc
+    if not isinstance(parsed, dict):
+        raise ValueError("not a YAML mapping")
 
-    if parsed is None:
-        # Fallback regex parser — extracts top-level fields needed for display
-        parsed = {}
-        for field in ("title", "id", "status", "level", "description"):
-            m = re.search(rf"^{field}:\s*(.+)$", yaml_text, re.MULTILINE)
-            if m:
-                parsed[field] = m.group(1).strip().strip("'\"")
-        # tags — multi-line list
-        tags = []
-        in_tags = False
-        for line in yaml_lines:
-            stripped = line.rstrip()
-            if stripped == "tags:" or stripped.startswith("tags:"):
-                in_tags = True
-                continue
-            if in_tags:
-                if stripped.startswith("  - ") or stripped.startswith("    - "):
-                    tags.append(stripped.lstrip("- ").strip())
-                elif stripped and not stripped.startswith(" "):
-                    break
-        if tags:
-            parsed["tags"] = tags
-
-    title = parsed.get("title", path.stem)
-    tags = parsed.get("tags") or []
-    technique_ids = sorted({
-        t.split(".")[1].upper().replace("T", "T")
-        for t in tags
-        if isinstance(t, str) and t.lower().startswith("attack.t")
-    })
-    # Normalize back to T-format (e.g. "T1046", "T1110.001")
+    tags = parsed.get("tags") if isinstance(parsed.get("tags"), list) else []
     techniques = []
-    for raw in tags:
-        if not isinstance(raw, str):
-            continue
-        if raw.lower().startswith("attack.t"):
-            # "attack.t1046" → "T1046"
-            tid_lower = raw.split(".", 1)[1]
-            if tid_lower.startswith("t"):
-                techniques.append("T" + tid_lower[1:])
-            else:
-                techniques.append(tid_lower.upper())
-
-    return {
+    for tag in tags:
+        m = _TECHNIQUE_TAG.match(tag) if isinstance(tag, str) else None
+        if m:
+            techniques.append(m.group(1).upper())
+    meta = {
         "path":                  str(path),
         "filename":              path.name,
-        "title":                 title,
+        "title":                 parsed.get("title", path.stem),
         "id":                    parsed.get("id"),
         "status":                parsed.get("status", "?"),
         "level":                 parsed.get("level", "?"),
@@ -172,119 +115,95 @@ def _parse_rule_file_uncached(path: Path) -> dict:
         "triggered_by_hunt_id":  triggered_by_hunt_id,
         "triggered_by_ioc":      triggered_by_ioc,
     }
+    return {"meta": meta, "raw": parsed}
 
 
-def _parse_rule_file(path: Path) -> dict:
-    """Cached wrapper: a file is parsed once until its mtime/size changes."""
+def _load_entry(path: Path) -> dict:
+    """Cached loader shared by every consumer: a file is read and parsed once until its
+    (mtime, size) changes. Returns {"meta", "raw", "error"}; error is a short reason when
+    the file cannot be used (and is logged once, when first parsed)."""
     try:
         st = path.stat()
     except OSError as exc:
-        log.warning("cannot stat rule file %s: %s", path, exc)
-        return None
+        log.warning("cannot stat rule file %s: skipping it (%s)", path, exc)
+        return {"meta": None, "raw": None, "error": f"cannot stat: {exc}"}
     stamp = (st.st_mtime_ns, st.st_size)
     hit = _PARSE_CACHE.get(path)
     if hit is not None and hit[0] == stamp:
         return hit[1]
-    rule = _parse_rule_file_uncached(path)
-    _PARSE_CACHE[path] = (stamp, rule)
-    return rule
+    try:
+        entry = {**_parse_rule_text(path, path.read_text(encoding="utf-8")), "error": None}
+    except (OSError, UnicodeDecodeError, ValueError) as exc:
+        log.warning("rule file %s unusable, skipping it (not counted as coverage): %s", path, exc)
+        entry = {"meta": None, "raw": None, "error": str(exc)}
+    _PARSE_CACHE[path] = (stamp, entry)
+    return entry
 
 
-class RuleLoadError(RuntimeError):
-    """One or more production rule files could not be read or parsed."""
+def _iter_entries(*dirs: Path):
+    """The one place rule files are listed: (path, entry) for *.yml and *.yaml in each
+    existing directory, sorted. A directory that cannot be listed raises OSError."""
+    for base in dirs:
+        if not base.is_dir():
+            continue
+        for path in sorted([*base.glob("*.yml"), *base.glob("*.yaml")]):
+            yield path, _load_entry(path)
 
 
-_RAW_CACHE: dict = {}   # path -> ((mtime_ns, size), parsed rule dict | None)
+def _is_deprecated(rule: dict) -> bool:
+    return str(rule.get("status", "")).lower() == "deprecated"
 
 
 def load_active_rules(rules_dir=None) -> list:
     """Full parsed production rules (detections/sigma/*.yml|yaml) that are not deprecated.
 
-    Feeds sf_safety's layer-8 disagreement check. Cached per file on (mtime, size).
-    A missing directory means "no rules" ([]); an unreadable or unparseable file raises
-    RuleLoadError listing every offender, so the caller can decide (the Water gate fails
-    closed: it cannot prove an unreadable rule is not an allowlist for the IOC)."""
+    Feeds sf_safety's layer-8 disagreement check. A missing directory means "no rules"
+    ([]); an unreadable or unparseable file raises RuleLoadError listing every offender,
+    so the caller can decide (the Water gate fails closed: it cannot prove an unreadable
+    rule is not an allowlist for the IOC)."""
     base = Path(rules_dir) if rules_dir is not None else SIGMA_DIR
     if not base.is_dir():
         log.warning("rules dir %s does not exist: no existing rules to check", base)
         return []
     try:
-        paths = sorted([*base.glob("*.yml"), *base.glob("*.yaml")])
+        entries = list(_iter_entries(base))
     except OSError as exc:
         raise RuleLoadError(f"cannot list {base}: {exc}") from exc
-    rules, problems = [], []
-    for path in paths:
-        try:
-            st = path.stat()
-            stamp = (st.st_mtime_ns, st.st_size)
-            hit = _RAW_CACHE.get(path)
-            if hit is not None and hit[0] == stamp:
-                rule = hit[1]
-            else:
-                rule = yaml.safe_load(path.read_text(encoding="utf-8"))
-                _RAW_CACHE[path] = (stamp, rule)
-        except (OSError, UnicodeDecodeError, yaml.YAMLError) as exc:
-            log.error("cannot load rule %s: %s", path.name, exc)
-            problems.append(path.name)
-            continue
-        if isinstance(rule, dict) and str(rule.get("status", "")).lower() != "deprecated":
-            rules.append(rule)
-    if problems:
-        raise RuleLoadError(f"unreadable rule files: {', '.join(problems)}")
-    return rules
+    bad = [p.name for p, e in entries if e["error"]]
+    if bad:
+        raise RuleLoadError(f"unreadable rule files: {', '.join(bad)}")
+    return [e["raw"] for _, e in entries if not _is_deprecated(e["raw"])]
+
+
+def _technique_matches(query: str, rule_tech: str) -> bool:
+    """Exact on sub-technique. A parent query (T1110) matches the parent and all of its
+    sub-techniques; a sub-technique query (T1110.001) matches only itself and a rule tagged
+    with the bare parent (which covers it), never a sibling (T1110.003)."""
+    if query == rule_tech:
+        return True
+    if "." not in query:
+        return rule_tech.split(".")[0] == query
+    return rule_tech == query.split(".")[0]
 
 
 def find_rules_for_techniques(technique_ids: list) -> list:
     """
     Walk the detections/sigma/ tree (production + hunt-triggered) and return
-    rules tagged with any of the given technique IDs.
+    non-deprecated rules tagged with any of the given technique IDs.
 
-    Matches are case-insensitive on the technique ID. Sub-techniques (T1110.001)
-    match both the parent (T1110) and the exact sub-technique.
+    Matching is case-insensitive and exact on sub-techniques (see _technique_matches).
+    Files that fail to parse are logged and skipped, never counted.
     """
-    if not technique_ids:
+    queries = [str(t).upper() for t in (technique_ids or [])]
+    if not queries:
         return []
-    # Build the set of technique IDs we'll match (exact + parents of sub-techniques)
-    targets = set()
-    for tid in technique_ids:
-        tid_upper = tid.upper()
-        targets.add(tid_upper)
-        if "." in tid_upper:
-            targets.add(tid_upper.split(".")[0])
-
     matches = []
-
-    # Production rules
-    if SIGMA_DIR.exists():
-        for yml_path in SIGMA_DIR.glob("*.yml"):
-            rule = _parse_rule_file(yml_path)
-            if not rule:
-                continue
-            rule_techs = set(t.upper() for t in rule.get("techniques", []))
-            # Match if any rule technique is in targets, OR any rule technique's parent is
-            if rule_techs & targets:
-                matches.append(rule)
-                continue
-            for rt in rule_techs:
-                if "." in rt and rt.split(".")[0] in targets:
-                    matches.append(rule)
-                    break
-
-    # Hunt-triggered rules (pending_review)
-    if SIGMA_HUNT_DIR.exists():
-        for yml_path in SIGMA_HUNT_DIR.glob("*.yml"):
-            rule = _parse_rule_file(yml_path)
-            if not rule:
-                continue
-            rule_techs = set(t.upper() for t in rule.get("techniques", []))
-            if rule_techs & targets:
-                matches.append(rule)
-                continue
-            for rt in rule_techs:
-                if "." in rt and rt.split(".")[0] in targets:
-                    matches.append(rule)
-                    break
-
+    for _path, entry in _iter_entries(SIGMA_DIR, SIGMA_HUNT_DIR):
+        if entry["error"] or _is_deprecated(entry["raw"]):
+            continue
+        meta = entry["meta"]
+        if any(_technique_matches(q, rt) for q in queries for rt in meta["techniques"]):
+            matches.append(meta)
     return matches
 
 
