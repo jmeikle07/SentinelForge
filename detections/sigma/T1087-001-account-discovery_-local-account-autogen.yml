@@ -1,35 +1,49 @@
 title: Local Account Discovery via whoami and hostname Spawned by Scripting Engine
 id: 1457a8cc-0e8f-4a18-ae3c-1ee41e4bb8c6
 status: experimental
-description: Detects whoami.exe or hostname.exe spawned by scripting engines or non-standard parent processes, consistent with post-exploitation local account discovery (T1087.001).
+description: |
+  Detects whoami.exe or hostname.exe spawned by scripting engines or non-standard parent processes, consistent with post-exploitation local account discovery (T1087.001).
+
+  Defender notes:
+  - Hardening control: Maintain an account inventory, disable dormant local accounts, and log whoami and account enumeration commands.
+  - IR step: Check the scripting parent and the rest of the session, and confirm the account used is legitimate.
+  - Risk treatment: Accept: local account discovery is low-impact; escalate in combination with credential access.
 author: Jahsean Meikle
 date: 2026/05/10
 references:
-    - https://attack.mitre.org/techniques/T1087/001/
+- https://attack.mitre.org/techniques/T1087/001/
 tags:
-    - attack.discovery
-    - attack.t1087.001
+- attack.discovery
+- attack.t1087.001
+- cert.secplus.2.4
+- cert.secplus.4.4
+- cert.isc2cc.d3
+- cert.isc2cc.d5
+- nist.800-53.ac-2
+- nist.800-53.si-4
+- cis.v8.5.1
+- cis.v8.8.5
 logsource:
-    category: process_creation
-    product: windows
+  category: process_creation
+  product: windows
 detection:
-    selection:
-        process.name|contains:
-            - 'whoami.exe'
-            - 'hostname.exe'
-        process.parent.name|contains:
-            - 'powershell.exe'
-            - 'wscript.exe'
-            - 'cscript.exe'
-            - 'mshta.exe'
-            - 'python.exe'
-            - 'pwsh.exe'
-    condition: selection
+  selection:
+    process.name|contains:
+    - whoami.exe
+    - hostname.exe
+    process.parent.name|contains:
+    - powershell.exe
+    - wscript.exe
+    - cscript.exe
+    - mshta.exe
+    - python.exe
+    - pwsh.exe
+  condition: selection
 falsepositives:
-    - Legitimate administrative scripts or IT automation tools that invoke whoami or hostname for inventory or diagnostic purposes
-    - Software deployment frameworks or monitoring agents running under interactive user sessions
+- Legitimate administrative scripts or IT automation tools that invoke whoami or hostname for inventory or diagnostic purposes
+- Software deployment frameworks or monitoring agents running under interactive user sessions
 level: medium
 fields:
-    - process.name
-    - process.parent.name
-    - process.command_line
+- process.name
+- process.parent.name
+- process.command_line

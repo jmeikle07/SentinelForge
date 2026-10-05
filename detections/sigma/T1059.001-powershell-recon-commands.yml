@@ -1,49 +1,49 @@
 title: PowerShell Spawning Reconnaissance Commands
 id: 1bab9cc9-362e-4106-9b1a-ce23d86833cc
 status: experimental
-description: Detects PowerShell spawning common reconnaissance commands used by attackers after initial access. Focuses on higher-fidelity binaries to reduce false positives.
+description: |
+  Detects PowerShell spawning common reconnaissance commands used by attackers after initial access. Focuses on higher-fidelity binaries to reduce false positives.
+
+  Defender notes:
+  - Hardening control: Enable PowerShell script block and module logging, apply Constrained Language Mode, and allowlist approved scripts.
+  - IR step: Collect script block logs, identify the download source and parent process, and quarantine any written files.
+  - Risk treatment: Mitigate: logging and language constraints; accept residual risk for administrators who need full PowerShell.
 author: Jahsean Meikle
 date: 2026/05/08
 references:
-    - https://attack.mitre.org/techniques/T1059/001/
+- https://attack.mitre.org/techniques/T1059/001/
 tags:
-    - attack.execution
-    - attack.t1059.001
-    - attack.discovery
+- attack.execution
+- attack.t1059.001
+- attack.discovery
+- cert.secplus.2.4
+- cert.secplus.4.1
+- cert.secplus.4.4
+- cert.isc2cc.d5
+- nist.800-53.au-2
+- nist.800-53.cm-7
+- nist.800-53.si-4
+- cis.v8.2.7
+- cis.v8.8.5
+- cis.v8.8.8
+- cis.v8.10.7
 logsource:
-    product: windows
-    service: sysmon
+  product: windows
+  service: sysmon
 detection:
-    selection:
-        EventID: 1
-        ParentImage|endswith:
-            - '\powershell.exe'
-            - '\pwsh.exe'
-            - '\powershell_ise.exe'
-        Image|endswith:
-            - '\whoami.exe'
-            - '\systeminfo.exe'
-            - '\nltest.exe'
-            - '\net1.exe'
-            - '\wmic.exe'
-    condition: selection
+  selection:
+    EventID: 1
+    ParentImage|endswith:
+    - \powershell.exe
+    - \pwsh.exe
+    - \powershell_ise.exe
+    Image|endswith:
+    - \whoami.exe
+    - \systeminfo.exe
+    - \nltest.exe
+    - \net1.exe
+    - \wmic.exe
+  condition: selection
 level: medium
 falsepositives:
-    - Legitimate administrative scripts — tune by adding exclusions for known good parent paths
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+- Legitimate administrative scripts — tune by adding exclusions for known good parent paths

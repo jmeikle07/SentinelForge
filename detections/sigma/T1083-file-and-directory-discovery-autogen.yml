@@ -1,36 +1,49 @@
 title: File and Directory Discovery via Recursive Dir and Tree Commands
 id: 86f471c5-c658-4531-a4b6-2ddc0b1de64e
 status: experimental
-description: Detects execution of recursive directory enumeration commands (dir /s or tree /F) commonly used for file and directory discovery reconnaissance consistent with T1083.
+description: |
+  Detects execution of recursive directory enumeration commands (dir /s or tree /F) commonly used for file and directory discovery reconnaissance consistent with T1083.
+
+  Defender notes:
+  - Hardening control: Apply least-privilege file ACLs so recursive enumeration yields little, and log command lines.
+  - IR step: Identify the directories enumerated, check for staging or archive activity next, and review the account's recent file access.
+  - Risk treatment: Accept with monitoring: file discovery is normal user behaviour; escalate when followed by archiving or exfiltration.
 author: Jahsean Meikle
 date: 2026/05/10
 references:
-    - https://attack.mitre.org/techniques/T1083/
+- https://attack.mitre.org/techniques/T1083/
 tags:
-    - attack.discovery
-    - attack.t1083
+- attack.discovery
+- attack.t1083
+- cert.secplus.2.4
+- cert.secplus.4.4
+- cert.isc2cc.d5
+- nist.800-53.ac-3
+- nist.800-53.si-4
+- cis.v8.3.3
+- cis.v8.8.5
 logsource:
-    category: process_creation
-    product: windows
+  category: process_creation
+  product: windows
 detection:
-    selection_dir:
-        process.name: 'cmd.exe'
-        process.command_line|contains|all:
-            - 'dir'
-            - '/s'
-            - '>>'
-    selection_tree:
-        process.name: 'tree.com'
-        process.command_line|contains: '/F'
-    condition: selection_dir or selection_tree
+  selection_dir:
+    process.name: cmd.exe
+    process.command_line|contains|all:
+    - dir
+    - /s
+    - '>>'
+  selection_tree:
+    process.name: tree.com
+    process.command_line|contains: /F
+  condition: selection_dir or selection_tree
 falsepositives:
-    - Legitimate administrative scripts performing directory audits or inventory collection
-    - Backup or asset management tools that enumerate directory structures
-    - Developers or system administrators using tree or dir for troubleshooting
+- Legitimate administrative scripts performing directory audits or inventory collection
+- Backup or asset management tools that enumerate directory structures
+- Developers or system administrators using tree or dir for troubleshooting
 fields:
-    - process.name
-    - process.executable
-    - process.command_line
-    - process.parent.name
-    - process.parent.executable
+- process.name
+- process.executable
+- process.command_line
+- process.parent.name
+- process.parent.executable
 level: medium

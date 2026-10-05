@@ -1,39 +1,53 @@
 title: System Network Connections Discovery via Chained CMD Commands
 id: 1b7ee4dd-14c6-4538-aa6b-c64169bb6018
 status: experimental
-description: Detects cmd.exe or powershell.exe spawning netstat.exe, net.exe, or net1.exe with discovery-oriented arguments such as -ano, sessions, or use. Particularly suspicious when chained in a single command line, indicating active enumeration of network connections, mapped drives, and SMB sessions consistent with T1049.
+description: |
+  Detects cmd.exe or powershell.exe spawning netstat.exe, net.exe, or net1.exe with discovery-oriented arguments such as -ano, sessions, or use. Particularly suspicious when chained in a single command line, indicating active enumeration of network connections, mapped drives, and SMB sessions consistent with T1049.
+
+  Defender notes:
+  - Hardening control: Log command lines for chained cmd.exe commands and restrict netstat-style tooling for standard users where practical.
+  - IR step: Review the chained commands and parent process, then check for connections to unusual hosts from the same machine.
+  - Risk treatment: Accept: connection discovery is common; use as a correlation signal.
 author: Jahsean Meikle
 date: 2026/05/10
 references:
-    - https://attack.mitre.org/techniques/T1049/
+- https://attack.mitre.org/techniques/T1049/
 tags:
-    - attack.discovery
-    - attack.t1049
+- attack.discovery
+- attack.t1049
+- cert.secplus.2.4
+- cert.secplus.4.4
+- cert.isc2cc.d4
+- cert.isc2cc.d5
+- nist.800-53.au-12
+- nist.800-53.si-4
+- cis.v8.8.5
+- cis.v8.8.8
 logsource:
-    category: process_creation
-    product: windows
+  category: process_creation
+  product: windows
 detection:
-    selection_parent:
-        process.parent.name|contains:
-            - 'cmd.exe'
-            - 'powershell.exe'
-    selection_process:
-        process.name|contains:
-            - 'netstat'
-            - 'net1'
-    selection_args:
-        process.command_line|contains:
-            - '-ano'
-            - 'sessions'
-    condition: selection_parent and selection_process and selection_args
+  selection_parent:
+    process.parent.name|contains:
+    - cmd.exe
+    - powershell.exe
+  selection_process:
+    process.name|contains:
+    - netstat
+    - net1
+  selection_args:
+    process.command_line|contains:
+    - -ano
+    - sessions
+  condition: selection_parent and selection_process and selection_args
 falsepositives:
-    - Legitimate administrative scripts that enumerate network connections or mapped drives
-    - IT monitoring tools that invoke netstat or net commands as part of diagnostics
-    - Automated deployment or patch management systems running network checks
+- Legitimate administrative scripts that enumerate network connections or mapped drives
+- IT monitoring tools that invoke netstat or net commands as part of diagnostics
+- Automated deployment or patch management systems running network checks
 level: medium
 fields:
-    - process.name
-    - process.executable
-    - process.command_line
-    - process.parent.name
-    - process.parent.executable
+- process.name
+- process.executable
+- process.command_line
+- process.parent.name
+- process.parent.executable

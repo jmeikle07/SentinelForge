@@ -1,31 +1,44 @@
 title: System Owner/User Discovery via Scripting Engine Parent Process
 id: 0d36e12f-4b63-4cf0-8483-8552b1d57090
 status: experimental
-description: Detects whoami.exe or HOSTNAME.EXE spawned by common scripting engines such as powershell.exe, wscript.exe, cscript.exe, or cmd.exe, indicative of system owner and user discovery activity.
+description: |
+  Detects whoami.exe or HOSTNAME.EXE spawned by common scripting engines such as powershell.exe, wscript.exe, cscript.exe, or cmd.exe, indicative of system owner and user discovery activity.
+
+  Defender notes:
+  - Hardening control: Collect command-line audit logs and restrict scripting engines to users who need them.
+  - IR step: Check what spawned the scripting engine and whether it ran with user or elevated rights, then widen to the host timeline.
+  - Risk treatment: Accept: owner discovery is low-impact; the alert is valuable mostly as correlation context.
 author: Jahsean Meikle
 date: 2026/05/11
 references:
-    - https://attack.mitre.org/techniques/T1033/
+- https://attack.mitre.org/techniques/T1033/
 tags:
-    - attack.discovery
-    - attack.t1033
+- attack.discovery
+- attack.t1033
+- cert.secplus.2.4
+- cert.secplus.4.4
+- cert.isc2cc.d5
+- nist.800-53.au-12
+- nist.800-53.si-4
+- cis.v8.8.5
+- cis.v8.8.8
 logsource:
-    category: process_creation
-    product: windows
+  category: process_creation
+  product: windows
 detection:
-    selection_image:
-        process.name|contains:
-            - 'whoami.exe'
-            - 'HOSTNAME.EXE'
-    selection_parent:
-        process.parent.name|contains:
-            - 'powershell.exe'
-            - 'wscript.exe'
-            - 'cscript.exe'
-            - 'cmd.exe'
-    condition: selection_image and selection_parent
+  selection_image:
+    process.name|contains:
+    - whoami.exe
+    - HOSTNAME.EXE
+  selection_parent:
+    process.parent.name|contains:
+    - powershell.exe
+    - wscript.exe
+    - cscript.exe
+    - cmd.exe
+  condition: selection_image and selection_parent
 falsepositives:
-    - Legitimate administrative scripts that enumerate user or host identity as part of logging or inventory routines
-    - IT automation frameworks such as Ansible or SCCM that invoke whoami.exe or hostname.exe through PowerShell wrappers
-    - Developer tooling or CI/CD pipeline agents running diagnostics via scripting engines
+- Legitimate administrative scripts that enumerate user or host identity as part of logging or inventory routines
+- IT automation frameworks such as Ansible or SCCM that invoke whoami.exe or hostname.exe through PowerShell wrappers
+- Developer tooling or CI/CD pipeline agents running diagnostics via scripting engines
 level: medium

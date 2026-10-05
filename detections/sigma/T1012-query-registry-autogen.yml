@@ -1,41 +1,49 @@
 title: Registry Query Against HotPatch Key by Non-SYSTEM User
 id: 40c64994-869e-4907-967b-6ff05bd0f8d8
 status: experimental
-description: Detects reg.exe executing a query against HKLM\SYSTEM\CurrentControlSet\Control\HotPatch under a non-SYSTEM user context, indicative of T1012 registry enumeration for patch management reconnaissance.
+description: |
+  Detects reg.exe executing a query against HKLM\SYSTEM\CurrentControlSet\Control\HotPatch under a non-SYSTEM user context, indicative of T1012 registry enumeration for patch management reconnaissance.
+
+  Defender notes:
+  - Hardening control: Collect process-creation events with full command lines and baseline legitimate registry query tooling per host role.
+  - IR step: Review the parent process chain and the same user's session for follow-on discovery or credential access.
+  - Risk treatment: Accept: low-impact discovery on its own; monitor and escalate when combined with other discovery or execution alerts.
 author: Jahsean Meikle
 date: 2026/05/11
 references:
-  - https://attack.mitre.org/techniques/T1012/
+- https://attack.mitre.org/techniques/T1012/
 tags:
-  - attack.discovery
-  - attack.t1012
+- attack.discovery
+- attack.t1012
+- cert.secplus.2.4
+- cert.secplus.4.4
+- cert.isc2cc.d5
+- nist.800-53.au-12
+- nist.800-53.si-4
+- cis.v8.8.5
+- cis.v8.8.8
 logsource:
   category: process_creation
   product: windows
 detection:
   selection_process:
     event.code: '1'
-    process.name: 'reg.exe'
+    process.name: reg.exe
   selection_commandline:
     process.command_line|contains|all:
-      - 'query'
-      - 'HotPatch'
+    - query
+    - HotPatch
   filter_system_user:
-    winlog.event_data.IntegrityLevel: 'System'
+    winlog.event_data.IntegrityLevel: System
   condition: selection_process and selection_commandline and not filter_system_user
 falsepositives:
-  - Legitimate administrative scripts querying HotPatch registry settings under a user account
-  - Security or patch management tooling running under interactive user context
+- Legitimate administrative scripts querying HotPatch registry settings under a user account
+- Security or patch management tooling running under interactive user context
 level: medium
 fields:
-  - process.name
-  - process.executable
-  - process.command_line
-  - process.parent.name
-  - process.parent.executable
-  - winlog.event_data.IntegrityLevel
-
-
-
-
-
+- process.name
+- process.executable
+- process.command_line
+- process.parent.name
+- process.parent.executable
+- winlog.event_data.IntegrityLevel

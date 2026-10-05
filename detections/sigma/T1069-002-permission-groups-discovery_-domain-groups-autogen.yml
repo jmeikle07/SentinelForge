@@ -1,33 +1,50 @@
 title: Domain Group Enumeration Chain via Net.exe at High Integrity
 id: 10edaa6c-50ec-48e8-af0f-8d2a19f0c9a1
 status: experimental
-description: Detects net.exe or net1.exe executing domain group enumeration commands including 'group /domain', 'domain admins', or 'enterprise admins' arguments, particularly when executed at High integrity level. Indicative of T1069.002 post-compromise domain reconnaissance.
+description: |
+  Detects net.exe or net1.exe executing domain group enumeration commands including 'group /domain', 'domain admins', or 'enterprise admins' arguments, particularly when executed at High integrity level. Indicative of T1069.002 post-compromise domain reconnaissance.
+
+  Defender notes:
+  - Hardening control: Review privileged group membership regularly, apply role-based access control, and log net.exe group enumeration.
+  - IR step: Identify the account and host, review which groups were enumerated, and watch that account for privilege escalation.
+  - Risk treatment: Mitigate: tidy privileged groups to reduce what enumeration reveals; accept discovery noise.
 author: Jahsean Meikle
 date: 2026/05/10
 references:
-  - https://attack.mitre.org/techniques/T1069/002/
+- https://attack.mitre.org/techniques/T1069/002/
 tags:
-  - attack.discovery
-  - attack.t1069.002
+- attack.discovery
+- attack.t1069.002
+- cert.secplus.2.4
+- cert.secplus.4.4
+- cert.secplus.4.6
+- cert.isc2cc.d3
+- cert.isc2cc.d5
+- nist.800-53.ac-2
+- nist.800-53.au-6
+- nist.800-53.si-4
+- cis.v8.5.1
+- cis.v8.6.8
+- cis.v8.8.5
 logsource:
   category: process_creation
   product: windows
 detection:
   selection:
     process.name|contains:
-      - 'net.exe'
-      - 'net1.exe'
+    - net.exe
+    - net1.exe
     process.command_line|contains:
-      - 'group /domain'
-      - 'domain admins'
-      - 'enterprise admins'
+    - group /domain
+    - domain admins
+    - enterprise admins
   condition: selection
 falsepositives:
-  - Legitimate IT administrators performing domain group audits or inventory tasks from an elevated session
-  - Automated IT management or helpdesk tooling that enumerates domain groups using net.exe under elevated credentials
-  - Security assessment or penetration testing activity authorized within the environment
+- Legitimate IT administrators performing domain group audits or inventory tasks from an elevated session
+- Automated IT management or helpdesk tooling that enumerates domain groups using net.exe under elevated credentials
+- Security assessment or penetration testing activity authorized within the environment
 level: medium
 fields:
-  - process.name
-  - process.command_line
-  - process.parent.name
+- process.name
+- process.command_line
+- process.parent.name

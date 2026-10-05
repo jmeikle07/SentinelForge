@@ -1,54 +1,68 @@
 title: Suspicious Svchost Execution with Unusual Service Group Parameter
 id: 6d060b71-5faf-425c-bf21-bb7751cc0e83
 status: experimental
-description: Detects svchost.exe instances spawned by services.exe with unusual or rare -k group parameters that deviate from known legitimate Windows service groups. Attackers may register malicious services to achieve persistence and execution under SYSTEM privileges via T1569.002 (formerly T1035).
+description: |
+  Detects svchost.exe instances spawned by services.exe with unusual or rare -k group parameters that deviate from known legitimate Windows service groups. Attackers may register malicious services to achieve persistence and execution under SYSTEM privileges via T1569.002 (formerly T1035).
+
+  Defender notes:
+  - Hardening control: Disable unnecessary services, restrict service creation to administrators, and baseline svchost service groups.
+  - IR step: Inspect the new or modified service binary and parameters, preserve it, and remove persistence once scoped.
+  - Risk treatment: Mitigate: service allowlisting and least privilege; accept residual risk from legitimate administrative tooling.
 author: Jahsean Meikle
 date: 2026/05/15
 tags:
-    - attack.execution
-    - attack.t1569.002
+- attack.execution
+- attack.t1569.002
+- cert.secplus.2.4
+- cert.secplus.4.1
+- cert.isc2cc.d5
+- nist.800-53.cm-6
+- nist.800-53.cm-7
+- nist.800-53.si-4
+- cis.v8.4.8
+- cis.v8.8.8
 references:
-    - https://attack.mitre.org/techniques/T1569/002/
-    - https://www.ired.team/offensive-security/persistence/persisting-in-svchost.exe-with-a-custom-service-dll-servicemain
+- https://attack.mitre.org/techniques/T1569/002/
+- https://www.ired.team/offensive-security/persistence/persisting-in-svchost.exe-with-a-custom-service-dll-servicemain
 logsource:
-    category: process_creation
-    product: windows
+  category: process_creation
+  product: windows
 detection:
-    selection:
-        event.code: '1'
-        process.name: 'svchost.exe'
-        process.parent.name: 'services.exe'
-    filter_known_groups:
-        process.command_line|contains:
-            - '-k netsvcs'
-            - '-k LocalServiceNetworkRestricted'
-            - '-k LocalServiceNoNetwork'
-            - '-k LocalService'
-            - '-k NetworkService'
-            - '-k DcomLaunch'
-            - '-k RPCSS'
-            - '-k termsvcs'
-            - '-k secsvcs'
-            - '-k wusvcs'
-            - '-k LocalSystemNetworkRestricted'
-            - '-k UnistackSvcGroup'
-            - '-k ClipboardSvcGroup'
-            - '-k DevicesFlow'
-            - '-k PrintWorkflow'
-            - '-k ICService'
-            - '-k WbioSvcGroup'
-            - '-k GPSvcGroup'
-            - '-k PCASvc'
-            - '-k wsappx'
-            - '-k appmodel'
-            - '-k camera'
-            - '-k imgsvc'
-            - '-k rdxsvc'
-            - '-k StorSvc'
-            - '-k netsvcs -p'
-            - '-k LocalServiceAndNoImpersonation'
-    condition: selection and not filter_known_groups
+  selection:
+    event.code: '1'
+    process.name: svchost.exe
+    process.parent.name: services.exe
+  filter_known_groups:
+    process.command_line|contains:
+    - -k netsvcs
+    - -k LocalServiceNetworkRestricted
+    - -k LocalServiceNoNetwork
+    - -k LocalService
+    - -k NetworkService
+    - -k DcomLaunch
+    - -k RPCSS
+    - -k termsvcs
+    - -k secsvcs
+    - -k wusvcs
+    - -k LocalSystemNetworkRestricted
+    - -k UnistackSvcGroup
+    - -k ClipboardSvcGroup
+    - -k DevicesFlow
+    - -k PrintWorkflow
+    - -k ICService
+    - -k WbioSvcGroup
+    - -k GPSvcGroup
+    - -k PCASvc
+    - -k wsappx
+    - -k appmodel
+    - -k camera
+    - -k imgsvc
+    - -k rdxsvc
+    - -k StorSvc
+    - -k netsvcs -p
+    - -k LocalServiceAndNoImpersonation
+  condition: selection and not filter_known_groups
 falsepositives:
-    - Legitimate but rare or newly introduced Windows service host groups from Windows updates or third-party software
-    - Enterprise software that registers custom svchost service groups during installation
+- Legitimate but rare or newly introduced Windows service host groups from Windows updates or third-party software
+- Enterprise software that registers custom svchost service groups during installation
 level: medium

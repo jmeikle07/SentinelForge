@@ -1,34 +1,51 @@
 title: PowerShell HTTP POST Exfiltration via Invoke-WebRequest
 id: 723b2878-ced4-4052-ab1c-05629a5f4127
 status: experimental
-description: Detects PowerShell processes executing Invoke-WebRequest or Invoke-RestMethod with HTTP POST methods transmitting data, indicative of T1048.003 exfiltration over unencrypted HTTP.
+description: |
+  Detects PowerShell processes executing Invoke-WebRequest or Invoke-RestMethod with HTTP POST methods transmitting data, indicative of T1048.003 exfiltration over unencrypted HTTP.
+
+  Defender notes:
+  - Hardening control: Use egress filtering with an allowlist, inspect outbound HTTP at the proxy, and deploy data loss prevention for sensitive stores.
+  - IR step: Contain the host, identify the destination and data volume sent, and start breach assessment and notification decisions.
+  - Risk treatment: Mitigate: egress control and DLP; for confirmed loss, treat as a reportable incident and involve legal.
 author: Jahsean Meikle
 date: 2026/05/10
 references:
-    - https://attack.mitre.org/techniques/T1048/003/
+- https://attack.mitre.org/techniques/T1048/003/
 tags:
-    - attack.exfiltration
-    - attack.t1048.003
+- attack.exfiltration
+- attack.t1048.003
+- cert.secplus.3.3
+- cert.secplus.4.4
+- cert.secplus.4.5
+- cert.isc2cc.d4
+- cert.isc2cc.d5
+- nist.800-53.ac-4
+- nist.800-53.sc-7
+- nist.800-53.si-4
+- cis.v8.3.13
+- cis.v8.13.4
+- cis.v8.13.10
 logsource:
-    category: process_creation
-    product: windows
+  category: process_creation
+  product: windows
 detection:
-    selection_invoke:
-        process.name|endswith: 'powershell.exe'
-        process.command_line|contains:
-            - 'Invoke-WebRequest'
-            - 'Invoke-RestMethod'
-    selection_post:
-        process.command_line|contains: 'POST'
-    selection_body:
-        process.command_line|contains: 'Body'
-    condition: selection_invoke and selection_post and selection_body
+  selection_invoke:
+    process.name|endswith: powershell.exe
+    process.command_line|contains:
+    - Invoke-WebRequest
+    - Invoke-RestMethod
+  selection_post:
+    process.command_line|contains: POST
+  selection_body:
+    process.command_line|contains: Body
+  condition: selection_invoke and selection_post and selection_body
 falsepositives:
-    - Legitimate automation scripts using PowerShell to POST data to internal or approved external APIs
-    - Security testing or red team exercises involving HTTP data transmission
-    - Monitoring or telemetry agents that use Invoke-WebRequest to send diagnostics
+- Legitimate automation scripts using PowerShell to POST data to internal or approved external APIs
+- Security testing or red team exercises involving HTTP data transmission
+- Monitoring or telemetry agents that use Invoke-WebRequest to send diagnostics
 level: high
 fields:
-    - process.name
-    - process.command_line
-    - process.parent.name
+- process.name
+- process.command_line
+- process.parent.name

@@ -1,60 +1,76 @@
 title: PowerShell Invoke-WebRequest Download to Temp Directory
 id: 28a2bef3-af7f-4b3a-8e7f-08616e25b694
 status: experimental
-description: Detects powershell.exe invoking Invoke-WebRequest or similar download cmdlets targeting external domains and writing output to user-writable or temp directories. This pattern is consistent with T1059.001 staged payload delivery.
+description: |
+  Detects powershell.exe invoking Invoke-WebRequest or similar download cmdlets targeting external domains and writing output to user-writable or temp directories. This pattern is consistent with T1059.001 staged payload delivery.
+
+  Defender notes:
+  - Hardening control: Enable PowerShell script block and module logging, apply Constrained Language Mode, and allowlist approved scripts.
+  - IR step: Collect script block logs, identify the download source and parent process, and quarantine any written files.
+  - Risk treatment: Mitigate: logging and language constraints; accept residual risk for administrators who need full PowerShell.
 author: Jahsean Meikle
 date: 2026/05/10
 references:
-    - https://attack.mitre.org/techniques/T1059/001/
-    - https://github.com/redcanaryco/atomic-red-team/blob/master/atomics/T1059.001/T1059.001.md
+- https://attack.mitre.org/techniques/T1059/001/
+- https://github.com/redcanaryco/atomic-red-team/blob/master/atomics/T1059.001/T1059.001.md
 tags:
-    - attack.execution
-    - attack.t1059.001
-    - attack.t1105
+- attack.execution
+- attack.t1059.001
+- attack.t1105
+- cert.secplus.2.4
+- cert.secplus.4.1
+- cert.secplus.4.4
+- cert.secplus.4.5
+- cert.isc2cc.d4
+- cert.isc2cc.d5
+- nist.800-53.au-2
+- nist.800-53.cm-7
+- nist.800-53.sc-7
+- nist.800-53.si-4
+- cis.v8.2.7
+- cis.v8.8.8
+- cis.v8.9.3
+- cis.v8.10.7
+- cis.v8.13.10
 logsource:
-    category: process_creation
-    product: windows
+  category: process_creation
+  product: windows
 detection:
-    selection_process:
-        process.name|endswith:
-            - '\powershell.exe'
-            - 'powershell.exe'
-    selection_cmdline_download:
-        process.command_line|contains|all:
-            - 'Invoke-WebRequest'
-            - 'OutFile'
-    selection_cmdline_temp:
-        process.command_line|contains:
-            - '$env:TEMP'
-            - '%TEMP%'
-            - '\AppData\Local\Temp'
-            - '\AppData\Roaming'
-            - '\Users\Public'
-            - 'C:\Windows\Temp'
-    selection_external_domain:
-        process.command_line|contains:
-            - 'raw.githubusercontent.com'
-            - 'http://'
-            - 'https://'
-    selection_dns:
-        dns.question.name:
-            - 'raw.githubusercontent.com'
-    condition: (selection_process and selection_cmdline_download and selection_cmdline_temp and selection_external_domain) or (selection_process and selection_dns)
+  selection_process:
+    process.name|endswith:
+    - \powershell.exe
+    - powershell.exe
+  selection_cmdline_download:
+    process.command_line|contains|all:
+    - Invoke-WebRequest
+    - OutFile
+  selection_cmdline_temp:
+    process.command_line|contains:
+    - $env:TEMP
+    - '%TEMP%'
+    - \AppData\Local\Temp
+    - \AppData\Roaming
+    - \Users\Public
+    - C:\Windows\Temp
+  selection_external_domain:
+    process.command_line|contains:
+    - raw.githubusercontent.com
+    - http://
+    - https://
+  selection_dns:
+    dns.question.name:
+    - raw.githubusercontent.com
+  condition: (selection_process and selection_cmdline_download and selection_cmdline_temp and selection_external_domain) or (selection_process and selection_dns)
 falsepositives:
-    - Legitimate software deployment scripts using PowerShell to download installers or configuration files to temp directories
-    - IT administrators using Invoke-WebRequest for sanctioned software updates or patch management automation
-    - Developer workstations running CI/CD pipeline scripts that download build artifacts using PowerShell
-    - Security tooling or EDR solutions that invoke PowerShell web requests for threat intelligence or update checks
+- Legitimate software deployment scripts using PowerShell to download installers or configuration files to temp directories
+- IT administrators using Invoke-WebRequest for sanctioned software updates or patch management automation
+- Developer workstations running CI/CD pipeline scripts that download build artifacts using PowerShell
+- Security tooling or EDR solutions that invoke PowerShell web requests for threat intelligence or update checks
 fields:
-    - process.name
-    - process.command_line
-    - process.parent.name
-    - dns.question.name
-    - file.path
-    - winlog.event_data.IntegrityLevel
+- process.name
+- process.command_line
+- process.parent.name
+- dns.question.name
+- file.path
+- winlog.event_data.IntegrityLevel
 level: high
-
-
-
-
-

@@ -1,40 +1,50 @@
 title: PowerShell SMB Mapping via QUIC Transport with Certificate Check Disabled
 id: a4a0b85e-6503-452f-8506-f9c30505ce72
 status: experimental
-description: Detects PowerShell processes invoking New-SmbMapping with TransportType QUIC and SkipCertificateCheck, potentially followed by file copy operations to the mapped drive. This technique abuses SMB over QUIC (port 443) to evade traditional SMB detection on port 445 and may indicate lateral movement or exfiltration staging.
+description: |
+  Detects PowerShell processes invoking New-SmbMapping with TransportType QUIC and SkipCertificateCheck, potentially followed by file copy operations to the mapped drive. This technique abuses SMB over QUIC (port 443) to evade traditional SMB detection on port 445 and may indicate lateral movement or exfiltration staging.
+
+  Defender notes:
+  - Hardening control: Block SMB between workstations with host firewalls, disable SMBv1, and require SMB signing and encryption.
+  - IR step: Isolate the source host, identify mapped shares and files accessed, and reset credentials used for the mapping.
+  - Risk treatment: Mitigate: host firewall and signing controls; accept the residual risk on file servers that must expose SMB.
 author: Jahsean Meikle
 date: 2026/05/10
 references:
-  - https://attack.mitre.org/techniques/T1021/002/
-  - https://learn.microsoft.com/en-us/windows-server/storage/file-server/smb-over-quic
+- https://attack.mitre.org/techniques/T1021/002/
+- https://learn.microsoft.com/en-us/windows-server/storage/file-server/smb-over-quic
 tags:
-  - attack.lateral_movement
-  - attack.t1021.002
+- attack.lateral_movement
+- attack.t1021.002
+- cert.secplus.2.2
+- cert.secplus.3.2
+- cert.isc2cc.d4
+- nist.800-53.ac-17
+- nist.800-53.sc-7
+- nist.800-53.sc-8
+- cis.v8.3.10
+- cis.v8.4.4
+- cis.v8.13.4
 logsource:
   category: process_creation
   product: windows
 detection:
   selection_process:
     event.code: '1'
-    process.name|contains: 'powershell.exe'
+    process.name|contains: powershell.exe
   selection_cmdline_mapping:
     process.command_line|contains|all:
-      - 'New-SmbMapping'
-      - 'TransportType'
-      - 'QUIC'
-      - 'SkipCertificateCheck'
+    - New-SmbMapping
+    - TransportType
+    - QUIC
+    - SkipCertificateCheck
   selection_cmdline_copy:
     process.command_line|contains:
-      - 'copy'
-      - 'Copy-Item'
-      - 'cp '
+    - copy
+    - Copy-Item
+    - 'cp '
   condition: selection_process and selection_cmdline_mapping and selection_cmdline_copy
 falsepositives:
-  - Legitimate administrators testing or configuring SMB over QUIC in lab or pilot environments
-  - Automated provisioning scripts that map SMB shares using QUIC transport with self-signed certificates
+- Legitimate administrators testing or configuring SMB over QUIC in lab or pilot environments
+- Automated provisioning scripts that map SMB shares using QUIC transport with self-signed certificates
 level: high
-
-
-
-
-
