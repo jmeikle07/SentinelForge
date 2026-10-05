@@ -7,9 +7,6 @@ enabled and scheduled yet match nothing. Runs late (high priority number).
 """
 from __future__ import annotations
 
-import os
-import tempfile
-
 from sigma.backends.elasticsearch import LuceneBackend
 from sigma.collection import SigmaCollection
 from sigma.pipelines.sysmon import sysmon_pipeline
@@ -59,11 +56,10 @@ def convert_path(rule_path: str) -> list[str]:
 
 
 def convert(rule_yaml: str) -> list[str]:
-    """Convert Sigma YAML text to a list of Lucene queries (ECS field names)."""
-    fd, tmp_path = tempfile.mkstemp(suffix=".yml")
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as tmp:
-            tmp.write(rule_yaml)
-        return convert_path(tmp_path)
-    finally:
-        os.unlink(tmp_path)
+    """Convert Sigma YAML text to a list of Lucene queries (ECS field names).
+
+    Parses the text directly (no temp file): on Windows the temp-file route leaked an
+    open handle when pySigma raised, and the cleanup PermissionError [WinError 32]
+    masked the real Sigma error.
+    """
+    return list(_backend().convert(SigmaCollection.from_yaml(rule_yaml)))

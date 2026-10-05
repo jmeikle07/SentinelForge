@@ -57,3 +57,22 @@ def test_sigma_integritylevel_maps_to_integration_field():
 def test_already_qualified_integritylevel_is_unchanged():
     out = ecs.convert(_rule("winlog.event_data.IntegrityLevel"))
     assert out == ["event.code:1 AND winlog.event_data.IntegrityLevel:System"]
+
+
+_BAD_BASE = ("title: t\nid: 11111111-1111-1111-1111-111111111111\nstatus: test\n{extra}"
+             "logsource: {{category: process_creation, product: windows}}\n"
+             "detection:\n  s: {{Image|endswith: a.exe}}\n  condition: s\n")
+
+
+def test_convert_surfaces_real_error_for_null_tags():
+    import pytest
+    with pytest.raises(Exception) as ei:
+        ecs.convert(_BAD_BASE.format(extra="tags:\n"))
+    assert not isinstance(ei.value, PermissionError) and "WinError" not in str(ei.value)
+
+
+def test_convert_surfaces_real_error_for_string_falsepositives():
+    import pytest
+    from sigma.exceptions import SigmaFalsePositivesError
+    with pytest.raises(SigmaFalsePositivesError, match="falsepositives must be a list"):
+        ecs.convert(_BAD_BASE.format(extra="falsepositives: none\n"))
