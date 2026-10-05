@@ -323,16 +323,16 @@
           <div class="esubject">[MEDIUM] New rule deployed: System Language Discovery</div>
           <div class="emeta">to you · from your detection lab</div>
           <div class="ehero"><div class="ed">A new detection rule went live</div>
-            <p>An attacker used built-in Windows tools to gather system and hardware details. They do this to study a machine before the next stage of an attack. The engine just wrote a rule to catch it.</p></div>
+            <p>An attacker used built-in Windows tools to check whether a machine is a virtual one. Malware does this to avoid being studied in an analysis sandbox. The engine just wrote a rule to catch it.</p></div>
           <div class="epills">
-            <div class="epill"><div class="pk">Technique</div><div class="pv">T1614.001</div></div>
+            <div class="epill"><div class="pk">Technique</div><div class="pv">T1497.001</div></div>
             <div class="epill"><div class="pk">Severity</div><div class="pv" style="color:var(--amber)">MEDIUM</div></div>
-            <div class="epill"><div class="pk">Stage</div><div class="pv">Discovery</div></div>
+            <div class="epill"><div class="pk">Stage</div><div class="pv">Defense Evasion</div></div>
           </div>
           <div class="eblock"><h5>What happened</h5>
-            <p>A normal user account ran <span class="ecode">systeminfo</span> chained with a registry query that lists the machine's disks. That combination reveals the storage layout and hints whether the machine is a virtual one, which attackers use to fingerprint a target.</p></div>
+            <p>A normal user account ran <span class="ecode">systeminfo</span> chained with a registry query that lists the machine's disks. That combination reveals the storage layout and hints whether the machine is virtual, which attackers use to decide whether to run or stay quiet.</p></div>
           <div class="eblock"><h5>What to do next</h5>
-            <p>Keep an eye out for sandbox evasion. Attackers check disk and system info to spot virtual machines and avoid being analyzed, so that is the next gap worth closing.</p></div>
+            <p>Watch for other virtualization checks, such as BIOS or hardware-vendor queries. Attackers use several of them, so each one is a gap worth closing.</p></div>
         </div>
       </div>
     </div>
