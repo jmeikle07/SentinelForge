@@ -12,3 +12,9 @@ state/tallkitchen/spamhaus_drop.txt
 detections/sigma/hunt-triggered/
 elastalert/elastalert.log
 nohup.out
+
+# test/tooling artifacts
+.pytest_cache/
+.coverage
+htmlcov/
+*.corrupt
