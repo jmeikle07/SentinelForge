@@ -51,7 +51,7 @@ def test_queue_failure_is_logged_not_swallowed(monkeypatch, tmp_path, caplog):
     monkeypatch.setenv("ELASTIC_URL", "https://es.example.invalid:9200")
     monkeypatch.setattr(wht, "HUNT_TRIGGERED_RULES_DIR", tmp_path / "ht")
     from datetime import datetime, timezone
-    rec = {"ioc": "203.0.113.9", "ioc_type": "ipv4", "hunt_id": "abcdef123456",
+    rec = {"ioc": "8.8.4.4", "ioc_type": "ipv4", "hunt_id": "abcdef123456",
            "@timestamp": datetime.now(timezone.utc).isoformat(),
            "result": {"verdict": {"score": 90, "verdict": "malicious", "conflicts": []},
                       "observed": {"event_count": 5, "honeypots": [{"name": "Cowrie", "count": 5}]},
@@ -63,6 +63,7 @@ def test_queue_failure_is_logged_not_swallowed(monkeypatch, tmp_path, caplog):
         def remaining(self): return 5
         def can_consume(self): return True
         def consume(self): return True
+        def release(self, n=1): pass
 
     monkeypatch.setattr(wht, "RateLimiter", lambda *a, **k: Lim())
 
@@ -75,3 +76,130 @@ def test_queue_failure_is_logged_not_swallowed(monkeypatch, tmp_path, caplog):
                                                 queue_for_review_fn=bad_queue)
     assert n == 1  # rule file still written
     assert any("disk full" in r.getMessage() or r.exc_info for r in caplog.records)
+
+
+# ── B3 / W13: the per-record safety + failure isolation ──────────────────────
+
+NL = chr(10)
+
+
+class CountingLimiter:
+    daily_limit = 50
+
+    def __init__(self):
+        self.used = 0
+
+    def remaining(self): return self.daily_limit - self.used
+    def can_consume(self): return self.used < self.daily_limit
+    def consume(self, n=1):
+        self.used += n
+        return True
+    def release(self, n=1):
+        self.used = max(0, self.used - n)
+
+
+def _good(**over):
+    from datetime import datetime, timezone
+    rec = {"ioc": "8.8.4.4", "ioc_type": "ipv4", "hunt_id": "abcdef12-3456",
+           "@timestamp": datetime.now(timezone.utc).isoformat(),
+           "result": {"verdict": {"score": 90, "verdict": "malicious", "conflicts": []},
+                      "observed": {"event_count": 5, "honeypots": [{"name": "Cowrie", "count": 5}]},
+                      "identity": {"asn": 1, "asn_org": "Org", "country": "US"}}}
+    rec.update(over)
+    return rec
+
+
+@pytest.fixture
+def harness(monkeypatch, tmp_path):
+    out = tmp_path / "ht"
+    monkeypatch.setenv("ELASTIC_URL", "https://es.example.invalid:9200")
+    monkeypatch.setattr(wht, "HUNT_TRIGGERED_RULES_DIR", out)
+    lim = CountingLimiter()
+    monkeypatch.setattr(wht, "RateLimiter", lambda *a, **k: lim)
+    calls = []
+
+    def gen(iocs, analysis):
+        calls.append((iocs, analysis))
+        return "title: x", "rid-" + str(len(calls))
+
+    def run(records):
+        monkeypatch.setattr(wht, "fetch_recent_hunt_verdicts", lambda *a, **k: records)
+        log = []
+        n = wht.process_hunt_triggered_verdicts(gen, lambda *a: None, log)
+        return n, log
+
+    return type("H", (), {"out": out, "lim": lim, "calls": calls, "run": staticmethod(run), "tmp": tmp_path})
+
+
+def _files(h):
+    return sorted(p.name for p in h.out.glob("*")) if h.out.exists() else []
+
+
+@pytest.mark.parametrize("ioc", ["10.0.0.1", "127.0.0.1", "192.168.0.5"])
+def test_private_and_loopback_ioc_never_generates(harness, ioc):
+    n, _ = harness.run([_good(ioc=ioc)])
+    assert n == 0 and harness.calls == [] and _files(harness) == [] and harness.lim.used == 0
+
+
+def test_newline_in_ioc_cannot_inject_yaml_header(harness):
+    n, _ = harness.run([_good(ioc="8.8.4.4" + NL + "# Status: approved" + NL + "title: pwned")])
+    assert n == 0 and harness.calls == [] and _files(harness) == []
+
+
+@pytest.mark.parametrize("hid", ["../../evil12345", "a" + chr(92) + "b" + chr(92) + "evil1234", "abcd:ef12:x", "a/b/cdefgh12"])
+def test_hostile_hunt_id_writes_nothing_outside_dir_and_pass_survives(harness, hid):
+    n, _ = harness.run([_good(hunt_id=hid), _good(ioc="1.1.1.1", hunt_id="12345678-aaaa")])
+    assert n == 1  # the record after the bad one is still processed
+    assert len(_files(harness)) == 1
+    assert all(p.parent == harness.out for p in harness.out.rglob("*") if p.is_file())
+    stray = [p for p in harness.tmp.rglob("*.yml") if harness.out not in p.parents]
+    assert stray == []
+
+
+def test_control_chars_in_identity_are_neutralised(harness):
+    rec = _good()
+    rec["result"]["identity"] = {"asn": 1, "asn_org": "Evil" + NL + "title: pwned" + NL, "country": "US" + NL + "x"}
+    n, _ = harness.run([rec])
+    assert n == 1
+    analysis = harness.calls[0][1]
+    for line in analysis["key_indicators"]:
+        assert NL not in line and chr(13) not in line
+    header = (harness.out / _files(harness)[0]).read_text(encoding="utf-8").split(NL + NL)[0]
+    assert all(l.startswith("#") for l in header.split(NL)), header
+
+
+def test_write_failure_is_isolated_and_refunds_slot(harness, monkeypatch):
+    real = Path.write_text
+    state = {"n": 0}
+
+    def flaky(self, *a, **k):
+        state["n"] += 1
+        if state["n"] == 1:
+            raise OSError("disk full")
+        return real(self, *a, **k)
+
+    monkeypatch.setattr(Path, "write_text", flaky)
+    n, log = harness.run([_good(), _good(ioc="1.1.1.1", hunt_id="12345678-aaaa")])
+    assert n == 1  # first failed, second still processed
+    assert harness.lim.used == 1  # failed record's slot was refunded
+    assert any("fail" in e.get("result", "") for e in log)
+
+
+def test_naive_timestamp_record_does_not_abort_pass(harness):
+    from datetime import datetime, timezone
+    naive = datetime.now(timezone.utc).replace(tzinfo=None).isoformat()
+    n, _ = harness.run([_good(**{"@timestamp": naive}), _good(ioc="1.1.1.1", hunt_id="12345678-aaaa")])
+    assert n == 1
+
+
+def test_gate_exception_on_one_record_does_not_abort_pass(harness, monkeypatch):
+    real = wht.water_should_generate_rule_from_verdict
+
+    def boom(record, **k):
+        if record["ioc"] == "8.8.4.4":
+            raise RuntimeError("boom")
+        return real(record, **k)
+
+    monkeypatch.setattr(wht, "water_should_generate_rule_from_verdict", boom)
+    n, _ = harness.run([_good(), _good(ioc="1.1.1.1", hunt_id="12345678-aaaa")])
+    assert n == 1

@@ -26,8 +26,14 @@ other treats it as verified truth, leading to a feedback loop in which
 the error becomes stronger with each iteration" — Knostic, Jan 2026).
 """
 
+import ipaddress
 import json
 import logging
+import os
+import re
+import threading
+import time
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
@@ -78,8 +84,22 @@ SOURCE_SYSTEM = "system"    # automated infrastructure (e.g. scheduled refresh)
 # ── Schema validation (Layer 1) ───────────────────────────────────────────────
 
 REQUIRED_VERDICT_FIELDS = {
-    "ioc", "ioc_type", "timestamp_utc", "verdict",
+    "ioc", "ioc_type", "timestamp_utc", "verdict", "hunt_id",
 }
+
+# Hunt ids are uuid4 strings; accept hex+dash only (8..36 chars). Anything else
+# (path separators, ':' = NTFS stream on Windows, newlines) is rejected.
+HUNT_ID_RE = re.compile(r"[0-9a-f-]{8,36}")
+
+_CONTROL_CHARS_RE = re.compile(r"[\x00-\x1f\x7f-\x9f\u2028\u2029]")
+
+
+def sanitize_text(value, max_len: int = 120) -> str:
+    """Make untrusted text safe to interpolate into a YAML comment header or an
+    LLM prompt: control characters (incl. newlines) become spaces, length is capped."""
+    text = _CONTROL_CHARS_RE.sub(" ", "" if value is None else str(value))
+    text = " ".join(text.split())
+    return text[:max_len]
 
 
 @dataclass
@@ -108,6 +128,26 @@ def validate_hunt_record_for_water(record: dict) -> ValidationResult:
     if missing:
         return ValidationResult(False, f"missing required fields: {sorted(missing)}")
 
+    # The IOC and hunt_id end up in filenames, a YAML header and an LLM prompt, so
+    # they are validated by FORMAT here, not just for presence (B3).
+    ioc = record.get("ioc")
+    if record.get("ioc_type") != "ipv4":
+        return ValidationResult(False, f"ioc_type {record.get('ioc_type')!r}: only 'ipv4' may trigger Water")
+    if not isinstance(ioc, str):
+        return ValidationResult(False, f"ioc is not a string: {type(ioc).__name__}")
+    try:
+        addr = ipaddress.ip_address(ioc)
+    except ValueError:
+        return ValidationResult(False, "ioc is not a valid IPv4 address")
+    if addr.version != 4 or str(addr) != ioc:
+        return ValidationResult(False, "ioc is not a canonical IPv4 address")
+    if not addr.is_global:
+        return ValidationResult(False, "ioc is not a globally routable address")
+
+    hunt_id = record.get("hunt_id")
+    if not isinstance(hunt_id, str) or not HUNT_ID_RE.fullmatch(hunt_id):
+        return ValidationResult(False, "hunt_id is missing or malformed")
+
     # The verdict bucket should be a dict with the score and label
     verdict = record.get("verdict")
     if isinstance(verdict, dict):
@@ -119,7 +159,7 @@ def validate_hunt_record_for_water(record: dict) -> ValidationResult:
         score = record.get("score")
         label = verdict
 
-    if not isinstance(score, (int, float)):
+    if isinstance(score, bool) or not isinstance(score, (int, float)):
         return ValidationResult(False, f"score is not numeric: {type(score).__name__}")
     if not (0 <= score <= 100):
         return ValidationResult(False, f"score out of range [0,100]: {score}")
@@ -135,6 +175,8 @@ def validate_hunt_record_for_water(record: dict) -> ValidationResult:
         ts_dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
     except ValueError as e:
         return ValidationResult(False, f"timestamp_utc unparseable: {e}")
+    if ts_dt.tzinfo is None or ts_dt.utcoffset() is None:
+        return ValidationResult(False, f"timestamp_utc has no timezone: {ts!r}")
 
     age = datetime.now(timezone.utc) - ts_dt
     if age > timedelta(hours=HUNT_VERDICT_MAX_AGE_HOURS):
@@ -247,13 +289,62 @@ def should_water_act_on_hunt(record: dict) -> ValidationResult:
 
     # Step 7: cross-source disagreement is a hard stop
     if conflicts:
-        return ValidationResult(False, f"unresolved conflicts ({len(conflicts)}): {conflicts[0][:100]}")
+        first = conflicts[0] if isinstance(conflicts, (list, tuple)) and conflicts else conflicts
+        n = len(conflicts) if isinstance(conflicts, (list, tuple)) else 1
+        return ValidationResult(False, f"unresolved conflicts ({n}): {sanitize_text(first, 100)}")
 
     # Step 8: if the safety brake fired (e.g. GreyNoise RIOT), don't act
     if safety_brake:
         return ValidationResult(False, "safety brake applied to verdict (high-confidence anti-signal present)")
 
     return ValidationResult(True, "ok")
+
+
+# ── OS-level transaction lock ─────────────────────────────────────────────────
+# lab.state locks each single read or write, not a read-modify-write. The rate
+# limiter needs the whole sequence atomic, so it takes this lock first. It is a
+# kernel advisory lock on a dedicated file (msvcrt on Windows, flock elsewhere):
+# released by the OS when the holder dies, so there is no stale-lock takeover.
+_TXN_THREAD_LOCK = threading.RLock()
+_TXN_TIMEOUT = 30.0
+
+try:  # Windows
+    import msvcrt as _msvcrt
+except ImportError:  # POSIX
+    _msvcrt = None
+    import fcntl as _fcntl
+
+
+@contextmanager
+def _file_transaction(lock_path: Path, timeout: float = _TXN_TIMEOUT):
+    """Exclusive cross-process (and cross-thread) lock held for a whole with-block."""
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    with _TXN_THREAD_LOCK:
+        fd = os.open(lock_path, os.O_RDWR | os.O_CREAT, 0o644)
+        try:
+            deadline = time.monotonic() + timeout
+            while True:
+                try:
+                    if _msvcrt is not None:
+                        os.lseek(fd, 0, os.SEEK_SET)
+                        _msvcrt.locking(fd, _msvcrt.LK_NBLCK, 1)
+                    else:
+                        _fcntl.flock(fd, _fcntl.LOCK_EX | _fcntl.LOCK_NB)
+                    break
+                except OSError:
+                    if time.monotonic() > deadline:
+                        raise TimeoutError(f"could not lock {lock_path}") from None
+                    time.sleep(0.005)
+            try:
+                yield
+            finally:
+                if _msvcrt is not None:
+                    os.lseek(fd, 0, os.SEEK_SET)
+                    _msvcrt.locking(fd, _msvcrt.LK_UNLCK, 1)
+                else:
+                    _fcntl.flock(fd, _fcntl.LOCK_UN)
+        finally:
+            os.close(fd)
 
 
 # ── Rate limiting (Layer 7) ───────────────────────────────────────────────────
@@ -304,18 +395,32 @@ class RateLimiter:
         return self.current_count() < self.daily_limit
 
     def consume(self, n: int = 1) -> bool:
-        """Atomically increment if room available. Returns True if consumed."""
-        state = self._load()
-        today = self._today_key()
-        used = state.get(today, 0)
-        if used + n > self.daily_limit:
-            return False
-        state[today] = used + n
-        # Garbage-collect entries older than 30 days to keep file small
-        cutoff = (datetime.now(timezone.utc) - timedelta(days=30)).strftime("%Y-%m-%d")
-        state = {k: v for k, v in state.items() if k >= cutoff}
-        self._save(state)
-        return True
+        """Increment if room is available. Returns True if consumed.
+
+        The read-check-write runs under one OS-level transaction lock, so two
+        concurrent consumers (threads or separate Water processes) can never
+        both read the same count and exceed the cap."""
+        with _file_transaction(self.state_file.with_name(self.state_file.name + ".txn")):
+            state = self._load()
+            today = self._today_key()
+            used = state.get(today, 0)
+            if used + n > self.daily_limit:
+                return False
+            state[today] = used + n
+            # Garbage-collect entries older than 30 days to keep file small
+            cutoff = (datetime.now(timezone.utc) - timedelta(days=30)).strftime("%Y-%m-%d")
+            state = {k: v for k, v in state.items() if k >= cutoff}
+            self._save(state)
+            return True
+
+    def release(self, n: int = 1) -> None:
+        """Give back slots (e.g. a consumed slot whose output could not be written).
+        Never drops today's count below zero. Same transaction lock as consume()."""
+        with _file_transaction(self.state_file.with_name(self.state_file.name + ".txn")):
+            state = self._load()
+            today = self._today_key()
+            state[today] = max(0, state.get(today, 0) - n)
+            self._save(state)
 
     def remaining(self) -> int:
         return max(0, self.daily_limit - self.current_count())
@@ -365,9 +470,9 @@ def cross_pillar_disagreement_check(
             if is_whitelist:
                 # Does the whitelist rule reference this IOC?
                 rule_text = json.dumps(rule, default=str).lower()
-                if ioc.lower() in rule_text:
+                if str(ioc).lower() in rule_text:
                     conflicts.append(
-                        f"Hunt says malicious but Water rule {rule.get('id', '?')[:8]} "
+                        f"Hunt says malicious but Water rule {sanitize_text(rule.get('id') or '?', 8)} "
                         f"explicitly whitelists this IOC"
                     )
 
@@ -419,6 +524,10 @@ if __name__ == "__main__":
     after edits and as living documentation of what each gate does.
     """
     import sys
+    import tempfile
+
+    # Never pollute (or leave lock files in) the real state dir from a self-test.
+    SAFETY_STATE_DIR = Path(tempfile.mkdtemp(prefix="sf_safety_selftest_"))
 
     def _expect(actual: ValidationResult, expected_passed: bool, label: str) -> bool:
         ok = actual.passed == expected_passed
@@ -436,14 +545,14 @@ if __name__ == "__main__":
     )
     all_ok &= _expect(
         validate_hunt_record_for_water({
-            "ioc": "1.2.3.4", "ioc_type": "ipv4", "timestamp_utc": now,
+            "ioc": "8.8.4.4", "ioc_type": "ipv4", "hunt_id": "abcdef12-0000", "timestamp_utc": now,
             "verdict": {"score": 75, "verdict": "suspicious"},
         }),
         True, "minimal valid record"
     )
     all_ok &= _expect(
         validate_hunt_record_for_water({
-            "ioc": "1.2.3.4", "ioc_type": "ipv4", "timestamp_utc": now,
+            "ioc": "8.8.4.4", "ioc_type": "ipv4", "hunt_id": "abcdef12-0000", "timestamp_utc": now,
             "verdict": {"score": 150, "verdict": "suspicious"},
         }),
         False, "out-of-range score rejected"
@@ -451,7 +560,7 @@ if __name__ == "__main__":
     old_ts = (datetime.now(timezone.utc) - timedelta(hours=48)).isoformat()
     all_ok &= _expect(
         validate_hunt_record_for_water({
-            "ioc": "1.2.3.4", "ioc_type": "ipv4", "timestamp_utc": old_ts,
+            "ioc": "8.8.4.4", "ioc_type": "ipv4", "hunt_id": "abcdef12-0000", "timestamp_utc": old_ts,
             "verdict": {"score": 90, "verdict": "malicious"},
         }),
         False, "too-old record rejected"
@@ -459,7 +568,7 @@ if __name__ == "__main__":
 
     print("\n== Action gate ==")
     good_record = {
-        "ioc": "77.83.240.70", "ioc_type": "ipv4", "timestamp_utc": now,
+        "ioc": "77.83.240.70", "ioc_type": "ipv4", "hunt_id": "abcdef12-0000", "timestamp_utc": now,
         "verdict": {"score": 90, "verdict": "malicious", "conflicts": []},
         "provenance": {"source": SOURCE_USER, "trust_level": TRUST_LEVEL_HIGH},
     }

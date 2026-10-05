@@ -17,3 +17,4 @@ logs/
 htmlcov/
 *.corrupt
 elastalert/build/
+state/sf/*.txn

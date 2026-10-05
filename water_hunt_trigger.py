@@ -24,6 +24,7 @@ sf_safety.should_water_act_on_hunt).
 """
 
 import logging
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -33,6 +34,7 @@ from lab import config as lab_config
 from lab import http as lab_http
 from sf_safety import (
     RateLimiter,
+    sanitize_text,
     SOURCE_USER, SOURCE_HUNT, TRUST_LEVEL_HIGH,
     HUNT_VERDICT_MAX_AGE_HOURS,
     HUNT_TRIGGERED_DAILY_LIMIT,
@@ -42,6 +44,8 @@ from sf_safety import (
 )
 
 logger = logging.getLogger(__name__)
+
+SAFE_SLUG_RE = re.compile(r"T[0-9]{4}(?:\.[0-9]{3})?-[0-9a-f-]{8}-[0-9]{1,3}(?:-[0-9]{1,3}){3}\.yml")
 
 # Where Hunt writes its canonical records (Hunt's Phase 2 ES dual-write target)
 HUNT_LOG_INDEX = "sf-hunt-logs"
@@ -211,10 +215,10 @@ def build_iocs_from_hunt(record: dict, observed: dict, identity: dict) -> dict:
     generate_sigma_rule() does `json.dumps(iocs)` to render the prompt.
     """
     ioc = record.get("ioc")
-    asn = identity.get("asn")
-    asn_org = identity.get("asn_org")
-    country = identity.get("country")
-    honeypot_names = [hp.get("name") for hp in (observed.get("honeypots") or []) if hp.get("name")]
+    asn = sanitize_text(identity.get("asn"), 20)
+    asn_org = sanitize_text(identity.get("asn_org"), 80)
+    country = sanitize_text(identity.get("country"), 40)
+    honeypot_names = [sanitize_text(hp.get("name"), 40) for hp in (observed.get("honeypots") or []) if hp.get("name")]
 
     iocs = {
         "source_ips":         [ioc] if ioc else [],
@@ -279,16 +283,23 @@ def process_hunt_triggered_verdicts(generate_fn, save_and_push_fn, log: list, _c
     skipped_by_gate = 0
     skipped_no_technique = 0
 
-    for record in records:
-        ioc = record.get("ioc", "?")
+    slot_held = [False]  # a consumed rate slot whose output was not (yet) written
+
+    def _handle(record) -> str:
+        """Process ONE record; returns "stop" to end the pass, anything else to go on.
+        The caller contains any exception so one bad record cannot abort the pass."""
+        nonlocal generated, skipped_by_gate, skipped_no_technique
+        # Display-only until the gate has validated it; strip control chars (log/console injection).
+        ioc = sanitize_text(record.get("ioc", "?"), 64)
 
         # Each record from ES needs to flatten Hunt's result structure into
         # the shape safety.py expects (verdict/observed/identity at top level).
         # Hunt writes @timestamp; safety expects timestamp_utc — translate.
         result = record.get("result") or {}
         normalized = {
-            "ioc": ioc,
+            "ioc": record.get("ioc"),
             "ioc_type": record.get("ioc_type"),
+            "hunt_id": record.get("hunt_id"),
             "timestamp_utc": record.get("@timestamp") or record.get("timestamp_utc"),
             "verdict": result.get("verdict"),
             "provenance": record.get("provenance") or {
@@ -304,8 +315,8 @@ def process_hunt_triggered_verdicts(generate_fn, save_and_push_fn, log: list, _c
         gate = water_should_generate_rule_from_verdict(normalized, existing_rules=[], rate_limiter=limiter)
         if not gate.passed:
             skipped_by_gate += 1
-            _say(f"  [dim]· skip {ioc}: {gate.reason}[/]" if _con else f"  · skip {ioc}: {gate.reason}")
-            continue
+            _say(f"  [dim]· skip {ioc}: {sanitize_text(gate.reason, 200)}[/]" if _con else f"  · skip {ioc}: {sanitize_text(gate.reason, 200)}")
+            return "skip"
 
         # Step 4: infer technique from honeypot mix
         observed = result.get("observed") or {}
@@ -315,13 +326,14 @@ def process_hunt_triggered_verdicts(generate_fn, save_and_push_fn, log: list, _c
             skipped_no_technique += 1
             _say(f"  [dim]· skip {ioc}: no honeypot hits map to known ATT&CK techniques[/]"
                  if _con else f"  · skip {ioc}: no honeypot hits map to known ATT&CK techniques")
-            continue
+            return "skip"
 
         # Step 5: consume rate budget atomically before generating
         if not limiter.consume():
             _say(f"  [yellow]· daily rate limit hit during processing — stopping[/]"
                  if _con else f"  · daily rate limit hit during processing — stopping")
-            break
+            return "stop"
+        slot_held[0] = True
 
         # Step 6: build the analysis dict Water expects
         # generate_sigma_rule reads: technique_id, technique_name, tactic,
@@ -329,9 +341,9 @@ def process_hunt_triggered_verdicts(generate_fn, save_and_push_fn, log: list, _c
         # from honeypot-to-technique inference; the last three we synthesize
         # from Hunt verdict data so the LLM prompt has concrete guidance.
         verdict_dict = result.get("verdict") or {}
-        score = verdict_dict.get("score", 0)
-        label = verdict_dict.get("verdict", "?")
-        honeypot_names = inferred["honeypots_seen"]
+        score = sanitize_text(verdict_dict.get("score", 0), 10)
+        label = sanitize_text(verdict_dict.get("verdict", "?"), 40)
+        honeypot_names = [sanitize_text(n, 40) for n in inferred["honeypots_seen"]]
         analysis = {
             "technique_id":           inferred["technique_id"],
             "technique_name":         inferred["technique_name"],
@@ -357,8 +369,8 @@ def process_hunt_triggered_verdicts(generate_fn, save_and_push_fn, log: list, _c
             ),
             "key_indicators": [
                 f"source IP {ioc}",
-                f"ASN {identity.get('asn') or '?'} ({identity.get('asn_org') or 'unknown'})",
-                f"source country: {identity.get('country') or 'unknown'}",
+                f"ASN {sanitize_text(identity.get('asn')) or '?'} ({sanitize_text(identity.get('asn_org')) or 'unknown'})",
+                f"source country: {sanitize_text(identity.get('country')) or 'unknown'}",
                 f"hit honeypot types: {', '.join(honeypot_names[:5])}",
                 f"event volume: {observed.get('event_count', 0)} events in {HUNT_VERDICT_MAX_AGE_HOURS}h",
             ],
@@ -391,28 +403,50 @@ def process_hunt_triggered_verdicts(generate_fn, save_and_push_fn, log: list, _c
                 "result": "hunt_triggered_generation_failed",
                 "ioc": ioc,
                 "triggered_by_hunt_id": record.get("hunt_id"),
-                "error": str(e)[:200],
+                "error": sanitize_text(e, 200),
             })
-            continue
+            slot_held[0] = False  # generation failure keeps the slot spent (circuit breaker)
+            return "failed"
 
-        # Step 8: route to hunt-triggered output dir, status pending_review
-        HUNT_TRIGGERED_RULES_DIR.mkdir(parents=True, exist_ok=True)
-        # Filename embeds the hunt_id prefix so the audit trail is in the filename itself
-        hunt_id_short = (record.get("hunt_id") or "unknown")[:8]
-        slug = f"{inferred['technique_id']}-{hunt_id_short}-{ioc.replace('.', '-')}.yml"
-        filepath = HUNT_TRIGGERED_RULES_DIR / slug
+        # Step 8: route to hunt-triggered output dir, status pending_review.
+        # Filename is built ONLY from validated parts: technique id from our own
+        # mapping, hunt_id (gate: [0-9a-f-]{8,36}) prefix, and a canonical global IPv4.
+        hunt_id = record["hunt_id"]
+        slug = f"{inferred['technique_id']}-{hunt_id[:8]}-{ioc.replace('.', '-')}.yml"
+        if not SAFE_SLUG_RE.fullmatch(slug):
+            raise ValueError(f"refusing unsafe rule filename {slug!r}")
+        out_dir = HUNT_TRIGGERED_RULES_DIR
+        filepath = out_dir / slug
+        if filepath.resolve().parent != out_dir.resolve():
+            raise ValueError(f"rule path escapes {out_dir}: {slug!r}")
 
         # Stamp the generated YAML with provenance comment block at the top
         provenance_block = (
             f"# Hunt-triggered rule (Phase 6.B)\n"
-            f"# Triggered by hunt_id: {record.get('hunt_id')}\n"
+            f"# Triggered by hunt_id: {hunt_id}\n"
             f"# IOC: {ioc}\n"
-            f"# Hunt verdict: {result.get('verdict', {}).get('verdict', '?')} "
-            f"(score {result.get('verdict', {}).get('score', '?')}/100)\n"
+            f"# Hunt verdict: {label} (score {score}/100)\n"
             f"# Status: pending_review (analyst must approve before deployment)\n"
             f"# Generated: {datetime.now(timezone.utc).isoformat()}\n\n"
         )
-        filepath.write_text(provenance_block + sigma_yaml, encoding="utf-8")
+        try:
+            out_dir.mkdir(parents=True, exist_ok=True)
+            filepath.write_text(provenance_block + sigma_yaml, encoding="utf-8")
+        except OSError as e:
+            logger.exception("could not write hunt-triggered rule for %s", ioc)
+            _say(f"  [red]x could not write rule file: {sanitize_text(e, 120)}[/]"
+                 if _con else f"  x could not write rule file: {sanitize_text(e, 120)}")
+            limiter.release()  # nothing was produced: give the slot back
+            slot_held[0] = False
+            log.append({
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "result": "hunt_triggered_write_failed",
+                "ioc": ioc,
+                "triggered_by_hunt_id": hunt_id,
+                "error": sanitize_text(e, 200),
+            })
+            return "failed"
+        slot_held[0] = False
         # Also place into the unified review queue (approve.py) so both paths funnel to one place
         if queue_for_review_fn is not None:
             try:
@@ -447,6 +481,23 @@ def process_hunt_triggered_verdicts(generate_fn, save_and_push_fn, log: list, _c
         ))
 
         generated += 1
+        return "generated"
+
+    for record in records:
+        slot_held[0] = False
+        try:
+            outcome = _handle(record)
+        except Exception as e:  # noqa: BLE001 - per-record isolation: one bad record must not abort the pass
+            logger.exception("hunt-trigger record failed: %s", sanitize_text(record.get("ioc") if isinstance(record, dict) else record))
+            _say(f"  [red]x record failed: {sanitize_text(e, 120)}[/]" if _con else f"  x record failed: {sanitize_text(e, 120)}")
+            if slot_held[0]:
+                try:
+                    limiter.release()
+                except Exception:  # noqa: BLE001 - refund is best-effort
+                    logger.exception("could not refund rate slot")
+            continue
+        if outcome == "stop":
+            break
 
     # Summary
     _say(
