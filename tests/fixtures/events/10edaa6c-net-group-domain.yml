@@ -29,3 +29,9 @@ negative:
     <<: *ev
     process.name: ipconfig.exe
     process.command_line: ipconfig /domain
+recased_positive:
+- name: "NET GROUP in capitals"
+  event:
+    <<: *ev
+    process.name: "NET.EXE"
+    process.command_line: "NET GROUP \"DOMAIN ADMINS\" /DOMAIN"

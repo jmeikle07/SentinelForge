@@ -26,3 +26,10 @@ negative:
     event.code: "13"
     process.name: sdbinst.exe
     registry.key: HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\InstalledSDB\{1}
+recased_positive:
+- name: "SDBINST.EXE in capitals"
+  event:
+    <<: *ev
+    process.name: "SDBINST.EXE"
+    process.command_line: "SDBINST.EXE C:\\TEMP\\FIX.SDB"
+    process.parent.name: "EXPLORER.EXE"

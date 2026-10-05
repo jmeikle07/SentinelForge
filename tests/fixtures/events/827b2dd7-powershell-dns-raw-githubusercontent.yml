@@ -27,3 +27,9 @@ negative:
     event.code: "1"
     process.name: powershell.exe
     process.command_line: powershell.exe raw.githubusercontent.com
+recased_positive:
+- name: "POWERSHELL.EXE resolving an upper-case name"
+  event:
+    <<: *ev
+    process.name: "POWERSHELL.EXE"
+    dns.question.name: "RAW.GITHUBUSERCONTENT.COM"

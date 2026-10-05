@@ -50,3 +50,11 @@ negative:
   event:
     <<: *ev
     process.parent.name: notepad.exe
+recased_positive:
+- name: "WHOAMI.EXE under POWERSHELL.EXE"
+  event:
+    <<: *ev
+    process.name: "WHOAMI.EXE"
+    process.executable: "C:\\WINDOWS\\SYSTEM32\\WHOAMI.EXE"
+    process.parent.name: "POWERSHELL.EXE"
+    process.parent.executable: "C:\\WINDOWS\\SYSTEM32\\WINDOWSPOWERSHELL\\V1.0\\POWERSHELL.EXE"

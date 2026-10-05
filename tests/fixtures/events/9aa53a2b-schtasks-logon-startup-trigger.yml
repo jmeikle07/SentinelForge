@@ -29,3 +29,10 @@ negative:
   event:
     <<: *ev
     process.name: at.exe
+recased_positive:
+- name: "Title-case switches /Create /Sc Onlogon"
+  event:
+    <<: *ev
+    process.name: "SCHTASKS.EXE"
+    process.command_line: "SCHTASKS /Create /Sc Onlogon /Tn x /Tr C:\\x.exe"
+    process.parent.name: "CMD.EXE"

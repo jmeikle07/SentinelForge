@@ -50,3 +50,17 @@ negative:
     <<: *ev
     process.name: notepad.exe
     process.executable: C:\Users\Public\notepad.exe
+recased_positive:
+- name: "WHOAMI.EXE in C:\\USERS\\PUBLIC"
+  event:
+    <<: *ev
+    process.name: "WHOAMI.EXE"
+    process.executable: "C:\\USERS\\PUBLIC\\WHOAMI.EXE"
+    process.command_line: "WHOAMI.EXE"
+recased_negative:
+- name: "genuine whoami.exe launched via an upper-case System32 path"
+  event:
+    <<: *ev
+    process.name: "whoami.exe"
+    process.executable: "C:\\WINDOWS\\SYSTEM32\\WHOAMI.EXE"
+    process.command_line: "WHOAMI.EXE"

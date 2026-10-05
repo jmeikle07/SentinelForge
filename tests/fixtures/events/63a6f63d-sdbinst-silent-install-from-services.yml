@@ -21,3 +21,10 @@ negative:
   event:
     <<: *ev
     process.command_line: sdbinst.exe C:\Temp\fix.sdb
+recased_positive:
+- name: "SDBINST.EXE started by SERVICES.EXE"
+  event:
+    <<: *ev
+    process.name: "SDBINST.EXE"
+    process.command_line: "SDBINST.EXE -M -BG"
+    process.parent.name: "SERVICES.EXE"

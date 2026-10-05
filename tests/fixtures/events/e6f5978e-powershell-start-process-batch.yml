@@ -23,3 +23,9 @@ negative:
   event:
     <<: *ev
     process.name: cmd.exe
+recased_positive:
+- name: "START-PROCESS on a .BAT in capitals"
+  event:
+    <<: *ev
+    process.name: "POWERSHELL.EXE"
+    process.command_line: "POWERSHELL.EXE -C \"START-PROCESS C:\\USERS\\PUBLIC\\RUN.BAT\""

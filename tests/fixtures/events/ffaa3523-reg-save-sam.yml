@@ -31,3 +31,10 @@ negative:
   event:
     <<: *ev
     process.command_line: reg query HKLM\SAM
+recased_positive:
+- name: "REG SAVE HKLM\\SAM in capitals"
+  event:
+    <<: *ev
+    process.name: "REG.EXE"
+    process.command_line: "REG SAVE HKLM\\SAM C:\\WINDOWS\\TEMP\\SAM.HIVE"
+    process.parent.name: "CMD.EXE"

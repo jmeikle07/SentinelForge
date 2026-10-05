@@ -26,3 +26,10 @@ negative:
     <<: *ev
     process.name: nltest.exe
     process.command_line: nltest /domain_trusts
+recased_positive:
+- name: "NET VIEW /DOMAIN in capitals"
+  event:
+    <<: *ev
+    process.name: "NET.EXE"
+    process.command_line: "NET VIEW /DOMAIN"
+    process.parent.name: "CMD.EXE"

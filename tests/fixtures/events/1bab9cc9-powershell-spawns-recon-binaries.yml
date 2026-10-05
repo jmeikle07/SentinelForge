@@ -19,3 +19,9 @@ negative:
   event:
     <<: *ev
     process.executable: C:\Windows\System32\notepad.exe
+recased_positive:
+- name: "upper-case executable paths"
+  event:
+    <<: *ev
+    process.executable: "C:\\WINDOWS\\SYSTEM32\\WHOAMI.EXE"
+    process.parent.executable: "C:\\WINDOWS\\SYSTEM32\\WINDOWSPOWERSHELL\\V1.0\\POWERSHELL.EXE"

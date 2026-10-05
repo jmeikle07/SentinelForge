@@ -30,3 +30,10 @@ negative:
     process.name: mstsc.exe
     process.command_line: mstsc /v:10.0.0.5
     process.parent.name: explorer.exe
+recased_positive:
+- name: "CMDKEY with upper-case switches"
+  event:
+    <<: *ev
+    process.name: "CMDKEY.EXE"
+    process.command_line: "CMDKEY /GENERIC:TERMSRV/10.0.0.5 /USER:CORP\\ADMIN /PASS:Winter2026!"
+    process.parent.name: "CMD.EXE"

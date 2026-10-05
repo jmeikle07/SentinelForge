@@ -31,3 +31,10 @@ negative:
   event:
     <<: *ev
     process.parent.name: explorer.exe
+recased_positive:
+- name: "Title-case Netstat.exe and upper-case flags"
+  event:
+    <<: *ev
+    process.name: "Netstat.exe"
+    process.executable: "C:\\Windows\\System32\\Netstat.exe"
+    process.command_line: "NETSTAT -ANO"

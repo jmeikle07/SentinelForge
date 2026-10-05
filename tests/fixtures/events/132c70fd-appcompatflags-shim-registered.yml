@@ -29,3 +29,9 @@ negative:
     event.code: "1"
     process.name: sdbinst.exe
     process.command_line: sdbinst.exe -m -bg
+recased_positive:
+- name: "registry key in capitals"
+  event:
+    <<: *ev
+    process.name: "SDBINST.EXE"
+    registry.key: "HKLM\\SOFTWARE\\MICROSOFT\\WINDOWS NT\\CURRENTVERSION\\APPCOMPATFLAGS\\INSTALLEDSDB\\{3A1B2C4D-0000-4000-8000-000000000001}.SDB"

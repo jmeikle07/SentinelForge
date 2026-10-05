@@ -29,3 +29,10 @@ negative:
   event:
     <<: *ev
     process.parent.name: explorer.exe
+recased_positive:
+- name: "REG ADD with upper-case key, value name and switches"
+  event:
+    <<: *ev
+    process.name: "REG.EXE"
+    process.command_line: "REG ADD \"HKCU\\SOFTWARE\\MICROSOFT\\WINDOWS\\CURRENTVERSION\\EXPLORER\\ADVANCED\" /V HIDEFILEEXT /T REG_DWORD /D 1 /F"
+    process.parent.name: "CMD.EXE"

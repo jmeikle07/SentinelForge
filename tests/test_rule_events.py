@@ -15,10 +15,14 @@ event type does not have, ...). This module therefore
 Case sensitivity: the evaluator is case-SENSITIVE. pySigma's Lucene backend
 renders literals verbatim (no case folding) and ECS process.* / registry.* /
 dns.* fields are keyword-like types that Kibana's query_string compares
-case-sensitively, whereas Sigma itself is case-insensitive. A literal's case
-therefore matters in production; the fixtures use the casing Windows really
-produces (e.g. HOSTNAME.EXE). Whether the lab's own index mapping adds a
-case-insensitive normalizer could not be verified offline.
+case-sensitively, whereas Sigma itself is case-insensitive. lab.ecs therefore
+expands string literals on Windows case-insensitive fields into bounded case
+variants at conversion time (docs/ARCHITECTURE.md, "Case sensitivity"), so a
+rule matches an event whatever its casing; the `recased_positive` /
+`recased_negative` fixtures prove that, and prove it bites by re-running with
+SF_CASE_VARIANTS=0. The fixtures use the casing Windows really produces (e.g.
+HOSTNAME.EXE). Whether the lab's own index mapping adds a case-insensitive
+normalizer could not be verified offline; the expansion is correct either way.
 """
 from __future__ import annotations
 
@@ -239,15 +243,37 @@ def rule_matches(queries, event) -> bool:
     return any(matches(q, event) for q in queries)
 
 
+def _collapse_same_field_or(tree):
+    """Fold an OR of terms on ONE field (a `field:(a OR b ...)` group) into a single term.
+
+    The case-variant expansion makes such groups long (up to 4 alternatives per literal); their
+    product explodes the DNF although they only matter as "this field is referenced". event.code
+    groups are kept as they are because the guards read their literal values.
+    """
+    if tree[0] == "term":
+        return tree
+    if tree[0] == "not":
+        return ("not", _collapse_same_field_or(tree[1]))
+    kids = [_collapse_same_field_or(c) for c in tree[1]]
+    if (tree[0] == "or" and all(k[0] == "term" for k in kids)
+            and len({k[1] for k in kids}) == 1 and kids[0][1] != "event.code"):
+        return kids[0]
+    return (tree[0], kids)
+
+
 def _dnf(tree, negate=False, cap=20000):
     """Disjunctive normal form: list of conjuncts, each a list of (negated, field, pattern)."""
+    return _dnf_raw(_collapse_same_field_or(tree), negate, cap)
+
+
+def _dnf_raw(tree, negate=False, cap=20000):
     kind = tree[0]
     if kind == "term":
         return [[(negate, tree[1], tree[2])]]
     if kind == "not":
-        return _dnf(tree[1], not negate, cap)
+        return _dnf_raw(tree[1], not negate, cap)
     conj = (kind == "and") != negate  # De Morgan
-    parts = [_dnf(c, negate, cap) for c in tree[1]]
+    parts = [_dnf_raw(c, negate, cap) for c in tree[1]]
     if not conj:
         return [c for p in parts for c in p]
     out = [[]]
@@ -330,7 +356,10 @@ def test_eval_not_and_or_precedence_through_groups():
     assert not rule_matches([], ev)
 
 
-def test_eval_on_real_pysigma_output_roundtrip():
+def test_eval_on_real_pysigma_output_roundtrip(monkeypatch):
+    # Verbatim rendering (expansion off) so the case-sensitive evaluator is exercised on the
+    # raw pySigma output; the expansion has its own tests in tests/test_ecs_case.py.
+    monkeypatch.setenv("SF_CASE_VARIANTS", "0")
     rule = """
 title: t
 id: 00000000-0000-4000-8000-000000000001
@@ -562,6 +591,55 @@ def test_fixture_events_are_realistic_for_their_event_code(rid, event, expect):
     code = str(event["event.code"])
     bad = sorted(set(event) - SYSMON_EVENT_FIELDS[code] - _COMMON)
     assert not bad, f"{rid}: fixture uses fields absent on Sysmon event {code}: {bad}"
+
+
+# --------------------------------------------------------------------------
+# Case-variant expansion (lab.ecs): events whose casing differs from the rule literal
+# --------------------------------------------------------------------------
+# `recased_positive`: Windows really produces / users really type these spellings, Sigma
+# matches them (case-insensitive) but a verbatim Lucene query on a case-sensitive field
+# does not. `recased_negative`: a benign event in other casing that a rule's NOT filter must
+# still exclude. Each case is checked twice: it behaves correctly with the expansion and
+# behaves WRONGLY with SF_CASE_VARIANTS=0 (so the test demonstrably bites).
+def _recased_cases():
+    for rid, (fname, data) in sorted(FIXTURES.items()):
+        for kind, expect in (("recased_positive", True), ("recased_negative", False)):
+            for case in data.get(kind) or []:
+                yield pytest.param(rid, case["event"], expect,
+                                   id=f"{fname[:-4]}:{kind}:{case['name']}")
+
+
+RECASED = list(_recased_cases())
+
+
+def test_at_least_fifteen_rules_have_a_recased_positive_event():
+    rules = {rid for rid, (_, d) in FIXTURES.items() if d.get("recased_positive")}
+    assert len(rules) >= 15, len(rules)
+    assert len([p for p in RECASED if ":recased_negative:" in p.id]) >= 2
+
+
+@pytest.mark.parametrize("rid,event,expect", RECASED)
+def test_recased_event_behaves_with_case_variants(rid, event, expect, monkeypatch):
+    monkeypatch.delenv("SF_CASE_VARIANTS", raising=False)
+    name, _ = BY_ID[rid]
+    queries = convert((RULES_DIR / name).read_text(encoding="utf-8"))
+    assert rule_matches(queries, event) is expect, (name, event)
+
+
+@pytest.mark.parametrize("rid,event,expect", RECASED)
+def test_recased_event_is_wrong_without_case_variants(rid, event, expect, monkeypatch):
+    """The test bites: with the expansion off, the verbatim query gets the event wrong."""
+    monkeypatch.setenv("SF_CASE_VARIANTS", "0")
+    name, _ = BY_ID[rid]
+    queries = convert((RULES_DIR / name).read_text(encoding="utf-8"))
+    assert rule_matches(queries, event) is (not expect), (name, event)
+
+
+@pytest.mark.parametrize("rid,event,expect", RECASED)
+def test_recased_events_are_realistic_for_their_event_code(rid, event, expect):
+    code = str(event["event.code"])
+    bad = sorted(set(event) - SYSMON_EVENT_FIELDS[code] - _COMMON)
+    assert not bad, f"{rid}: recased fixture uses fields absent on Sysmon event {code}: {bad}"
 
 
 def test_fixture_ids_unique_and_file_named_after_rule_id():

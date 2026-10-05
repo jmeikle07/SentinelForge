@@ -35,3 +35,15 @@ negative:
     event.code: "1"
     process.name: powershell.exe
     process.command_line: powershell.exe -c "nslookup www.msftconnecttest.com"
+recased_positive:
+- name: "upper-case DNS name and process path"
+  event:
+    <<: *ev
+    dns.question.name: "WWW.MSFTCONNECTTEST.COM"
+    process.executable: "C:\\WINDOWS\\SYSTEM32\\WINDOWSPOWERSHELL\\V1.0\\POWERSHELL.EXE"
+recased_negative:
+- name: "genuine svchost.exe with an upper-case System32 path"
+  event:
+    <<: *ev
+    process.name: "SVCHOST.EXE"
+    process.executable: "C:\\WINDOWS\\SYSTEM32\\SVCHOST.EXE"

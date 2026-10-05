@@ -24,3 +24,10 @@ negative:
   event:
     <<: *ev
     process.command_line: powershell.exe -c "New-SmbMapping -RemotePath \\srv\share; Copy-Item a b"
+recased_positive:
+- name: "upper-case New-SmbMapping line"
+  event:
+    <<: *ev
+    process.name: "POWERSHELL.EXE"
+    process.command_line: "POWERSHELL.EXE -C \"NEW-SMBMAPPING -LOCALPATH Z: -REMOTEPATH \\\\FILES.CORP.EXAMPLE\\SHARE -TRANSPORTTYPE QUIC -SKIPCERTIFICATECHECK; COPY-ITEM C:\\DATA\\A.ZIP Z:\\\""
+    process.parent.name: "CMD.EXE"

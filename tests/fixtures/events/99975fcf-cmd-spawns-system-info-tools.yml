@@ -33,3 +33,11 @@ negative:
   event:
     <<: *ev
     process.name: notepad.exe
+recased_positive:
+- name: "SYSTEMINFO.EXE under CMD.EXE"
+  event:
+    <<: *ev
+    process.name: "SYSTEMINFO.EXE"
+    process.executable: "C:\\WINDOWS\\SYSTEM32\\SYSTEMINFO.EXE"
+    process.command_line: "SYSTEMINFO"
+    process.parent.name: "CMD.EXE"

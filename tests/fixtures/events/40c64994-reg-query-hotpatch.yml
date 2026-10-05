@@ -22,3 +22,10 @@ negative:
     <<: *ev
     process.command_line: reg add HKLM\SYSTEM\CurrentControlSet\Control\HotPatch /v x /d 1
     process.name: regedit.exe
+recased_positive:
+- name: "REG QUERY in capitals"
+  event:
+    <<: *ev
+    process.name: "REG.EXE"
+    process.command_line: "REG QUERY HKLM\\SYSTEM\\CURRENTCONTROLSET\\CONTROL\\HOTPATCH"
+    process.parent.name: "CMD.EXE"
