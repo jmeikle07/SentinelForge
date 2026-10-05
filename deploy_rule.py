@@ -12,6 +12,7 @@ import yaml
 from lab import ecs
 from lab.config import ConfigError, Settings, load
 from lab.http import session as make_session
+from lab.kibana_rule import build_payload
 
 log = logging.getLogger("sf.deploy")
 
@@ -46,57 +47,8 @@ def deploy_to_kibana(path: str, settings: Settings, session=None) -> dict:
     if not query:
         raise DeployError(f"could not convert {path}: no query produced")
 
-    severity_map = {
-        "critical": "critical",
-        "high": "high",
-        "medium": "medium",
-        "low": "low",
-        "informational": "low"
-    }
-
-    risk_score_map = {
-        "critical": 99,
-        "high": 73,
-        "medium": 47,
-        "low": 21
-    }
-
-    rule_severity = severity_map.get(metadata.get("level", "medium"), "medium")
-    risk_score = risk_score_map.get(rule_severity, 47)
-
-    tags = []
-    for tag in metadata.get("tags", []):
-        tags.append(str(tag))
-
     author = metadata.get("author")
-
-    kibana_rule = {
-        "type": "query",
-        "language": "lucene",
-        "query": query,
-        "name": metadata.get("title", "Unnamed Rule"),
-        "description": metadata.get("description", "No description provided."),
-        "severity": rule_severity,
-        "risk_score": risk_score,
-        "enabled": True,
-        "from": "now-15m",
-        "interval": "5m",
-        "max_signals": 100,
-        "tags": tags,
-        "references": metadata.get("references", []),
-        "author": [str(author)] if author else [],
-        "index": [
-            "logs-*",
-            "winlogbeat-*",
-            ".ds-logs-*",
-            "endgame-*",
-            "filebeat-*"
-        ],
-        "rule_id": str(metadata.get("id", "")),
-        "false_positives": metadata.get("falsepositives", []),
-        "immutable": False,
-        "version": 1,
-    }
+    kibana_rule = build_payload(metadata, [query], str(author) if author else "")
 
     url = f"{settings.kibana_url.rstrip('/')}{RULES_PATH}"
     headers = {

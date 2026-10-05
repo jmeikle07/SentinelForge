@@ -31,7 +31,7 @@ def build_payload(rule: dict, queries: list[str], author: str) -> dict[str, Any]
         "max_signals": 100,
         "tags": [str(t) for t in rule.get("tags", [])],
         "references": rule.get("references", []),
-        "author": [author],
+        "author": [author] if author else [],
         "index": list(INDICES),
         "rule_id": str(rule.get("id", "")),
         "false_positives": rule.get("falsepositives", []),

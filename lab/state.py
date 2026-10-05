@@ -65,6 +65,10 @@ def _locked(path: Path):
 
 def read(path, default: Any = _MISSING) -> Any:
     path = Path(path)
+    if not path.parent.exists():  # the lockfile needs the directory; nothing can exist here yet
+        if default is _MISSING:
+            raise FileNotFoundError(path)
+        return default
     with _locked(path.parent / path.name):
         try:
             text = path.read_text(encoding="utf-8")

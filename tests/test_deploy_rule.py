@@ -128,3 +128,16 @@ def test_main_exits_nonzero_when_config_missing(rule_file, monkeypatch):
     with pytest.raises(SystemExit) as ei:
         deploy_rule.main([rule_file])
     assert ei.value.code == 1
+
+
+def test_deploy_payload_uses_shared_builder_lookback_and_indices(rule_file):
+    import responses
+    from deploy_rule import deploy_to_kibana
+
+    settings = Settings(elastic_url="https://es:9200", kibana_url="https://kb:5601", verify_tls=True, elastic_api_key="k")
+    with responses.RequestsMock() as rsps:
+        rsps.add(responses.POST, "https://kb:5601/api/detection_engine/rules", json={}, status=200)
+        deploy_to_kibana(str(rule_file), settings)
+        body = __import__("json").loads(rsps.calls[0].request.body)
+    assert body["from"] == "now-6m" and body["interval"] == "5m"
+    assert ".ds-logs-*" not in body["index"] and "endgame-*" not in body["index"]
