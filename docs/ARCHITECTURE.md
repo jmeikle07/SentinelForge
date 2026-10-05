@@ -2,21 +2,21 @@
 
 Author: Jahsean Meikle
 
-This document describes the components and how data moves between them. It describes the design of the code in this repository; it does not claim the system is deployed anywhere. For what has and has not been verified, see "Testing and what is not verified" in the [README](../README.md).
+This document describes the components and how data moves between them. It describes the design of the code in this repository; it does not claim the system is deployed anywhere. For what has and has not been verified, see "Known limitations and what is not verified" in the [README](../README.md#known-limitations-and-what-is-not-verified).
 
 ## Components
 
 | Layer | Files | Responsibility |
 |---|---|---|
-| Shared library | `lab/config.py`, `lab/http.py`, `lab/ecs.py`, `lab/state.py`, `lab/es.py`, `lab/kibana_rule.py` | Settings from env; one HTTP session factory (timeout, retry on 429/502/503/504, TLS verification on unless `LAB_INSECURE_TLS=1`); the single Sigma to ECS conversion pipeline; atomic JSON state files that quarantine corrupt files; `search_after` paging; Kibana detection-rule payload builder. |
+| Shared library | `lab/config.py`, `lab/http.py`, `lab/ecs.py`, `lab/state.py`, `lab/es.py`, `lab/kibana_rule.py`, `lab/coverage.py` | Settings from env; one HTTP session factory (default timeout, retry on 429/502/503/504 for idempotent methods only, `Retry-After` capped at 30 s, TLS verification on unless `LAB_INSECURE_TLS=1`); the single Sigma to ECS conversion pipeline with case-variant expansion; atomic JSON state files under a cross-process advisory lock that quarantine corrupt files; point-in-time (PIT) plus `search_after` paging that raises on partial or malformed pages; Kibana detection-rule payload builder and the list of engine-owned fields used for updates; ATT&CK coverage counted from the shipped rules (deprecated rules excluded). |
 | Detection content | `detections/sigma/*.yml`, `docs/compliance/mapping.yml`, `docs/compliance/objectives.yml` | Sigma rules plus the mapping that drives their ATT&CK, Security+, ISC2 CC, NIST 800-53 and CIS v8 tags and defender notes. |
 | Compliance tooling | `tools/tag_compliance.py`, `tools/readme_tables.py` | Tag rules from the mapping (`--write`), fail on drift (`--check`), generate `docs/compliance/COVERAGE.md` and the README tables. |
-| Rule engine | `generate_rule.py`, `water_hunt_trigger.py`, `validate_rule.py`, `approve.py`, `deploy_rule.py` | Propose a rule from observed telemetry, validate it, hold it for a human, deploy it. |
+| Rule engine | `generate_rule.py`, `water_hunt_trigger.py`, `validate_rule.py`, `approve.py`, `deploy_rule.py`, `tools/redeploy_all.py` | Propose a rule from observed telemetry, validate it, hold it for a human, deploy it; bulk reconciliation of Kibana with the shipped rules (see [REDEPLOY.md](REDEPLOY.md)). |
 | Hunt | `sf_hunt.py`, `sf_safety.py` | IOC enrichment from several sources with a deterministic verdict; safety gates that decide when a hunt verdict may trigger rule generation. |
 | Web | `sf_web.py`, `web/` | FastAPI app: hunt, engine and review dashboards, JSON API, token-gated approve/reject. |
 | Measurement | `rule_efficacy.py`, `generate_heatmap.py` | Alerts per deployed rule from one aggregation; ATT&CK Navigator layer. |
 | Alerting | `elastalert/` | ElastAlert 2 templates, rendered with `envsubst` by `elastalert/run.sh`. |
-| CI | `.github/workflows/test.yml`, `.github/workflows/deploy-detections.yml` | Offline tests on hosted runners; validate then deploy on a self-hosted runner for pushes to `main` that touch `detections/sigma/`. |
+| CI | `.github/workflows/test.yml`, `.github/workflows/deploy-detections.yml`, `tools/ci_changes.py`, `scripts/ci_*.sh` | Offline tests on hosted runners; plan, validate, heal and then deploy on a self-hosted runner for pushes to `main` that touch `detections/sigma/`. `ci_changes.py` works out changed, removed and retagged rules from the git diff. |
 | Scheduling | `run_efficacy.sh`, `run_engine.sh`, `scheduler/*.plist` | Optional periodic efficacy refresh and gated engine run (macOS launchd). |
 
 ## Data flow
@@ -46,7 +46,8 @@ This document describes the components and how data moves between them. It descr
                        | pull_request / push                            | push to main
                        v                                                v
                  test.yml (hosted runner)                 deploy-detections.yml (self-hosted)
-                 pytest, tag_compliance --check             validate job: validate_rule.py
+                 pytest, tag_compliance --check,            plan: tools/ci_changes.py (changed/removed/retagged)
+                 readme_tables --check                      validate job: validate_rule.py
                                                               1 YAML lint
                                                               2 Sigma -> Lucene (lab.ecs)
                                                               3 backtest vs Elasticsearch, 7 days
@@ -54,15 +55,16 @@ This document describes the components and how data moves between them. It descr
                                                               5 self-heal, max 3 attempts
                                                             deploy job (only if validate succeeded):
                                                               deploy_rule.py -> Kibana detection engine
+                                                              deploy_rule.py --delete <id> for removed rules
 ```
 
 ### Rule lifecycle
 
 1. **Proposal.** `generate_rule.py` queries recent events, extracts indicators, asks an LLM for the ATT&CK technique and a Sigma rule using ECS field names. `water_hunt_trigger.py` is a second entry path: high-confidence `sf_hunt` verdicts that pass the `sf_safety` gates can trigger a proposal, marked `pending_review`.
 2. **Hold.** With `WATER_REVIEW_GATE=true` the rule is written to `detections/pending/` and queued in `state/pending_rules.json`. Nothing reaches the SIEM.
-3. **Review.** A person uses `approve.py` or the `/review` page. The page shows each pending rule in plain language alongside the three-model vote receipt. Approving calls the same save-and-push path as the ungated flow; rejecting discards. The web routes require `LAB_ADMIN_TOKEN` and a UUID `rule_id`.
-4. **Validate.** On push to `main`, CI runs `validate_rule.py` for each changed rule. A failed backtest, including Elasticsearch being unreachable, is a failed validation. Voters run concurrently; a voter whose API key is missing is skipped with a warning. Failing rules are rewritten from the voters' feedback up to three times, then the circuit breaker emails and stops.
-5. **Deploy.** The deploy job runs only after validation succeeds. `deploy_rule.py` converts the rule, builds the payload with `lab.kibana_rule.build_payload`, creates it in Kibana, and on a 409 conflict updates it with `PUT` using the `rule_id` in the body. Rule `id` UUIDs are stable because deployed Kibana rules key on them.
+3. **Review.** A person uses `approve.py` or the `/review` page. The page shows each pending rule in plain language alongside the three-model vote receipt. Approving publishes the rule (writes it to `detections/sigma/` and pushes) first and only then updates state, so a failed publish leaves the rule pending and retryable; rejecting discards. The web routes require `LAB_ADMIN_TOKEN` and a UUID `rule_id`.
+4. **Validate.** On push to `main`, CI runs `validate_rule.py` for each changed rule. A failed backtest, including Elasticsearch being unreachable, is a failed validation. Voters run concurrently; a voter that is unreachable or has no API key is excluded with a warning, and at least two well-formed votes are required (a malformed vote is never an approval). Failing rules are rewritten from the voters' feedback, keeping the original id and technique tags, for at most three attempts, then the circuit breaker emails and stops.
+5. **Deploy.** The deploy job runs only after validation succeeds. `deploy_rule.py` converts the rule, builds the payload with `lab.kibana_rule.build_payload`, creates it in Kibana, and on a 409 conflict reads the existing rule, checks that it is an earlier version of the same rule (a shared ATT&CK technique tag; a deliberate retag needs `--allow-retag`), and updates only the engine-owned fields with `PATCH`, so exceptions, actions and the enabled state set in Kibana are kept. A rule with `status: deprecated` is never created; if Kibana has it, it is disabled. Rule `id` UUIDs are stable because deployed Kibana rules key on them.
 6. **Measure and alert.** `rule_efficacy.py` reports which deployed rules have fired. ElastAlert 2 emails on active Kibana alerts.
 
 ### Compliance tagging flow
@@ -71,7 +73,7 @@ This document describes the components and how data moves between them. It descr
 
 ### State
 
-Runtime state is JSON under `state/` (pending rules, validations, hunt log, efficacy, rate-limit counters). `lab.state` writes atomically (temporary file plus `os.replace`, with a lock). A corrupt file is moved aside to `<name>.corrupt` and raises `StateCorrupt` instead of being overwritten with an empty list. The files committed under `state/` are example runtime snapshots from earlier runs; they contain no secrets and may be regenerated or deleted.
+Runtime state is JSON under `state/` (pending rules, validations, hunt log, last run, seen techniques, efficacy) and `state/sf/` (the hunt memory database, the trigger rate-limit file). `lab.state` writes atomically (temporary file plus `os.replace`) under a kernel advisory lock on a `<name>.lock` file (`msvcrt` on Windows, `flock` elsewhere), so separate processes cannot interleave a read-modify-write; the OS releases the lock if the holder dies. `lab.state.update` does the whole read-modify-write under the lock. Lock files are git-ignored runtime artefacts. The multi-process behaviour is tested with real subprocesses (`tests/test_state_multiprocess.py`). A corrupt file is moved aside to `<name>.corrupt` and raises `StateCorrupt` instead of being overwritten with an empty list. The files committed under `state/` are example runtime snapshots from earlier runs; they contain no secrets and may be regenerated or deleted.
 
 ## Case sensitivity
 
@@ -111,6 +113,8 @@ To my knowledge ECS core defines the `.text` (`match_only_text`) multi-fields bu
 ## Trust boundaries and secrets
 
 - The web app and the engine read credentials from environment variables (`.env` locally, repository secrets in CI). Nothing secret is in a tracked file.
-- Browser to `sf_web.py`: state-changing routes need `X-Admin-Token`; hunting is rate limited per client address (behind a reverse proxy, use the proxy's per-client limiter as well).
+- Browser to `sf_web.py`: the `Host` header must be in `SF_ALLOWED_HOSTS`; state-changing routes need `X-Admin-Token` (at least 16 characters, repeated failures lock the client out); hunting is `POST` only and rate limited per client address (behind a reverse proxy, see the proxy-header note in [SETUP.md](SETUP.md)). The read endpoints are unauthenticated.
+- Hunt verdict to rule generation: only records with valid, high-trust `user` or `hunt` provenance pass `sf_safety.should_water_act_on_hunt`; missing provenance fails closed.
+- LLM output to the repository: `generate_rule.validate_generated_sigma` validates and re-renders model output; the engine, not the model, sets `id`, `author`, `date` and `status`.
 - Pipeline to Elasticsearch/Kibana: TLS verification on; API key in `ELASTIC_API_KEY`.
 - CI: pull requests run only on hosted runners with read-only permissions and no secrets. The self-hosted runner, which can reach the lab network, only runs for pushes to `main`.

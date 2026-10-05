@@ -2,7 +2,7 @@
 
 Author: Jahsean Meikle
 
-Step-by-step setup for running SentinelForge against your own Elastic stack. The offline test suite needs only steps 1 and 2. Everything else needs a reachable Elasticsearch and Kibana; none of that path has been verified against a live stack in this version, so expect to adjust on the first run.
+Step-by-step setup for running SentinelForge against your own Elastic stack. The offline test suite needs only steps 1 and 2. Everything else needs a reachable Elasticsearch and Kibana; none of that path has been verified against a live stack, so expect to adjust on the first run. To reconcile an existing Kibana with the shipped rules in one go, see [REDEPLOY.md](REDEPLOY.md).
 
 ## 1. Python environment
 
@@ -10,13 +10,13 @@ Python 3.11 or newer.
 
 ```bash
 python -m venv venv
-venv/bin/python -m pip install -r requirements-dev.txt   # Windows: venv\Scripts\python
+venv/bin/python -m pip install -r requirements-dev.txt   # Windows: venv\Scripts\python (pinned versions)
 ```
 
 ## 2. Verify offline
 
 ```bash
-venv/bin/python -m pytest
+venv/bin/python -m pytest -q          # roughly 2,100 tests, a few minutes; Node-based front-end tests skip without node
 venv/bin/python tools/tag_compliance.py --check
 venv/bin/python tools/readme_tables.py --check
 ```
@@ -34,38 +34,40 @@ venv/bin/python tools/readme_tables.py --check
 cp .env.example .env
 ```
 
-`.env` is git-ignored. Python entry points load it with python-dotenv. Variables:
+`.env` is git-ignored. Python entry points load it with python-dotenv (the web app reads the process environment, so export `LAB_ADMIN_TOKEN` and the other `SF_*` variables, or run through a launcher that loads `.env`). Variables:
 
 | Variable | Required | Used by | Notes |
 |---|---|---|---|
 | `ELASTIC_URL` | yes | everything that queries Elasticsearch | e.g. `https://elastic.example.internal:9200`. No default; a missing value raises `ConfigError`. |
 | `ELASTIC_API_KEY` | yes | engine, validator, efficacy, deploy | Encoded API key. |
 | `KIBANA_URL` | recommended | `deploy_rule.py`, ElastAlert dashboard link | If unset, derived from `ELASTIC_URL` with port 5601. |
-| `LAB_INSECURE_TLS` | no | `lab.http`, ElastAlert | `1` disables TLS verification. Default off. |
-| `ANTHROPIC_API_KEY` | for rule generation and voting | `generate_rule.py`, `validate_rule.py` | A missing key skips that voter with a warning. |
+| `LAB_INSECURE_TLS` | no | `lab.http`, ElastAlert | Exactly `1` disables TLS verification and logs a warning once per process. Default off (verification on). |
+| `ANTHROPIC_API_KEY` | for rule generation and voting | `generate_rule.py`, `validate_rule.py` | `generate_rule.py` exits with an error without it. In `validate_rule.py` a missing key excludes the Claude voter (and self-heal) with a warning; at least two valid votes are still required. |
 | `GEMINI_API_KEY` | for voting | `validate_rule.py` | Same behaviour. |
-| `MODEL_NAME` | for Claude calls | `generate_rule.py`, `validate_rule.py` | Anthropic model identifier; read from the environment, not hardcoded. |
-| `OLLAMA_URL`, `OLLAMA_MODEL` | no | `validate_rule.py` | Defaults to `http://localhost:11434` and a local model. |
+| `MODEL_NAME` | no | `generate_rule.py`, `validate_rule.py` | Anthropic model identifier. Falls back to a default constant in each script when unset; set it to pin the model. |
+| `OLLAMA_URL`, `OLLAMA_MODEL` | no | `validate_rule.py` | Default `http://localhost:11434` and `qwen2.5:14b`. An unreachable Ollama excludes that voter. |
 | `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM`, `SMTP_TO` | for email reports | engine, validator circuit breaker | |
 | `LAB_ADMIN_TOKEN` | to use approve/reject in the web UI | `sf_web.py` | Random string of **at least 16 characters** (generate one, below). Unset or shorter means the routes are disabled (403 with an explanatory message). Clients send it as `X-Admin-Token`. |
 | `SF_ALLOWED_HOSTS` | no | `sf_web.py` | Comma-separated `Host` header allowlist (default `localhost,127.0.0.1,testserver`; `*.example.org` wildcards allowed). Requests with another Host get 400, which stops DNS-rebinding pages reading a localhost-bound server. Add your public hostname when serving behind a proxy. |
 | `SF_AUTH_FAIL_LIMIT`, `SF_AUTH_FAIL_WINDOW` | no | `sf_web.py` | Wrong admin tokens per client before it is locked out of approve/reject (defaults 5 per 300 s; locked clients get 429 even with the right token until the window passes). |
-| `WATER_REVIEW_GATE` | recommended `true` | `generate_rule.py` | Hold generated rules for human approval instead of deploying. Set by `run_engine.sh`. |
+| `WATER_REVIEW_GATE` | recommended `true` | `generate_rule.py` | Hold generated rules for human approval instead of pushing them to `detections/sigma/`. **Off unless set to `true`.** Set by `run_engine.sh`. |
+| `STOP_SF_ENGINE` | no | `generate_rule.py` | `true` pauses the whole engine run before any query or generation (it sends a notice email). |
+| `SF_CASE_VARIANTS` | no | `lab.ecs` | `0` turns off case-variant expansion of generated queries; read on every conversion, on by default. See "Case sensitivity" in [ARCHITECTURE.md](ARCHITECTURE.md). |
 | `TARGET_HOST` | no | `generate_rule.py` | Restrict event queries to one `host.name`; `*` means all. |
 | `SF_AUTHOR` | no | rule generation | Author written into generated rules. |
-| `SF_REPO_URL` | no | review emails | Repository URL for the CI link; omitted when unset. |
+| `SF_REPO_URL` | no | `generate_rule.py`, `validate_rule.py` emails | Repository URL for the CI link; omitted when unset. |
 | `SF_SELF_IPS` | no | `sf_hunt.py` | Comma-separated own IPs excluded from pivots. |
 | `SF_HUNT_RATE_LIMIT`, `SF_HUNT_RATE_WINDOW` | no | `sf_web.py` | Hunt calls per window per client (defaults 10 per 60 s). |
 | `ABUSEIPDB_API_KEY`, `GREYNOISE_API_KEY`, `VIRUSTOTAL_API_KEY`, `OTX_API_KEY`, `ABUSECH_AUTH_KEY` | optional | `sf_hunt.py` | Each source degrades gracefully if its key is missing. |
 | `SF_LAB_DIR`, `SF_LOG_DIR` | no | `run_*.sh`, `scripts/*` | Project directory and log directory; default to the script's location and `logs/`. |
 
-`.env.example` lists the core variables; add the optional ones you need. Never commit `.env`.
+`.env.example` lists the core variables and a few optional ones; it does not list `SF_ALLOWED_HOSTS`, `SF_CASE_VARIANTS`, the `SF_AUTH_*` and `SF_HUNT_*` limits or `STOP_SF_ENGINE`, so add the ones you need. Never commit `.env`.
 
 ## 5. Run the pieces
 
 ```bash
-# Analyst IOC lookup
-venv/bin/python sf_hunt.py 203.0.113.10            # or: scripts/sfhunt 203.0.113.10
+# Analyst IOC lookup (public IPv4, domain or MD5/SHA-1/SHA-256 hash; private and internal names are refused)
+venv/bin/python sf_hunt.py 203.0.113.10            # or: scripts/sfhunt 203.0.113.10; --history lists past hunts, --fresh bypasses the cache
 
 # Dashboards and API. Generate a token of at least 16 characters; do not reuse a placeholder.
 export LAB_ADMIN_TOKEN="$(venv/bin/python -c 'import secrets; print(secrets.token_urlsafe(32))')"
@@ -78,10 +80,18 @@ WATER_REVIEW_GATE=true venv/bin/python generate_rule.py      # or: scripts/sfeng
 # Review held rules
 venv/bin/python approve.py list
 venv/bin/python approve.py show <rule_id>
-venv/bin/python approve.py approve <rule_id>
+venv/bin/python approve.py approve <rule_id>       # or: approve.py reject <rule_id>
 
-# Efficacy
+# Efficacy (writes state/rule_efficacy.json even when Elasticsearch is unreachable, recording query errors)
 venv/bin/python rule_efficacy.py
+
+# Validate / deploy one rule by hand (CI does this for changed rules)
+venv/bin/python validate_rule.py detections/sigma/<rule>.yml
+venv/bin/python deploy_rule.py detections/sigma/<rule>.yml     # add --allow-retag only for a deliberate technique change
+venv/bin/python deploy_rule.py --delete <rule_id>
+
+# ATT&CK Navigator layer from the shipped rules
+venv/bin/python generate_heatmap.py
 ```
 
 Bind `sf_web` to localhost or put it behind an authenticating reverse proxy; do not expose it directly.
@@ -121,7 +131,7 @@ elastalert/run.sh
 
 ## 8. GitHub Actions
 
-`test.yml` needs no configuration: it runs `pytest` and `tag_compliance.py --check` on GitHub-hosted runners for pull requests and pushes, with read-only permissions and no secrets.
+`test.yml` needs no configuration: it runs `pytest`, `tag_compliance.py --check --allow-untagged` and `readme_tables.py --check` on GitHub-hosted runners for pull requests and pushes, with read-only permissions and no secrets.
 
 `deploy-detections.yml` runs on a **self-hosted** runner that can reach your Elasticsearch and Kibana, only for pushes to `main` that change `detections/sigma/**`. Configure under Settings, Secrets and variables, Actions:
 
@@ -139,7 +149,7 @@ Ollama is expected on the runner at `OLLAMA_URL` (default `http://localhost:1143
 
 How the deploy workflow behaves (logic in `tools/ci_changes.py` and `scripts/ci_*.sh`; the runner needs bash and git 2.31 or newer):
 
-- **Changed, removed, retagged.** Each run diffs a base commit against the pushed commit. Added, modified and renamed (new path) rules are validated and deployed. A deleted rule, or a renamed or edited rule whose id changed, is retired from Kibana with `deploy_rule.py --delete <id>`, but only if no file in the new tree still carries that id (a pure rename keeps its id and is never deleted). Deprecated rules are never deleted; deploy disables them. A rule whose `attack.tNNNN[.NNN]` tags differ from its previous version is deployed with `--allow-retag`; new rules and edits that keep their techniques never get that flag.
+- **Changed, removed, retagged.** Each run diffs a base commit against the pushed commit. Added, modified and renamed (new path) rules are validated and deployed (created, or on a 409 updated with `PATCH` of the engine-owned fields only). A deleted rule, or a renamed or edited rule whose id changed, is retired from Kibana with `deploy_rule.py --delete <id>`, but only if no file in the new tree still carries that id (a pure rename keeps its id and is never deleted). Deprecated rules are never deleted; deploy disables them. A rule whose `attack.tNNNN[.NNN]` tags differ from its previous version is deployed with `--allow-retag`; new rules and edits that keep their techniques never get that flag.
 - **Diff base and queueing.** Runs queue (`cancel-in-progress: false`). GitHub keeps only one pending run per concurrency group, so a rapid third push replaces the pending second run. To avoid skipping its rules, the base is the head of the newest successful run of this workflow (looked up with the Actions API, which is why the validate job has `actions: read`), falling back to the push's `before` sha, then to the parent commit. Consequence: a push whose run failed is diffed again by the next run, so a broken rule keeps the run red (and blocks deploying the other rules of that range, because deploy gating is strict) until it is fixed or removed. Limits: the lookup needs API access; if it fails the fallback is the per-push range.
 - **One bad rule does not discard the others' healing.** Every changed rule is validated. Rules that passed are tagged (`tag_compliance.py --write --files`, skipped with a log line when the technique is unmapped), committed with `[skip ci]` and pushed; then the job fails if any rule failed, and the deploy job does not run. The heal commit cannot retrigger the workflow (`[skip ci]`, and pushes with `GITHUB_TOKEN` never start runs).
 - **Credentials.** The validate job checks out with `persist-credentials: false`; the token is passed only to the plan step (read-only API call) and to the push step, through `GIT_CONFIG_*` environment variables (nothing in `.git/config`, URLs or argv). `contents: write` exists solely for that push. `pip install` uses the pinned `requirements.txt`; `--require-hashes` is not used because the repo has no fully hashed lock file (that would also need every transitive dependency).
@@ -148,7 +158,7 @@ How the deploy workflow behaves (logic in `tools/ci_changes.py` and `scripts/ci_
 
 ## 9. Scheduling with launchd (macOS, optional)
 
-`run_efficacy.sh` refreshes `state/rule_efficacy.json` and `run_engine.sh` performs a gated engine run. Both resolve the project directory from `SF_LAB_DIR` or their own location, use `venv/bin/python`, read `ELASTIC_URL` from the environment or `.env`, skip quietly if Elasticsearch is unreachable, and log to `logs/`. The plist files in `scheduler/` contain a `__SF_LAB_DIR__` placeholder; substitute it when installing:
+`run_efficacy.sh` refreshes `state/rule_efficacy.json` and `run_engine.sh` performs a gated engine run. Both resolve the project directory from `SF_LAB_DIR` or their own location, use `venv/bin/python`, read `ELASTIC_URL` from the environment or `.env`, skip quietly if Elasticsearch does not answer (the probe is a `curl -k` request that only checks the endpoint responds; it does not validate the certificate), and log to `logs/`. The plist files in `scheduler/` contain a `__SF_LAB_DIR__` placeholder; substitute it when installing:
 
 ```bash
 export SF_LAB_DIR="$(pwd)"
