@@ -47,7 +47,9 @@ cp .env.example .env
 | `MODEL_NAME` | for Claude calls | `generate_rule.py`, `validate_rule.py` | Anthropic model identifier; read from the environment, not hardcoded. |
 | `OLLAMA_URL`, `OLLAMA_MODEL` | no | `validate_rule.py` | Defaults to `http://localhost:11434` and a local model. |
 | `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM`, `SMTP_TO` | for email reports | engine, validator circuit breaker | |
-| `LAB_ADMIN_TOKEN` | to use approve/reject in the web UI | `sf_web.py` | Long random string. Unset means the routes are disabled. Clients send it as `X-Admin-Token`. |
+| `LAB_ADMIN_TOKEN` | to use approve/reject in the web UI | `sf_web.py` | Random string of **at least 16 characters** (generate one, below). Unset or shorter means the routes are disabled (403 with an explanatory message). Clients send it as `X-Admin-Token`. |
+| `SF_ALLOWED_HOSTS` | no | `sf_web.py` | Comma-separated `Host` header allowlist (default `localhost,127.0.0.1,testserver`; `*.example.org` wildcards allowed). Requests with another Host get 400, which stops DNS-rebinding pages reading a localhost-bound server. Add your public hostname when serving behind a proxy. |
+| `SF_AUTH_FAIL_LIMIT`, `SF_AUTH_FAIL_WINDOW` | no | `sf_web.py` | Wrong admin tokens per client before it is locked out of approve/reject (defaults 5 per 300 s; locked clients get 429 even with the right token until the window passes). |
 | `WATER_REVIEW_GATE` | recommended `true` | `generate_rule.py` | Hold generated rules for human approval instead of deploying. Set by `run_engine.sh`. |
 | `TARGET_HOST` | no | `generate_rule.py` | Restrict event queries to one `host.name`; `*` means all. |
 | `SF_AUTHOR` | no | rule generation | Author written into generated rules. |
@@ -65,8 +67,9 @@ cp .env.example .env
 # Analyst IOC lookup
 venv/bin/python sf_hunt.py 203.0.113.10            # or: scripts/sfhunt 203.0.113.10
 
-# Dashboards and API
-LAB_ADMIN_TOKEN=change-me venv/bin/python -m uvicorn sf_web:app --host 127.0.0.1 --port 8000
+# Dashboards and API. Generate a token of at least 16 characters; do not reuse a placeholder.
+export LAB_ADMIN_TOKEN="$(venv/bin/python -c 'import secrets; print(secrets.token_urlsafe(32))')"
+venv/bin/python -m uvicorn sf_web:app --host 127.0.0.1 --port 8000
 # open /, /engine, /review
 
 # One gated engine run (generates, validates, holds for approval)
@@ -81,7 +84,13 @@ venv/bin/python approve.py approve <rule_id>
 venv/bin/python rule_efficacy.py
 ```
 
-Bind `sf_web` to localhost or put it behind an authenticating reverse proxy; do not expose it directly. Behind a proxy the per-client hunt rate limit sees only the proxy's address, so rate limit at the proxy as well.
+Bind `sf_web` to localhost or put it behind an authenticating reverse proxy; do not expose it directly.
+
+Web security notes:
+
+- `/api/hunt` is a `POST` with a JSON body `{"ioc": "..."}`; the lookup value never appears in the URL, access logs or browser history. The web route keeps lookups in an in-memory cache only (never in `state/sf/hunt_memory.db`, which the CLI uses). Private, loopback, link-local and internal names are refused with HTTP 400 before any third-party call.
+- Per-client limits (hunt rate, failed admin tokens) key on `request.client.host`. uvicorn runs with `--proxy-headers` **on by default** and then replaces that address with `X-Forwarded-For` from the addresses in `--forwarded-allow-ips` (default `127.0.0.1`). A proxy on the same machine must therefore overwrite `X-Forwarded-For` (nginx: `proxy_set_header X-Forwarded-For $remote_addr;`), otherwise a client can choose its own rate-limit identity. If your proxy cannot guarantee that, start uvicorn with `--no-proxy-headers` (all clients then share the proxy's address) and limit requests at the proxy as well.
+- `sf_web` reads state files from `state/`. If one is corrupt the API answers 503 naming the file instead of showing an empty queue; the corrupt copy is kept as `<name>.corrupt` until you restore or delete it.
 
 ## 6. Compliance tagging workflow
 

@@ -21,43 +21,69 @@ def _write(tmp_path, seen=SEEN, total=None):
 
 def test_heatmap_total_techniques_not_hardcoded(tmp_path):
     state, total_file = _write(tmp_path, total=10)
-    layer = gh.generate_layer(state_file=state, output_file=tmp_path / "out.json", total_file=total_file)
+    layer = gh.generate_layer(state_file=state, output_file=tmp_path / "out.json", total_file=total_file,
+                              rules_dir=None)
     assert "(50%)" in layer["name"]  # 5 of 10 from the data file
     state2, total2 = _write(tmp_path, total=20)
-    layer2 = gh.generate_layer(state_file=state2, output_file=tmp_path / "out.json", total_file=total2)
-    assert "(25%)" in layer2["name"]
-    assert "193" not in Path(gh.__file__).read_text(encoding="utf-8")
+    layer2 = gh.generate_layer(state_file=state2, output_file=tmp_path / "out.json", total_file=total2,
+                               rules_dir=None)
+    assert "(25%)" in layer2["name"]       # same techniques, different denominator: nothing hard-coded
 
 
 def test_heatmap_without_total_data_omits_percentage_not_guesses(tmp_path):
     state, total_file = _write(tmp_path)  # no total file written
-    layer = gh.generate_layer(state_file=state, output_file=tmp_path / "out.json", total_file=total_file)
+    layer = gh.generate_layer(state_file=state, output_file=tmp_path / "out.json", total_file=total_file,
+                              rules_dir=None)
     assert "%" not in layer["name"] and "5 Techniques" in layer["name"]
     assert len(layer["techniques"]) == 5
 
 
 def test_heatmap_missing_state_gives_empty_layer(tmp_path):
     layer = gh.generate_layer(state_file=tmp_path / "nope.json", output_file=tmp_path / "o.json",
-                              total_file=tmp_path / "nope2.json")
+                              total_file=tmp_path / "nope2.json", rules_dir=None)
     assert layer["techniques"] == []
 
 
-def test_heatmap_runs_from_any_cwd(tmp_path):
+def _shipped_rule_techniques():
+    from lab import coverage
+    return set(coverage.rule_techniques(gh.RULES_DIR))
+
+
+def test_default_generate_layer_is_what_the_cli_does_rule_coverage(tmp_path):
+    """The default (no rules_dir argument) must cover what the shipped rules tag, exactly like
+    `python generate_heatmap.py`; state-only coverage needs an explicit rules_dir=None."""
+    import inspect
+    assert inspect.signature(gh.generate_layer).parameters["rules_dir"].default == gh.RULES_DIR
+    layer = gh.generate_layer(output_file=tmp_path / "o.json")
+    assert {t["techniqueID"] for t in layer["techniques"]} == _shipped_rule_techniques()
+
+
+def test_explicit_none_is_state_only_mode(tmp_path):
+    state, total_file = _write(tmp_path)
+    layer = gh.generate_layer(state_file=state, output_file=tmp_path / "o.json", total_file=total_file,
+                              rules_dir=None)
+    assert {t["techniqueID"] for t in layer["techniques"]} == set(SEEN)
+
+
+def test_heatmap_runs_from_any_cwd_via_the_real_cli_entry_point(tmp_path):
     root = Path(gh.__file__).resolve().parent
     assert gh.STATE_FILE == root / "state" / "seen_techniques.json"
     assert gh.OUTPUT_FILE == root / "docs" / "coverage_layer.json"
-    code = ("import generate_heatmap as g, pathlib, sys; "
-            "l = g.generate_layer(output_file=pathlib.Path(sys.argv[1])); print(len(l['techniques']))")
-    env = dict(os.environ, PYTHONPATH=str(root))
-    out = subprocess.run([sys.executable, "-c", code, str(tmp_path / "o.json")], cwd=tmp_path, env=env,
-                         capture_output=True, text=True, check=True).stdout.split()[-1]
-    assert int(out) == len(json.loads((root / "state" / "seen_techniques.json").read_text(encoding="utf-8")))
-    assert (tmp_path / "o.json").exists()
+    out_file = tmp_path / "o.json"
+    # The real script, run from another directory, exactly as a user runs it (only the output is moved).
+    subprocess.run([sys.executable, str(root / "generate_heatmap.py"), "--output", str(out_file)],
+                   cwd=tmp_path, capture_output=True, text=True, check=True)
+    ids = {t["techniqueID"] for t in json.loads(out_file.read_text(encoding="utf-8"))["techniques"]}
+    assert ids == _shipped_rule_techniques()
+    # ...and it is the very same answer as calling the function with no arguments.
+    in_process = gh.generate_layer(output_file=tmp_path / "p.json")
+    assert ids == {t["techniqueID"] for t in in_process["techniques"]}
 
 
 def test_heatmap_has_no_legacy_branding(tmp_path):
     state, total_file = _write(tmp_path)
-    layer = gh.generate_layer(state_file=state, output_file=tmp_path / "o.json", total_file=total_file)
+    layer = gh.generate_layer(state_file=state, output_file=tmp_path / "o.json", total_file=total_file,
+                              rules_dir=None)
     blob = json.dumps(layer).lower()
     for bad in ("1x" "lozec", "ta" "llkitchen", "ta" "ll kitchen"):
         assert bad not in blob

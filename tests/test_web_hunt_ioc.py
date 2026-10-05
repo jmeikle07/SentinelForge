@@ -24,7 +24,7 @@ def client(monkeypatch, tmp_path):
 
 
 @pytest.mark.parametrize("ioc,fragment", [
-    ("10.0.0.1", "non-public"),
+    ("10.0.0.5", "non-public"),
     ("127.0.0.1", "non-public"),
     ("192.168.1.20", "non-public"),
     ("dc01.corp.local", "non-public"),
@@ -36,7 +36,7 @@ def client(monkeypatch, tmp_path):
     ("   ", "empty"),
 ])
 def test_rejected_iocs_get_400_with_a_reason_and_no_third_party_call(client, ioc, fragment):
-    r = client.get("/api/hunt", params={"ioc": ioc})
+    r = client.post("/api/hunt", json={"ioc": ioc})
     assert r.status_code == 400
     assert fragment in r.json()["detail"].lower()
 
@@ -44,7 +44,7 @@ def test_rejected_iocs_get_400_with_a_reason_and_no_third_party_call(client, ioc
 def test_valid_ioc_is_canonicalised_before_the_lookup(client, monkeypatch):
     seen = []
     monkeypatch.setattr(sf_hunt, "bucket_external_domain", lambda conn, d: seen.append(d) or {})
-    r = client.get("/api/hunt", params={"ioc": "  EXAMPLE.com "})
+    r = client.post("/api/hunt", json={"ioc": "  EXAMPLE.com "})
     assert r.status_code == 200 and seen == ["example.com"] and r.json()["ioc"] == "example.com"
 
 
@@ -54,7 +54,7 @@ def test_web_lookup_is_never_written_to_disk(client, monkeypatch, tmp_path):
         return {"otx": {"available": True, "pulse_count": 0}}
 
     monkeypatch.setattr(sf_hunt, "bucket_external_ip", fake)
-    assert client.get("/api/hunt", params={"ioc": "8.8.8.8"}).status_code == 200
+    assert client.post("/api/hunt", json={"ioc": "8.8.8.8"}).status_code == 200
     assert not (tmp_path / "hunt_memory.db").exists()
     assert list(tmp_path.iterdir()) == []
     # ...but the in-memory cache did keep it (that is what saves upstream quota)
@@ -67,7 +67,7 @@ def test_failure_log_does_not_contain_the_ioc(client, monkeypatch, caplog):
 
     monkeypatch.setattr(sf_hunt, "bucket_external_ip", fail)
     with caplog.at_level(logging.DEBUG):
-        r = client.get("/api/hunt", params={"ioc": "8.8.4.4"})
+        r = client.post("/api/hunt", json={"ioc": "8.8.4.4"})
     assert r.status_code == 200
     ours = " ".join(rec.getMessage() for rec in caplog.records if rec.name.startswith("sf_"))
     assert "siem down" in ours

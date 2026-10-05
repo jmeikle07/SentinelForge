@@ -178,11 +178,19 @@
 <script>
 function esc(s){return (s==null?'':String(s)).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
 
+function queueError(why){
+  document.getElementById('queue').innerHTML='<div class="empty"><div class="big">Could not load the queue.</div>'
+    +'This is NOT an empty queue: rules may be waiting. '+esc(why||'')+'</div>';
+}
 async function load(){
   try{
-    const d=await (await fetch('/api/pending')).json();
-    render(d.pending||[]);
-  }catch(e){ document.getElementById('queue').innerHTML='<div class="empty">Could not load the queue.</div>'; }
+    const r=await fetch('/api/pending');
+    let d=null;
+    try{ d=await r.json(); }catch(parseErr){ d=null; }
+    if(!r.ok){ queueError((d&&typeof d.detail==='string')?d.detail:('The server answered HTTP '+r.status+'.')); return; }
+    if(!d||!Array.isArray(d.pending)){ queueError('The server sent an unexpected answer.'); return; }
+    render(d.pending);
+  }catch(e){ queueError('Request failed: '+e.message); }
 }
 
 function render(rules){
@@ -227,7 +235,9 @@ async function toggleDetail(id, nameEl){
   box.innerHTML='<p class="d-loading">Loading…</p>'; box.style.display='block'; nameEl.setAttribute('aria-expanded','true');
   if(caret) caret.textContent='\u25be';
   try{
-    const d=await (await fetch('/api/pending-detail/'+id)).json();
+    const resp=await fetch('/api/pending-detail/'+id);
+    if(!resp.ok){ throw new Error('HTTP '+resp.status); }
+    const d=await resp.json();
     // Tier 1: one plain sentence built from the triggers (not the jargony AI description)
     let h='';
     if(d.meaning){ h+='<p class="d-meaning">'+esc(d.meaning)+'</p>'; }
@@ -269,7 +279,7 @@ async function toggleDetail(id, nameEl){
       pre.style.display=show?'block':'none';
       this.textContent=show?'Hide the raw rule':'Show the raw rule'; this.setAttribute('aria-expanded', show?'true':'false');
     });
-  }catch(e){ box.innerHTML='<p class="d-p">Could not load detail.</p>'; }
+  }catch(e){ box.innerHTML='<p class="d-p">Could not load detail ('+esc(e.message)+').</p>'; }
 }
 
 function flash(msg, ok){const f=document.getElementById('flash'); f.textContent=msg; f.className='flash '+(ok?'ok':'err'); f.style.display='block'; setTimeout(()=>{f.style.display='none';}, ok?4000:12000);}
@@ -347,10 +357,17 @@ async function fire(){
   if(card){ card.querySelectorAll('button').forEach(b=>b.disabled=true); }
   try{
     const resp=await fetch('/api/'+encodeURIComponent(kind)+'/'+encodeURIComponent(id),{method:'POST',headers:{'X-Admin-Token':getToken()}});
+    if(resp.status===429){
+      const wait=resp.headers.get('Retry-After');
+      flash('Too many wrong tokens (429): this browser is locked out of approvals'+(wait?' for about '+wait+' seconds':' for a few minutes')+'.', false);
+      if(card){ card.querySelectorAll('button').forEach(b=>b.disabled=false); }
+      return;
+    }
     if(resp.status===401 || resp.status===403){
+      let why=''; try{ const j=await resp.json(); if(j&&typeof j.detail==='string'){ why=' '+j.detail; } }catch(parseErr){}
       flash(resp.status===401
         ? 'Not authorised (401): the admin token is missing or wrong. Enter it again above.'
-        : 'Refused (403): approvals are disabled on the server (LAB_ADMIN_TOKEN is not set there).', false);
+        : 'Refused (403): approvals are disabled on the server.'+why, false);
       if(resp.status===401){ setToken(''); showTokenState(); document.getElementById('admintoken').focus(); }
       if(card){ card.querySelectorAll('button').forEach(b=>b.disabled=false); }
       return;

@@ -5,13 +5,20 @@ Serves the concise verdict + source breakdown as JSON, and the static page.
 
 Security model:
   - State-changing routes (/api/approve, /api/reject) require the LAB_ADMIN_TOKEN value in the
-    X-Admin-Token header (constant-time compare). With no token configured they are disabled.
+    X-Admin-Token header (constant-time compare). With no token configured, or one shorter than
+    ADMIN_TOKEN_MIN_LENGTH, they are disabled (403). Repeated wrong tokens lock the client out (429).
   - rule_id path parameters must be UUIDs (no path traversal into the filesystem or subprocess).
-  - /api/hunt is rate limited per client address.
+  - /api/hunt is a POST (it spends third-party quota and writes the in-memory cache; the IOC stays out
+    of URLs, access logs and browser history) and is rate limited per client address.
+  - Host headers are checked against an allowlist (SF_ALLOWED_HOSTS) so a DNS-rebinding page cannot
+    read a localhost-bound server.
+  - Rate limiting keys on request.client.host. Behind a reverse proxy see docs/SETUP.md: uvicorn's
+    --proxy-headers (on by default) makes that the X-Forwarded-For value from trusted proxies only.
 """
 import hmac
 import logging
 import os
+import re
 import subprocess
 import sys
 import threading
@@ -23,6 +30,8 @@ from pathlib import Path
 from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel, Field
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 import sf_hunt as tk
 from lab import coverage
@@ -35,11 +44,41 @@ app = FastAPI(title="SentinelForge Hunt")
 HERE = Path(__file__).resolve().parent
 WEB_DIR = HERE / "web"
 
+DEFAULT_ALLOWED_HOSTS = "localhost,127.0.0.1,testserver"
+
+
+def _allowed_hosts() -> list:
+    """Host-header allowlist from SF_ALLOWED_HOSTS (comma separated; '*.example.org' wildcards ok;
+    '*' disables the check). Read per request so a changed environment applies without a restart."""
+    raw = os.environ.get("SF_ALLOWED_HOSTS", DEFAULT_ALLOWED_HOSTS)
+    return [h.strip() for h in raw.split(",") if h.strip()] or DEFAULT_ALLOWED_HOSTS.split(",")
+
+
+class _EnvTrustedHostMiddleware(TrustedHostMiddleware):
+    """Starlette's TrustedHostMiddleware with an allowlist taken from the environment."""
+
+    async def __call__(self, scope, receive, send):
+        hosts = _allowed_hosts()
+        self.allowed_hosts = hosts
+        self.allow_any = "*" in hosts
+        await super().__call__(scope, receive, send)
+
+
+app.add_middleware(_EnvTrustedHostMiddleware, allowed_hosts=_allowed_hosts(), www_redirect=False)
+
 # Per-client sliding-window limit for /api/hunt (each call fans out to paid/quota'd intel APIs).
 HUNT_RATE_LIMIT = int(os.environ.get("SF_HUNT_RATE_LIMIT", "10"))      # requests ...
 HUNT_RATE_WINDOW = float(os.environ.get("SF_HUNT_RATE_WINDOW", "60"))  # ... per this many seconds
+# Failed approve/reject attempts per client before that client is locked out for the window.
+AUTH_FAIL_LIMIT = int(os.environ.get("SF_AUTH_FAIL_LIMIT", "5"))
+AUTH_FAIL_WINDOW = float(os.environ.get("SF_AUTH_FAIL_WINDOW", "300"))
+ADMIN_TOKEN_MIN_LENGTH = 16
+
+_clock = time.monotonic          # injectable in tests
 _rate_hits: dict = defaultdict(deque)
+_auth_fails: dict = defaultdict(deque)
 _rate_lock = threading.Lock()
+_sweep_at: dict = {}
 
 APPROVE_TIMEOUT_SECONDS = 120
 
@@ -47,18 +86,41 @@ APPROVE_TIMEOUT_SECONDS = 120
 def _reset_rate_limits() -> None:
     with _rate_lock:
         _rate_hits.clear()
+        _auth_fails.clear()
+        _sweep_at.clear()
+
+
+def _expire(hits: deque, now: float, window: float) -> None:
+    while hits and now - hits[0] >= window:
+        hits.popleft()
+
+
+def _sweep(table: dict, window: float, now: float) -> None:
+    """Drop clients whose window has fully expired, so the table cannot grow by one entry per
+    client address forever. Runs at most about once a minute per table. Call with _rate_lock held."""
+    last = _sweep_at.get(id(table))
+    if last is not None and now - last < min(window, 60.0):
+        return
+    _sweep_at[id(table)] = now
+    for key in list(table):
+        _expire(table[key], now, window)
+        if not table[key]:
+            del table[key]
+
+
+def _client_id(request: Request) -> str:
+    return request.client.host if request.client else "unknown"
 
 
 def _check_rate_limit(request: Request) -> None:
     """Raise 429 when this client exceeded HUNT_RATE_LIMIT calls in the window.
-    Keyed on the socket peer address: behind a reverse proxy that is the proxy, so run the
-    proxy's own per-client limiter in that setup (X-Forwarded-For is client-controlled)."""
-    client = request.client.host if request.client else "unknown"
-    now = time.monotonic()
+    Keyed on the socket peer address (see the module docstring for the reverse-proxy caveat)."""
+    client = _client_id(request)
+    now = _clock()
     with _rate_lock:
+        _sweep(_rate_hits, HUNT_RATE_WINDOW, now)
         hits = _rate_hits[client]
-        while hits and now - hits[0] >= HUNT_RATE_WINDOW:
-            hits.popleft()
+        _expire(hits, now, HUNT_RATE_WINDOW)
         if len(hits) >= HUNT_RATE_LIMIT:
             retry = max(1, int(HUNT_RATE_WINDOW - (now - hits[0])) + 1)
             raise HTTPException(status_code=429, detail="rate limit exceeded",
@@ -66,16 +128,40 @@ def _check_rate_limit(request: Request) -> None:
         hits.append(now)
 
 
-def _state(name: str, default):
-    """Read a JSON state file. Missing -> default. Corrupt -> logged (file quarantined by
-    lab.state) and default. Never silently swallowed."""
+class StateUnavailable(HTTPException):
+    def __init__(self, detail: str):
+        super().__init__(status_code=503, detail=detail)
+
+
+_ABSENT = object()
+
+
+def _state(name: str, default, expect=None):
+    """Read a JSON state file. A missing file is `default` (nothing has happened yet). A corrupt,
+    unreadable or wrongly shaped one is an HTTP 503 with an explicit reason: never an empty result
+    that would read as "all clear" while rules or history are actually lost. lab.state quarantines a
+    corrupt file as <name>.corrupt on first read, so a missing file next to a .corrupt sibling is
+    still reported until an operator restores or deletes that file."""
+    path = HERE / "state" / name
+    quarantine = path.with_suffix(".corrupt")
     try:
-        return lab_state.read(HERE / "state" / name, default=default)
+        data = lab_state.read(path, default=_ABSENT)
     except lab_state.StateCorrupt as exc:
         log.error("state file %s is corrupt: %s", name, exc)
-    except OSError as exc:
+        raise StateUnavailable(f"{name} is corrupt and was quarantined as {quarantine.name}; "
+                               f"restore it from backup or delete the .corrupt file") from None
+    except (OSError, TimeoutError) as exc:
         log.error("cannot read state file %s: %s", name, exc)
-    return default
+        raise StateUnavailable(f"{name} cannot be read right now") from None
+    if data is _ABSENT:
+        if quarantine.exists():
+            raise StateUnavailable(f"{name} is missing because a corrupt copy was quarantined as "
+                                   f"{quarantine.name}; restore it or delete the .corrupt file")
+        return default
+    if expect is not None and not isinstance(data, expect):
+        log.error("state file %s has unexpected content type %s", name, type(data).__name__)
+        raise StateUnavailable(f"{name} has an unexpected format")
+    return data
 
 
 def _require_rule_id(rule_id: str) -> str:
@@ -117,21 +203,27 @@ def _run_hunt(ioc: str) -> dict:
             "verdict": verdict, "external": external}
 
 
-@app.get("/api/hunt")
-def api_hunt(ioc: str, request: Request):
+class HuntRequest(BaseModel):
+    ioc: str = Field(max_length=300)
+
+
+@app.post("/api/hunt")
+def api_hunt(body: HuntRequest, request: Request):
     _check_rate_limit(request)
-    return JSONResponse(_run_hunt(ioc))
+    return JSONResponse(_run_hunt(body.ioc))
 
 
 # ── Engine dashboard data ──────────────────────────────────────────────────────
 # Reads the rule engine's real state files. No invented data.
 TACTIC_ORDER = list(coverage.TACTICS)
+TIMELINE_FIELDS = ("timestamp", "result", "technique_id", "technique_name", "confidence",
+                   "rule_id", "lookback")
 
 
 @app.get("/api/engine")
 def api_engine():
-    seen = _state("seen_techniques.json", {})
-    hunt_log = _state("hunt_log.json", [])
+    seen = _state("seen_techniques.json", {}, dict)
+    hunt_log = [e for e in _state("hunt_log.json", [], list) if isinstance(e, dict)]
     last_run_doc = _state("last_run.json", {})
     last_run = last_run_doc.get("timestamp") if isinstance(last_run_doc, dict) else None
     # rule efficacy snapshot (real fires per deployed rule; updated when rule_efficacy.py runs)
@@ -161,6 +253,8 @@ def api_engine():
     if isinstance(vraw, dict):
         items = []
         for rid, v in vraw.items():
+            if not isinstance(v, dict):
+                continue
             atts = v.get("attempts") or []
             items.append({
                 "title": v.get("title"),
@@ -208,8 +302,10 @@ def api_engine():
     ht_dir = sigma_dir / "hunt-triggered"
     hunt_triggered = len(list(ht_dir.glob("*.yml"))) if ht_dir.exists() else 0
 
-    # newest-first timeline (cap to 60)
-    timeline = sorted(hunt_log, key=lambda e: e.get("timestamp") or "", reverse=True)[:60]
+    # newest-first timeline (cap to 60). Whitelisted fields only: raw log entries carry server file
+    # paths, exception strings and hunted IOCs, none of which belong in an unauthenticated response.
+    timeline = [{k: e[k] for k in TIMELINE_FIELDS if k in e}
+                for e in sorted(hunt_log, key=lambda e: str(e.get("timestamp") or ""), reverse=True)[:60]]
 
     return JSONResponse({
         "last_run": last_run,
@@ -226,26 +322,51 @@ def api_engine():
     })
 
 
-def _require_admin(token: str = None) -> None:
+def _require_admin(token: str, request: Request) -> None:
     """These endpoints CHANGE state (deploy rules). Require the LAB_ADMIN_TOKEN value in the
     X-Admin-Token header. Works behind a reverse proxy (unlike a client-address check, which
-    sees only the proxy). With LAB_ADMIN_TOKEN unset the routes are disabled (fail closed)."""
+    sees only the proxy). With LAB_ADMIN_TOKEN unset, or too short to resist guessing, the routes
+    are disabled (fail closed). A client that sends AUTH_FAIL_LIMIT wrong tokens within
+    AUTH_FAIL_WINDOW is locked out (429), even if its next token is right."""
     expected = os.environ.get("LAB_ADMIN_TOKEN", "")
     if not expected:
         raise HTTPException(status_code=403, detail="approvals disabled: LAB_ADMIN_TOKEN is not set")
+    if len(expected) < ADMIN_TOKEN_MIN_LENGTH:
+        raise HTTPException(status_code=403, detail=(
+            f"approvals disabled: LAB_ADMIN_TOKEN must be at least {ADMIN_TOKEN_MIN_LENGTH} characters"))
+    client = _client_id(request)
+    now = _clock()
+    with _rate_lock:
+        _sweep(_auth_fails, AUTH_FAIL_WINDOW, now)
+        fails = _auth_fails.get(client)
+        if fails is not None:
+            _expire(fails, now, AUTH_FAIL_WINDOW)
+            if not fails:
+                del _auth_fails[client]
+            elif len(fails) >= AUTH_FAIL_LIMIT:
+                retry = max(1, int(AUTH_FAIL_WINDOW - (now - fails[0])) + 1)
+                raise HTTPException(status_code=429, detail="too many failed attempts; try again later",
+                                    headers={"Retry-After": str(retry)})
     if not token or not hmac.compare_digest(token.encode("utf-8"), expected.encode("utf-8")):
+        with _rate_lock:
+            _auth_fails[client].append(now)
         raise HTTPException(status_code=401, detail="missing or invalid admin token")
+    with _rate_lock:
+        _auth_fails.pop(client, None)
 
 
 @app.get("/api/pending")
 def api_pending():
     """List rules waiting for human approval, with their 3-AI vote receipts."""
-    pending = _state("pending_rules.json", [])
-    validations = _state("rule_validations.json", {})
+    pending = _state("pending_rules.json", [], list)
+    validations = _state("rule_validations.json", {}, dict)
     # attach the vote receipt (by rule_id) to each pending rule if we have it
     out = []
     for p in pending:
+        if not isinstance(p, dict):
+            continue
         rec = validations.get(p.get("rule_id"))
+        rec = rec if isinstance(rec, dict) else None
         out.append({
             "rule_id": p.get("rule_id"),
             "technique_id": p.get("technique_id"),
@@ -304,13 +425,25 @@ TECHNIQUE_PLAIN = {
     "t1614.001": "Someone is checking the machine's language and region settings. Some attackers use this to avoid hitting machines in certain countries.",
 }
 
+_TECHNIQUE_ID = re.compile(r"t\d{4}(?:\.\d{3})?")
+
+
 def _technique_plain(tags):
+    """Plain-language meaning for the first known technique tag. Never None: an unknown technique
+    (new rule, retag) or a rule with no technique tag gets honest generic text instead of a blank."""
+    unknown = []
     for t in (tags or []):
         tid = str(t).lower().replace("attack.", "").strip()
         if tid in TECHNIQUE_PLAIN:
             return TECHNIQUE_PLAIN[tid]
-    # honest fallback: name the technique without faking specifics
-    return None
+        if _TECHNIQUE_ID.fullmatch(tid):
+            unknown.append(tid.upper())
+    if unknown:
+        return (f"This rule detects activity mapped to MITRE ATT&CK technique {unknown[0]}. No "
+                f"plain-language description has been written for that technique yet, so read the "
+                f"details below to see exactly what it looks for.")
+    return ("This rule has no MITRE ATT&CK technique tag, so there is no plain-language description "
+            "of the behaviour. Read the details below to see exactly what it looks for.")
 
 
 @app.get("/api/pending-detail/{rule_id:path}")
@@ -323,7 +456,11 @@ def api_pending_detail(rule_id: str):
     fp = pdir / f"{rule_id}.yml"
     if not fp.exists():
         raise HTTPException(status_code=404, detail="rule not found")
-    raw = fp.read_text(encoding="utf-8")
+    try:
+        raw = fp.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError) as exc:
+        log.error("cannot read pending rule %s: %r", rule_id, exc)
+        raise HTTPException(status_code=500, detail="rule file is unreadable")
     out = {"rule_id": rule_id, "yaml": raw, "title": None, "summary": None,
            "triggers": [], "false_alarms": [], "level": None, "meaning": None, "ai_context": None}
     try:
@@ -333,8 +470,8 @@ def api_pending_detail(rule_id: str):
         out["level"] = doc.get("level")
         out["meaning"] = _technique_plain(doc.get("tags", []))
         # pull the AI-written context note (if any) from the pending record
-        for p in _state("pending_rules.json", []):
-            if p.get("rule_id") == rule_id and p.get("ai_context"):
+        for p in _state("pending_rules.json", [], list):
+            if isinstance(p, dict) and p.get("rule_id") == rule_id and p.get("ai_context"):
                 out["ai_context"] = p["ai_context"]
                 break
         out["false_alarms"] = doc.get("falsepositives", []) or []
@@ -365,7 +502,7 @@ def api_pending_detail(rule_id: str):
                     if negate:
                         phrase = "NOT when " + phrase
                     out["triggers"].append(phrase)
-    except (_yaml.YAMLError, AttributeError, TypeError) as exc:
+    except (_yaml.YAMLError, AttributeError, TypeError, IndexError, KeyError, ValueError) as exc:
         # Unparseable / oddly-shaped rule: still return the raw YAML so the reviewer can read it.
         log.warning("could not summarise pending rule %s: %r", rule_id, exc)
     return JSONResponse(out)
@@ -375,6 +512,8 @@ def _join_or(v):
     if not isinstance(v, list):
         v = [v]
     v = [str(x).strip("*") for x in v]
+    if not v:
+        return "nothing"
     if len(v) == 1:
         return v[0]
     if len(v) <= 4:
@@ -387,7 +526,11 @@ def _event_code_plain(v):
              "11": "a file is created", "13": "the registry is changed",
              "7": "a code library loads", "22": "a DNS query is made",
              "8": "a process injects into another"}
-    key = str(v[0] if isinstance(v, list) else v)
+    if isinstance(v, list):
+        if not v:
+            return "any Sysmon event occurs"
+        v = v[0]
+    key = str(v)
     return codes.get(key, f"a Sysmon event of type {key} occurs")
 
 
@@ -407,14 +550,14 @@ def _run_approve_cli(action: str, rule_id: str) -> JSONResponse:
 
 
 @app.post("/api/approve/{rule_id:path}")
-def api_approve(rule_id: str, x_admin_token: str = Header(default=None)):
-    _require_admin(x_admin_token)
+def api_approve(rule_id: str, request: Request, x_admin_token: str = Header(default=None)):
+    _require_admin(x_admin_token, request)
     return _run_approve_cli("approve", _require_rule_id(rule_id))
 
 
 @app.post("/api/reject/{rule_id:path}")
-def api_reject(rule_id: str, x_admin_token: str = Header(default=None)):
-    _require_admin(x_admin_token)
+def api_reject(rule_id: str, request: Request, x_admin_token: str = Header(default=None)):
+    _require_admin(x_admin_token, request)
     return _run_approve_cli("reject", _require_rule_id(rule_id))
 
 

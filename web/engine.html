@@ -341,7 +341,7 @@
     <div class="section-sub">loading…</div>
   </div>
   <footer class="footer">SentinelForge · <b>engine</b> — autonomous detection engineering · by Jahsean Meikle</footer>
-</div>
+</main>
 <script>
 function esc(s){return String(s ?? '').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
 function fmtDate(s){ if(!s) return ''; try{ const d=new Date(s);
@@ -400,16 +400,37 @@ document.querySelectorAll('.box').forEach(box=>{
 });
 
 const OUT={deployed:['Rules written and deployed','deployed'],
+  no_events:['Nothing to learn from, no new attack seen','skipped'],
   confidence_too_low:['Skipped, not confident enough','skipped'],
   already_covered:['Skipped, already covered','skipped'],
-  hunt_triggered_pending_review:['Waiting for me to review','pending'],
+  pending_review:['Waiting for me to review','pending'],
+  hunt_triggered_pending_review:['Waiting for review (from a hunt)','pending'],
   hunt_triggered_generation_failed:['Failed, needs a retry','failed']};
+const OUT_ORDER=['deployed','pending_review','hunt_triggered_pending_review','confidence_too_low','already_covered',
+  'no_events','hunt_triggered_generation_failed'];
 const TLR={deployed:['deployed','wrote a new detection rule'],
   confidence_too_low:['skipped','skipped, confidence too low'],
   already_covered:['skipped','skipped, already had a rule'],
   hunt_triggered_pending_review:['pending','rule written, waiting for review'],
   hunt_triggered_generation_failed:['failed','tried but could not generate a rule']};
 
+// What a validation record actually says: how many of its voters approved on the final attempt.
+function voteTally(r){
+  const atts=Array.isArray(r.attempts)?r.attempts:[];
+  const last=atts.find(a=>a.attempt===r.final_attempt)||atts[atts.length-1]||{};
+  const votes=Object.values(last.votes||{});
+  return {agreed:votes.filter(v=>v&&v.approve===true).length, voters:votes.length};
+}
+function outcomeTag(r){
+  const n=Array.isArray(r.attempts)?r.attempts.length:0;
+  if(r.outcome==='approved') return n>1?['heal','rewritten, then passed']:['ok','passed first try'];
+  if(r.outcome==='failed') return ['fail','did not pass'];
+  return ['fail','outcome: '+(r.outcome||'unknown')];
+}
+function showSectionError(id, title, e){
+  document.getElementById(id).innerHTML='<div class="section-label">'+esc(title)+'</div>'
+    +'<div class="section-sub">This section could not be drawn: '+esc((e&&e.message)||e)+'</div>';
+}
 function fillReceipts(d){
   const el=document.getElementById('receipts');
   const v=d.validations;
@@ -418,15 +439,14 @@ function fillReceipts(d){
   let h='<div class="section-label">The three AIs, on the record</div>';
   h+='<div class="rcpt-sub">Every rule is scored by three separate AIs. At least two must agree, or the engine rewrites the rule and tries again. These are the real scores, not a claim.</div>';
   v.forEach(r=>{
-    const healed=r.healed;
+    const tag=outcomeTag(r), tally=voteTally(r), approved=r.outcome==='approved';
     h+='<div class="rcpt">';
     h+='<div class="rcpt-top"><span class="rcpt-title">'+esc(r.title||'Rule')+'</span>';
-    if(healed) h+='<span class="rcpt-tag heal">rewritten, then passed</span>';
-    else h+='<span class="rcpt-tag ok">passed first try</span>';
+    h+='<span class="rcpt-tag '+esc(tag[0])+'">'+esc(tag[1])+'</span>';
     h+='</div>';
     (r.attempts||[]).forEach(a=>{
       h+='<div class="att">';
-      if((r.attempts||[]).length>1) h+='<div class="att-label">attempt '+esc(a.attempt)+(a.attempt<r.final_attempt?' · not enough agreement':' · approved')+'</div>';
+      if((r.attempts||[]).length>1) h+='<div class="att-label">attempt '+esc(a.attempt)+(a.attempt<r.final_attempt?' · not enough agreement':(approved?' · approved':' · not approved'))+'</div>';
       h+='<div class="votes">';
       Object.keys(a.votes||{}).forEach(name=>{
         const vote=a.votes[name], ap=vote.approve;
@@ -435,7 +455,7 @@ function fillReceipts(d){
       });
       h+='</div></div>';
     });
-    h+='<div class="rcpt-foot">Final: <b>2 of 3 agreed, average '+esc(r.avg_score)+'/10</b>. Tested against <b>'+esc(r.backtest_hits)+' real events</b> before approval.</div>';
+    h+='<div class="rcpt-foot">Final: <b>'+(tally.voters?esc(tally.agreed)+' of '+esc(tally.voters)+' agreed':'no per-voter record')+', average '+esc(r.avg_score)+'/10</b>. Tested against <b>'+esc(r.backtest_hits)+' real events</b>'+(approved?' before approval.':'.')+'</div>';
     h+='</div>';
   });
   el.innerHTML=h;
@@ -463,26 +483,38 @@ function fillEfficacy(d){
   el.innerHTML=h;
 }
 function fill(d){
-  const total=Object.values(d.outcomes).reduce((a,b)=>a+b,0)||1;
+  // Every outcome in the log gets a bar, so "Out of N runs" is exactly the sum of what is drawn.
+  const oc={}; Object.keys(d.outcomes||{}).forEach(k=>{ const n=Number(d.outcomes[k])||0; if(n>0) oc[k]=n; });
+  const total=Object.values(oc).reduce((a,b)=>a+b,0);
   let dec='<div class="section-label">Every decision it made</div>'
     +'<div class="section-sub">Out of '+esc(total)+' runs. The engine does not blindly deploy. Skipping and waiting are the point, not failures.</div><div class="bars">';
-  ['deployed','confidence_too_low','already_covered','hunt_triggered_pending_review','hunt_triggered_generation_failed'].forEach(k=>{
-    if(!d.outcomes[k]) return;
-    const [label,cls]=OUT[k]||[k,'skipped'], n=d.outcomes[k], pct=Math.round(n/total*100);
+  const keys=OUT_ORDER.filter(k=>oc[k]).concat(Object.keys(oc).filter(k=>OUT_ORDER.indexOf(k)<0).sort());
+  keys.forEach(k=>{
+    const [label,cls]=OUT[k]||[k.replace(/_/g,' '),'skipped'], n=oc[k], pct=Math.round(n/total*100);
     dec+='<div class="bar2"><div class="blabel">'+esc(label)+'</div><div class="btrack"><div class="bfill bf-'+esc(cls)+'" data-w="'+esc(pct)+'">'+esc(n)+'</div></div></div>';
   });
   dec+='</div>';
   document.getElementById('decisions').innerHTML=dec;
-  try{ fillEfficacy(d); }catch(e){}
-  try{ fillReceipts(d); }catch(e){}
+  try{ fillEfficacy(d); }catch(e){ showSectionError('efficacy','Do the rules actually catch attacks?',e); }
+  try{ fillReceipts(d); }catch(e){ showSectionError('receipts','The three AIs, on the record',e); }
   requestAnimationFrame(()=>{
     document.querySelectorAll('#decisions .bfill').forEach(b=>{ b.style.width=b.dataset.w+'%'; });
   });
 }
 
+function loadFailed(why){
+  const box='<div class="loadingbig">Could not load engine data.<br><span style="font-size:12px;color:var(--faint)">'+esc(why)+'</span></div>';
+  ['decisions','receipts','efficacy'].forEach(id=>{ document.getElementById(id).innerHTML=box; });
+}
 async function load(){
-  try{ const r=await fetch('/api/engine'); fill(await r.json()); }
-  catch(e){ document.getElementById('decisions').innerHTML='<div class="loadingbig">Could not load engine data.<br><span style="font-size:12px;color:var(--faint)">'+esc(e.message)+'</span></div>'; }
+  try{
+    const r=await fetch('/api/engine');
+    let d=null;
+    try{ d=await r.json(); }catch(parseErr){ d=null; }
+    if(!r.ok){ loadFailed((d&&typeof d.detail==='string')?d.detail:('The server answered HTTP '+r.status+'.')); return; }
+    if(!d||typeof d.outcomes!=='object'||d.outcomes===null){ loadFailed('The server sent an unexpected answer.'); return; }
+    fill(d);
+  }catch(e){ loadFailed(e.message); }
 }
 load();
 </script>

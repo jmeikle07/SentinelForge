@@ -50,8 +50,10 @@ def load_total_techniques(total_file: Path = None):
 
 
 def generate_layer(state_file: Path = None, output_file: Path = None, total_file: Path = None,
-                   rules_dir: Path = None) -> dict:
-    """Build the layer. With rules_dir, coverage is exactly the techniques the rules tag."""
+                   rules_dir: Path = RULES_DIR) -> dict:
+    """Build the layer. Coverage is exactly the techniques the shipped rules tag (the default, and
+    what `python generate_heatmap.py` produces). Pass rules_dir=None for state-only mode, where the
+    techniques come from the state file alone (used by tests)."""
     state_file = Path(state_file) if state_file else STATE_FILE
     output_file = Path(output_file) if output_file else OUTPUT_FILE
     seen = lab_state.read(state_file, default={})
@@ -156,5 +158,15 @@ def generate_layer(state_file: Path = None, output_file: Path = None, total_file
     return layer
 
 
+def main(argv=None) -> int:
+    import argparse
+    ap = argparse.ArgumentParser(description="Write the ATT&CK Navigator coverage layer.")
+    ap.add_argument("--output", type=Path, default=None,
+                    help=f"output file (default {OUTPUT_FILE})")
+    args = ap.parse_args(argv)
+    generate_layer(output_file=args.output)
+    return 0
+
+
 if __name__ == "__main__":
-    generate_layer(rules_dir=RULES_DIR)
+    raise SystemExit(main())

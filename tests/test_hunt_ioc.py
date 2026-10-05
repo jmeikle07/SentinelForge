@@ -34,7 +34,7 @@ def test_non_string_is_unknown():
 
 
 @pytest.mark.parametrize("ioc", [
-    "10.0.0.1", "192.168.1.5", "172.16.0.9", "127.0.0.1", "169.254.1.1", "0.0.0.0",
+    "10.0.0.5", "192.168.1.5", "172.16.0.9", "127.0.0.1", "169.254.1.1", "0.0.0.0",
     "224.0.0.1", "255.255.255.255", "100.64.0.1", "203.0.113.9",
     "dc01.corp.local", "printer.lan", "host.internal", "a.localhost", "x.home.arpa", "svc.test",
     "dc01", "localhost",
@@ -54,7 +54,7 @@ def test_normalize_canonicalises_cache_keys(raw, canon):
 
 
 @pytest.mark.parametrize("raw,fragment", [
-    ("10.0.0.1", "non-public"),
+    ("10.0.0.5", "non-public"),
     ("dc01.corp.local", "non-public"),
     ("not an ioc", "valid"),
     ("", "empty"),

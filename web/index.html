@@ -312,7 +312,7 @@
   <div class="out" id="out" aria-live="polite"></div>
 
   <footer class="footer">SentinelForge · <b>hunt</b> — a SOC analyst's assistant · by Jahsean Meikle</footer>
-</div>
+</main>
 
 <!-- What is this? modal -->
 <div class="modal" id="modal">
@@ -541,13 +541,40 @@ function render(data){
   });
 }
 
+// A readable box for any non-2xx answer (rate limit, rejected input, server trouble).
+function failureBox(status, data, retryAfter){
+  const detail = (data && typeof data.detail === 'string') ? data.detail : '';
+  let msg, tip='';
+  if(status===429){
+    const wait = retryAfter ? ' Wait about '+esc(retryAfter)+' seconds and try again.' : ' Wait a minute and try again.';
+    msg = 'Too many lookups too fast.'+wait;
+    tip = 'Hunt limits how often one visitor can query the public threat databases.';
+  } else if(status===400 && detail){
+    msg = detail;
+    tip = 'Tip: paste a public website (example.com), a public IP address (8.8.8.8), or a file hash.';
+  } else if(status===422){
+    msg = 'That doesn\u2019t look like something Hunt can check.';
+    tip = 'Tip: paste a website (example.com), an IP address (8.8.8.8), or a file hash (a long string of letters and numbers).';
+  } else if(status>=500){
+    msg = 'The server had a problem (HTTP '+status+').'+(detail?' '+detail:'');
+    tip = 'Nothing was checked. Try again in a moment.';
+  } else {
+    msg = 'The server refused the request (HTTP '+status+').'+(detail?' '+detail:'');
+  }
+  return '<div class="err">'+esc(msg)+(tip?'<div class="tip">'+esc(tip)+'</div>':'')+'</div>';
+}
+
 async function run(){
   const ioc=input.value.trim(); if(!ioc) return;
   go.disabled=true;
   out.innerHTML='<div class="loading"><div class="spinner"></div><div>checking <b style="color:var(--violet-l)">'+esc(ioc)+'</b><div class="src-ping">asking the threat databases…</div></div></div>';
   try{
-    const r=await fetch('/api/hunt?ioc='+encodeURIComponent(ioc));
-    render(await r.json());
+    const r=await fetch('/api/hunt',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ioc:ioc})});
+    let data=null;
+    try{ data=await r.json(); }catch(parseErr){ data=null; }
+    if(!r.ok){ out.innerHTML=failureBox(r.status, data, r.headers.get('Retry-After')); return; }
+    if(!data){ out.innerHTML=failureBox(502, null, null); return; }
+    render(data);
   }catch(e){ out.innerHTML='<div class="err">Something went wrong reaching the server. <div class="tip">'+esc(e.message)+'</div></div>'; }
   finally{ go.disabled=false; }
 }

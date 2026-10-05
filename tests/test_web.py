@@ -1,7 +1,5 @@
-import json
 import re
 import sys
-import time
 import uuid
 from pathlib import Path
 
@@ -10,7 +8,7 @@ from fastapi.testclient import TestClient
 
 import sf_web
 
-TOKEN = "s3cret-token"
+TOKEN = "s3cret-token-0123456789"      # >= 16 characters (sf_web.ADMIN_TOKEN_MIN_LENGTH)
 GOOD_ID = str(uuid.uuid4())
 
 
@@ -47,8 +45,18 @@ def test_web_approve_rejects_non_uuid_rule_id(client, fake_run, action, bad):
 
 
 def test_pending_detail_rejects_non_uuid_rule_id(client):
-    assert client.get("/api/pending-detail/..%2F..%2Fsecrets").status_code in (400, 404)
+    # an encoded slash reaches the handler, which must refuse it (deleting the check must fail this)
+    r = client.get("/api/pending-detail/..%2F..%2Fsecrets")
+    assert r.status_code == 400 and "UUID" in r.json()["detail"]
     assert client.get("/api/pending-detail/not-a-uuid").status_code == 400
+    assert client.get("/api/pending-detail/a%00b").status_code == 400
+
+
+def test_pending_detail_dot_dot_path_never_reaches_the_filesystem(client, monkeypatch):
+    """A literal ../ is normalised away by the HTTP client/router: there is no matching route."""
+    monkeypatch.setattr(sf_web, "_require_rule_id",
+                        lambda rid: (_ for _ in ()).throw(AssertionError("handler must not run")))
+    assert client.get("/api/pending-detail/../../x").status_code == 404
 
 
 @pytest.mark.parametrize("headers", [{}, {"X-Admin-Token": "wrong"}])
@@ -68,7 +76,9 @@ def test_web_approve_disabled_when_no_token_configured(monkeypatch, fake_run):
     monkeypatch.delenv("LAB_ADMIN_TOKEN", raising=False)
     c = TestClient(sf_web.app)
     r = c.post(f"/api/approve/{GOOD_ID}", headers={"X-Admin-Token": ""})
-    assert r.status_code in (401, 403, 503)
+    assert r.status_code == 403 and "LAB_ADMIN_TOKEN is not set" in r.json()["detail"]
+    r = c.post(f"/api/approve/{GOOD_ID}", headers={"X-Admin-Token": TOKEN})   # even a "matching" guess
+    assert r.status_code == 403
     assert fake_run == []
 
 
@@ -84,31 +94,52 @@ def test_web_uses_sys_executable_not_python3(client, fake_run):
     assert "python3" not in Path(sf_web.__file__).read_text(encoding="utf-8")
 
 
+def _hunt(c, ioc):
+    return c.post("/api/hunt", json={"ioc": ioc})
+
+
+class FakeClock:
+    def __init__(self):
+        self.t = 1000.0
+
+    def __call__(self):
+        return self.t
+
+
+@pytest.fixture
+def clock(monkeypatch):
+    c = FakeClock()
+    monkeypatch.setattr(sf_web, "_clock", c)
+    return c
+
+
 def test_web_hunt_rate_limited(client, monkeypatch):
     monkeypatch.setattr(sf_web, "HUNT_RATE_LIMIT", 3)
     monkeypatch.setattr(sf_web, "_run_hunt", lambda ioc: {"ioc": ioc})
-    codes = [client.get("/api/hunt", params={"ioc": "8.8.8.8"}).status_code for _ in range(5)]
+    codes = [_hunt(client, "8.8.8.8").status_code for _ in range(5)]
     assert codes == [200, 200, 200, 429, 429]
-    assert "Retry-After" in client.get("/api/hunt", params={"ioc": "x"}).headers
+    assert "Retry-After" in _hunt(client, "x").headers
 
 
 def test_web_hunt_rate_limit_is_per_client(client, monkeypatch):
     monkeypatch.setattr(sf_web, "HUNT_RATE_LIMIT", 1)
     monkeypatch.setattr(sf_web, "_run_hunt", lambda ioc: {"ioc": ioc})
-    assert client.get("/api/hunt", params={"ioc": "a"}).status_code == 200
-    assert client.get("/api/hunt", params={"ioc": "a"}).status_code == 429
+    assert _hunt(client, "a").status_code == 200
+    assert _hunt(client, "a").status_code == 429
     other = TestClient(sf_web.app, client=("198.51.100.7", 5000))
-    assert other.get("/api/hunt", params={"ioc": "a"}).status_code == 200
+    assert _hunt(other, "a").status_code == 200
 
 
-def test_web_hunt_rate_window_expires(client, monkeypatch):
+def test_web_hunt_rate_window_expires(client, monkeypatch, clock):
     monkeypatch.setattr(sf_web, "HUNT_RATE_LIMIT", 1)
-    monkeypatch.setattr(sf_web, "HUNT_RATE_WINDOW", 0.2)
+    monkeypatch.setattr(sf_web, "HUNT_RATE_WINDOW", 60.0)
     monkeypatch.setattr(sf_web, "_run_hunt", lambda ioc: {"ioc": ioc})
-    assert client.get("/api/hunt", params={"ioc": "a"}).status_code == 200
-    assert client.get("/api/hunt", params={"ioc": "a"}).status_code == 429
-    time.sleep(0.3)
-    assert client.get("/api/hunt", params={"ioc": "a"}).status_code == 200
+    assert _hunt(client, "a").status_code == 200
+    assert _hunt(client, "a").status_code == 429
+    clock.t += 59.0
+    assert _hunt(client, "a").status_code == 429          # still inside the window: exact, no sleeping
+    clock.t += 1.1
+    assert _hunt(client, "a").status_code == 200
 
 
 def test_run_hunt_logs_failure_of_ip_enrichment_and_still_returns(monkeypatch, caplog):
@@ -122,7 +153,9 @@ def test_run_hunt_logs_failure_of_ip_enrichment_and_still_returns(monkeypatch, c
     with caplog.at_level("WARNING"):
         out = sf_web._run_hunt("8.8.8.8")
     assert out["supported"] is True and out["external"] == {}
-    assert any("siem down" in r.getMessage() or "8.8.8.8" in r.getMessage() for r in caplog.records)
+    assert out["verdict"]["insufficient_data"] is True            # a failed enrichment is never "benign"
+    warnings = [r for r in caplog.records if r.name == "sf_web" and r.levelname == "WARNING"]
+    assert len(warnings) == 1 and "siem down" in warnings[0].getMessage()
 
 
 def _stub_enrichment(monkeypatch, external):
@@ -169,7 +202,7 @@ def test_web_route_all_sources_failing_is_not_benign(monkeypatch):
 def test_web_route_string_typed_api_fields_do_not_500(client, monkeypatch):
     ext = dict(_ALL_MALICIOUS, abuseipdb={"available": True, "abuse_score": "100"})
     _stub_enrichment(monkeypatch, ext)
-    r = client.get("/api/hunt", params={"ioc": "1.1.1.1"})
+    r = _hunt(client, "1.1.1.1")
     assert r.status_code == 200 and r.json()["verdict"]["verdict"] == "malicious"
 
 
@@ -180,13 +213,15 @@ def test_index_page_never_says_safe_to_allow_for_insufficient_data():
     assert branch < html.index("safe to allow")      # the insufficient branch is checked first
 
 
-def test_api_pending_reads_state_and_logs_corrupt_file(client, tmp_path, monkeypatch, caplog):
+def test_api_pending_corrupt_state_is_a_503_not_an_empty_queue(client, tmp_path, monkeypatch, caplog):
     monkeypatch.setattr(sf_web, "HERE", tmp_path)
     (tmp_path / "state").mkdir()
     (tmp_path / "state" / "pending_rules.json").write_text("{corrupt", encoding="utf-8")
     with caplog.at_level("ERROR"):
         r = client.get("/api/pending")
-    assert r.status_code == 200 and r.json() == {"pending": []}
+    assert r.status_code == 503
+    assert "pending_rules" in r.json()["detail"] and "corrupt" in r.json()["detail"]
+    assert "pending" not in r.json()                      # no empty list masquerading as "all clear"
     assert any("pending_rules" in rec.getMessage() for rec in caplog.records)
     assert (tmp_path / "state" / "pending_rules.corrupt").exists()
 
