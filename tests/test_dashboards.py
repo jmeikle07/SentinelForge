@@ -118,13 +118,25 @@ def test_pages_link_to_engine_not_water():
         assert "/api/water" not in _read(f"web/{p}")
 
 
-def test_layer_technique_count_matches_seen_techniques():
+def _rule_techniques():
+    import glob
+    import yaml
+    ids = set()
+    for f in glob.glob(str(ROOT / "detections" / "sigma" / "*.yml")):
+        with open(f, encoding="utf-8") as fh:
+            for t in yaml.safe_load(fh).get("tags", []):
+                if re.match(r"attack\.t\d", str(t)):
+                    ids.add(str(t)[7:].upper())
+    return ids
+
+
+def test_layer_technique_count_matches_shipped_rules():
     layer = json.loads(_read("docs/coverage_layer.json"))
-    seen = json.loads(_read("state/seen_techniques.json"))
+    rules = _rule_techniques()
     ids = [t["techniqueID"] for t in layer["techniques"]]
-    assert len(ids) == len(set(ids)) == len(seen)
-    assert set(ids) == set(seen)
-    assert f"{len(seen)} Techniques" in layer["name"]
+    assert len(ids) == len(set(ids)) == len(rules)
+    assert set(ids) == rules
+    assert f"{len(rules)} Techniques" in layer["name"]
     assert layer["name"].startswith("SentinelForge")
     assert "%" not in layer["name"]  # no ATT&CK total data file; never invent a denominator
 

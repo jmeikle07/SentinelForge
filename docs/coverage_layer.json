@@ -1,12 +1,12 @@
 {
-  "name": "SentinelForge Detection Lab \u2014 36 Techniques Covered",
+  "name": "SentinelForge Detection Lab \u2014 37 Techniques Covered",
   "versions": {
     "attack": "16",
     "navigator": "4.9",
     "layer": "4.5"
   },
   "domain": "enterprise-attack",
-  "description": "Auto-generated from the SentinelForge autonomous rule engine. 36 techniques covered as of 2026-10-05. Green = HIGH confidence, Orange = MEDIUM, Blue = LOW.",
+  "description": "Auto-generated from the SentinelForge autonomous rule engine. 37 techniques covered as of 2026-10-05. Green = HIGH confidence, Orange = MEDIUM, Blue = LOW.",
   "filters": {
     "platforms": [
       "Windows",
@@ -34,15 +34,23 @@
   "hideDisabled": false,
   "techniques": [
     {
-      "techniqueID": "T1059.001",
+      "techniqueID": "T1003.002",
       "color": "#4caf50",
-      "comment": "Deployed: 2026-05-10 | Confidence: HIGH | Tactic: Execution",
+      "comment": "Deployed: 2026-05-10 | Confidence: HIGH | Tactic: Credential-Access",
       "enabled": true,
       "score": 1,
       "metadata": []
     },
     {
-      "techniqueID": "T1087.001",
+      "techniqueID": "T1012",
+      "color": "#4caf50",
+      "comment": "Deployed: 2026-05-11 | Confidence: HIGH | Tactic: Discovery",
+      "enabled": true,
+      "score": 1,
+      "metadata": []
+    },
+    {
+      "techniqueID": "T1016.001",
       "color": "#4caf50",
       "comment": "Deployed: 2026-05-10 | Confidence: HIGH | Tactic: Discovery",
       "enabled": true,
@@ -50,25 +58,17 @@
       "metadata": []
     },
     {
-      "techniqueID": "T1082",
-      "color": "#4caf50",
-      "comment": "Deployed: 2026-05-10 | Confidence: HIGH | Tactic: Discovery",
-      "enabled": true,
-      "score": 1,
-      "metadata": []
-    },
-    {
-      "techniqueID": "T1204.002",
-      "color": "#4caf50",
-      "comment": "Deployed: 2026-05-10 | Confidence: HIGH | Tactic: Execution",
-      "enabled": true,
-      "score": 1,
-      "metadata": []
-    },
-    {
-      "techniqueID": "T1547.001",
+      "techniqueID": "T1016",
       "color": "#ff9800",
-      "comment": "Deployed: 2026-05-10 | Confidence: MEDIUM | Tactic: Persistence",
+      "comment": "Deployed: 2026-05-15 | Confidence: MEDIUM | Tactic: Discovery",
+      "enabled": true,
+      "score": 1,
+      "metadata": []
+    },
+    {
+      "techniqueID": "T1018",
+      "color": "#4caf50",
+      "comment": "Deployed: 2026-05-10 | Confidence: HIGH | Tactic: Discovery",
       "enabled": true,
       "score": 1,
       "metadata": []
@@ -82,30 +82,6 @@
       "metadata": []
     },
     {
-      "techniqueID": "T1555.004",
-      "color": "#4caf50",
-      "comment": "Deployed: 2026-05-10 | Confidence: HIGH | Tactic: Credential-Access",
-      "enabled": true,
-      "score": 1,
-      "metadata": []
-    },
-    {
-      "techniqueID": "T1560.001",
-      "color": "#4caf50",
-      "comment": "Deployed: 2026-05-10 | Confidence: HIGH | Tactic: Collection",
-      "enabled": true,
-      "score": 1,
-      "metadata": []
-    },
-    {
-      "techniqueID": "T1057",
-      "color": "#ff9800",
-      "comment": "Deployed: 2026-05-10 | Confidence: MEDIUM | Tactic: Discovery",
-      "enabled": true,
-      "score": 1,
-      "metadata": []
-    },
-    {
       "techniqueID": "T1021.002",
       "color": "#4caf50",
       "comment": "Deployed: 2026-05-10 | Confidence: HIGH | Tactic: Lateral-Movement",
@@ -114,73 +90,17 @@
       "metadata": []
     },
     {
-      "techniqueID": "T1048.003",
+      "techniqueID": "T1033",
       "color": "#4caf50",
-      "comment": "Deployed: 2026-05-10 | Confidence: HIGH | Tactic: Exfiltration",
+      "comment": "Deployed: 2026-05-11 | Confidence: HIGH | Tactic: Discovery",
       "enabled": true,
       "score": 1,
       "metadata": []
     },
     {
-      "techniqueID": "T1564.001",
-      "color": "#4caf50",
-      "comment": "Deployed: 2026-05-10 | Confidence: HIGH | Tactic: Defense-Evasion",
-      "enabled": true,
-      "score": 1,
-      "metadata": []
-    },
-    {
-      "techniqueID": "T1112",
-      "color": "#4caf50",
-      "comment": "Deployed: 2026-05-10 | Confidence: HIGH | Tactic: Defense-Evasion",
-      "enabled": true,
-      "score": 1,
-      "metadata": []
-    },
-    {
-      "techniqueID": "T1564.003",
+      "techniqueID": "T1569.002",
       "color": "#ff9800",
-      "comment": "Deployed: 2026-05-10 | Confidence: MEDIUM | Tactic: Defense-Evasion",
-      "enabled": true,
-      "score": 1,
-      "metadata": []
-    },
-    {
-      "techniqueID": "T1518.001",
-      "color": "#ff9800",
-      "comment": "Deployed: 2026-05-10 | Confidence: MEDIUM | Tactic: Discovery",
-      "enabled": true,
-      "score": 1,
-      "metadata": []
-    },
-    {
-      "techniqueID": "T1059.003",
-      "color": "#4caf50",
-      "comment": "Deployed: 2026-05-10 | Confidence: HIGH | Tactic: Execution",
-      "enabled": true,
-      "score": 1,
-      "metadata": []
-    },
-    {
-      "techniqueID": "T1003.002",
-      "color": "#4caf50",
-      "comment": "Deployed: 2026-05-10 | Confidence: HIGH | Tactic: Credential-Access",
-      "enabled": true,
-      "score": 1,
-      "metadata": []
-    },
-    {
-      "techniqueID": "T1218.007",
-      "color": "#4caf50",
-      "comment": "Deployed: 2026-05-10 | Confidence: HIGH | Tactic: Defense-Evasion",
-      "enabled": true,
-      "score": 1,
-      "metadata": []
-    },
-    {
-      "techniqueID": "T1216",
-      "color": "#ff9800",
-      "comment": "Deployed: 2026-05-10 | Confidence: MEDIUM | Tactic: Defense-Evasion",
+      "comment": "Deployed:  | Confidence: MEDIUM | Tactic: Execution",
       "enabled": true,
       "score": 1,
       "metadata": []
@@ -194,9 +114,17 @@
       "metadata": []
     },
     {
-      "techniqueID": "T1069.002",
+      "techniqueID": "T1046",
       "color": "#4caf50",
-      "comment": "Deployed: 2026-05-10 | Confidence: HIGH | Tactic: Discovery",
+      "comment": "Deployed: 2026-06-19 | Confidence: HIGH | Tactic: Discovery",
+      "enabled": true,
+      "score": 1,
+      "metadata": []
+    },
+    {
+      "techniqueID": "T1048.003",
+      "color": "#4caf50",
+      "comment": "Deployed: 2026-05-10 | Confidence: HIGH | Tactic: Exfiltration",
       "enabled": true,
       "score": 1,
       "metadata": []
@@ -218,7 +146,55 @@
       "metadata": []
     },
     {
-      "techniqueID": "T1016.001",
+      "techniqueID": "T1055",
+      "color": "#ff9800",
+      "comment": "Deployed:  | Confidence: MEDIUM | Tactic: Defense_Evasion",
+      "enabled": true,
+      "score": 1,
+      "metadata": []
+    },
+    {
+      "techniqueID": "T1204.002",
+      "color": "#4caf50",
+      "comment": "Deployed: 2026-05-10 | Confidence: HIGH | Tactic: Execution",
+      "enabled": true,
+      "score": 1,
+      "metadata": []
+    },
+    {
+      "techniqueID": "T1057",
+      "color": "#ff9800",
+      "comment": "Deployed: 2026-05-10 | Confidence: MEDIUM | Tactic: Discovery",
+      "enabled": true,
+      "score": 1,
+      "metadata": []
+    },
+    {
+      "techniqueID": "T1059.001",
+      "color": "#4caf50",
+      "comment": "Deployed: 2026-05-10 | Confidence: HIGH | Tactic: Execution",
+      "enabled": true,
+      "score": 1,
+      "metadata": []
+    },
+    {
+      "techniqueID": "T1105",
+      "color": "#ff9800",
+      "comment": "Deployed:  | Confidence: MEDIUM | Tactic: Execution",
+      "enabled": true,
+      "score": 1,
+      "metadata": []
+    },
+    {
+      "techniqueID": "T1059.003",
+      "color": "#4caf50",
+      "comment": "Deployed: 2026-05-10 | Confidence: HIGH | Tactic: Execution",
+      "enabled": true,
+      "score": 1,
+      "metadata": []
+    },
+    {
+      "techniqueID": "T1069.002",
       "color": "#4caf50",
       "comment": "Deployed: 2026-05-10 | Confidence: HIGH | Tactic: Discovery",
       "enabled": true,
@@ -226,15 +202,7 @@
       "metadata": []
     },
     {
-      "techniqueID": "T1482",
-      "color": "#4caf50",
-      "comment": "Deployed: 2026-05-10 | Confidence: HIGH | Tactic: Discovery",
-      "enabled": true,
-      "score": 1,
-      "metadata": []
-    },
-    {
-      "techniqueID": "T1018",
+      "techniqueID": "T1082",
       "color": "#4caf50",
       "comment": "Deployed: 2026-05-10 | Confidence: HIGH | Tactic: Discovery",
       "enabled": true,
@@ -250,57 +218,9 @@
       "metadata": []
     },
     {
-      "techniqueID": "T1012",
+      "techniqueID": "T1087.001",
       "color": "#4caf50",
-      "comment": "Deployed: 2026-05-11 | Confidence: HIGH | Tactic: Discovery",
-      "enabled": true,
-      "score": 1,
-      "metadata": []
-    },
-    {
-      "techniqueID": "T1614.001",
-      "color": "#ff9800",
-      "comment": "Deployed: 2026-05-11 | Confidence: MEDIUM | Tactic: Discovery",
-      "enabled": true,
-      "score": 1,
-      "metadata": []
-    },
-    {
-      "techniqueID": "T1218.011",
-      "color": "#ff9800",
-      "comment": "Deployed: 2026-05-11 | Confidence: MEDIUM | Tactic: Defense-Evasion",
-      "enabled": true,
-      "score": 1,
-      "metadata": []
-    },
-    {
-      "techniqueID": "T1033",
-      "color": "#4caf50",
-      "comment": "Deployed: 2026-05-11 | Confidence: HIGH | Tactic: Discovery",
-      "enabled": true,
-      "score": 1,
-      "metadata": []
-    },
-    {
-      "techniqueID": "T1574.010",
-      "color": "#ff9800",
-      "comment": "Deployed: 2026-05-15 | Confidence: MEDIUM | Tactic: Persistence",
-      "enabled": true,
-      "score": 1,
-      "metadata": []
-    },
-    {
-      "techniqueID": "T1016",
-      "color": "#ff9800",
-      "comment": "Deployed: 2026-05-15 | Confidence: MEDIUM | Tactic: Discovery",
-      "enabled": true,
-      "score": 1,
-      "metadata": []
-    },
-    {
-      "techniqueID": "T1035",
-      "color": "#ff9800",
-      "comment": "Deployed: 2026-05-15 | Confidence: MEDIUM | Tactic: Execution",
+      "comment": "Deployed: 2026-05-10 | Confidence: HIGH | Tactic: Discovery",
       "enabled": true,
       "score": 1,
       "metadata": []
@@ -314,9 +234,97 @@
       "metadata": []
     },
     {
-      "techniqueID": "T1046",
+      "techniqueID": "T1112",
       "color": "#4caf50",
-      "comment": "Deployed: 2026-06-19 | Confidence: HIGH | Tactic: Discovery",
+      "comment": "Deployed: 2026-05-10 | Confidence: HIGH | Tactic: Defense-Evasion",
+      "enabled": true,
+      "score": 1,
+      "metadata": []
+    },
+    {
+      "techniqueID": "T1216",
+      "color": "#ff9800",
+      "comment": "Deployed: 2026-05-10 | Confidence: MEDIUM | Tactic: Defense-Evasion",
+      "enabled": true,
+      "score": 1,
+      "metadata": []
+    },
+    {
+      "techniqueID": "T1218.007",
+      "color": "#4caf50",
+      "comment": "Deployed: 2026-05-10 | Confidence: HIGH | Tactic: Defense-Evasion",
+      "enabled": true,
+      "score": 1,
+      "metadata": []
+    },
+    {
+      "techniqueID": "T1218.011",
+      "color": "#ff9800",
+      "comment": "Deployed: 2026-05-11 | Confidence: MEDIUM | Tactic: Defense-Evasion",
+      "enabled": true,
+      "score": 1,
+      "metadata": []
+    },
+    {
+      "techniqueID": "T1482",
+      "color": "#4caf50",
+      "comment": "Deployed: 2026-05-10 | Confidence: HIGH | Tactic: Discovery",
+      "enabled": true,
+      "score": 1,
+      "metadata": []
+    },
+    {
+      "techniqueID": "T1546.011",
+      "color": "#ff9800",
+      "comment": "Deployed:  | Confidence: MEDIUM | Tactic: Persistence",
+      "enabled": true,
+      "score": 1,
+      "metadata": []
+    },
+    {
+      "techniqueID": "T1547.001",
+      "color": "#ff9800",
+      "comment": "Deployed: 2026-05-10 | Confidence: MEDIUM | Tactic: Persistence",
+      "enabled": true,
+      "score": 1,
+      "metadata": []
+    },
+    {
+      "techniqueID": "T1555.004",
+      "color": "#4caf50",
+      "comment": "Deployed: 2026-05-10 | Confidence: HIGH | Tactic: Credential-Access",
+      "enabled": true,
+      "score": 1,
+      "metadata": []
+    },
+    {
+      "techniqueID": "T1560.001",
+      "color": "#4caf50",
+      "comment": "Deployed: 2026-05-10 | Confidence: HIGH | Tactic: Collection",
+      "enabled": true,
+      "score": 1,
+      "metadata": []
+    },
+    {
+      "techniqueID": "T1564.001",
+      "color": "#4caf50",
+      "comment": "Deployed: 2026-05-10 | Confidence: HIGH | Tactic: Defense-Evasion",
+      "enabled": true,
+      "score": 1,
+      "metadata": []
+    },
+    {
+      "techniqueID": "T1574.010",
+      "color": "#ff9800",
+      "comment": "Deployed: 2026-05-15 | Confidence: MEDIUM | Tactic: Persistence",
+      "enabled": true,
+      "score": 1,
+      "metadata": []
+    },
+    {
+      "techniqueID": "T1614.001",
+      "color": "#ff9800",
+      "comment": "Deployed: 2026-05-11 | Confidence: MEDIUM | Tactic: Discovery",
       "enabled": true,
       "score": 1,
       "metadata": []
