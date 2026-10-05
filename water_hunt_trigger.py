@@ -91,7 +91,8 @@ def _es_search(es_url: str, api_key: str, index: str, query: dict) -> dict:
     if api_key:
         headers["Authorization"] = f"ApiKey {api_key}"
     try:
-        r = lab_http.session().post(
+        # _search is a read-only POST: safe to retry on 429/5xx
+        r = lab_http.session(retry_post=True).post(
             f"{es_url}/{index}/_search", headers=headers, json=query, timeout=15,
         )
     except requests.RequestException as exc:

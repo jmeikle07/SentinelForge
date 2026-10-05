@@ -301,7 +301,7 @@ def query_elasticsearch(lookback_minutes):
         }}
     }
     try:
-        hits = islice(search_all(make_session(timeout=30), "logs-*", body,
+        hits = islice(search_all(make_session(timeout=30, retry_post=True), "logs-*", body,  # read-only search
                                  base_url=settings.elastic_url, api_key=settings.elastic_api_key),
                       MAX_EVENTS)
         return [h["_source"] for h in hits]

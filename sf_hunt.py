@@ -147,7 +147,8 @@ def elk_search(index: str, query: dict) -> dict:
     headers = {"Content-Type": "application/json"}
     if settings.elastic_api_key:
         headers["Authorization"] = f"ApiKey {settings.elastic_api_key}"
-    r = lab_http.session().post(
+    # _search is a read-only POST, so it keeps the 429/5xx retries (indexing, below, does not)
+    r = lab_http.session(retry_post=True).post(
         f"{settings.elastic_url}/{index}/_search",
         headers=headers,
         json=query,

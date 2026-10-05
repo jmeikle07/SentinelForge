@@ -79,7 +79,7 @@ def main():
     seen = json.loads(seen_path.read_text())
 
     try:
-        fires = fires_for_techniques(http.session(), seen)
+        fires = fires_for_techniques(http.session(retry_post=True), seen)  # read-only aggregation
         err = None
     except (es.SearchError, config.ConfigError) as exc:
         log.error("efficacy query failed: %s", exc)
