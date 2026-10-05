@@ -1,0 +1,42 @@
+title: System Information Discovery via CMD Enumeration Utilities
+id: 99975fcf-52cb-4595-a905-0c45242c30db
+status: experimental
+description: Detects cmd.exe spawning common system and network enumeration utilities indicative of host reconnaissance activity associated with T1082 System Information Discovery.
+author: 1xLoZec
+date: 2026/05/10
+references:
+    - https://attack.mitre.org/techniques/T1082/
+tags:
+    - attack.discovery
+    - attack.t1082
+    - attack.t1016
+    - attack.t1033
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    selection_parent:
+        process.parent.name: 'cmd.exe'
+    selection_tools:
+        process.name:
+            - 'whoami.exe'
+            - 'hostname.exe'
+            - 'ipconfig.exe'
+            - 'arp.exe'
+            - 'nbtstat.exe'
+            - 'netsh.exe'
+            - 'net1.exe'
+            - 'net.exe'
+            - 'systeminfo.exe'
+    condition: selection_parent and selection_tools
+falsepositives:
+    - Legitimate system administrators performing manual network diagnostics or inventory collection
+    - Automated IT asset management or monitoring agents that enumerate host information
+    - Help desk scripts executing chained network commands during troubleshooting sessions
+level: medium
+fields:
+    - process.name
+    - process.executable
+    - process.command_line
+    - process.parent.name
+    - process.parent.executable

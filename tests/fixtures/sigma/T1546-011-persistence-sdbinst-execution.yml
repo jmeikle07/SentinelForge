@@ -1,0 +1,25 @@
+title: Suspicious sdbinst.exe Execution
+id: c27fffce-2372-458e-ae4b-4f247823dc2c
+status: experimental
+description: Detects suspicious execution of sdbinst.exe associated with application shimming persistence techniques
+author: 1xLoZec
+date: 2026/05/08
+references:
+    - https://attack.mitre.org/techniques/T1546/011/
+tags:
+    - attack.persistence
+    - attack.t1546.011
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    selection:
+        process.name: sdbinst.exe
+    condition: selection
+level: medium
+falsepositives:
+    - Legitimate application compatibility database installations
+fields:
+    - process.name
+    - process.command_line
+    - process.parent.name

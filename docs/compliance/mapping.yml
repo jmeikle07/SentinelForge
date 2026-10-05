@@ -1,0 +1,378 @@
+# SentinelForge compliance mapping
+# Author: Jahsean Meikle
+#
+# Keyed by ATT&CK technique (and tactic). Every ID used here MUST exist in
+# docs/compliance/objectives.yml (enforced by tests/test_compliance.py and
+# `python tools/tag_compliance.py --check`).
+#
+#   secplus : CompTIA Security+ SY0-701 objective, "<domain>.<objective>" (e.g. "2.4")
+#   isc2cc  : ISC2 Certified in Cybersecurity domain number, 1-5
+#   nist    : NIST SP 800-53 rev5 control ID, lowercase (e.g. si-4)
+#   cis     : CIS Controls v8 safeguard ID (e.g. "8.5")
+#   hardening / ir / risk : short defender notes appended to each rule description
+#
+# t1035 is the deprecated ATT&CK ID for Service Execution (now t1569.002);
+# both are mapped so rules mid-migration still tag cleanly.
+
+tactics:
+  initial_access:
+    secplus: ["2.2"]
+    isc2cc: [5]
+    nist: [si-4]
+    cis: ["13.1"]
+  execution:
+    secplus: ["2.4"]
+    isc2cc: [5]
+    nist: [si-4]
+    cis: ["8.8"]
+  persistence:
+    secplus: ["2.4"]
+    isc2cc: [5]
+    nist: [cm-6]
+    cis: ["4.1"]
+  privilege_escalation:
+    secplus: ["4.6"]
+    isc2cc: [3]
+    nist: [ac-6]
+    cis: ["5.4"]
+  defense_evasion:
+    secplus: ["2.4"]
+    isc2cc: [5]
+    nist: [au-6]
+    cis: ["8.11"]
+  credential_access:
+    secplus: ["4.6"]
+    isc2cc: [3]
+    nist: [ia-5]
+    cis: ["5.2"]
+  discovery:
+    secplus: ["4.4"]
+    isc2cc: [5]
+    nist: [si-4]
+    cis: ["8.5"]
+  lateral_movement:
+    secplus: ["3.2"]
+    isc2cc: [4]
+    nist: [sc-7]
+    cis: ["13.4"]
+  collection:
+    secplus: ["3.3"]
+    isc2cc: [5]
+    nist: [si-4]
+    cis: ["3.3"]
+  command_and_control:
+    secplus: ["4.4"]
+    isc2cc: [4]
+    nist: [sc-7]
+    cis: ["13.3"]
+  exfiltration:
+    secplus: ["3.3"]
+    isc2cc: [5]
+    nist: [sc-7]
+    cis: ["3.13"]
+
+techniques:
+  t1003.002:
+    secplus: ["2.4", "4.4", "4.6"]
+    isc2cc: [3, 5]
+    nist: [si-4, ac-6, au-6]
+    cis: ["5.4", "8.5", "8.8"]
+    hardening: "Remove standing local admin rights, randomise local admin passwords with LAPS, and alert on reg save of the SAM, SYSTEM and SECURITY hives."
+    ir: "Isolate the host, treat local and cached credentials as compromised and reset them, and preserve the saved hive files as evidence."
+    risk: "Mitigate: LAPS and least privilege reduce the value of dumped hashes; accept residual risk for documented backup tooling via the filter."
+  t1012:
+    secplus: ["2.4", "4.4"]
+    isc2cc: [5]
+    nist: [si-4, au-12]
+    cis: ["8.5", "8.8"]
+    hardening: "Collect process-creation events with full command lines and baseline legitimate registry query tooling per host role."
+    ir: "Review the parent process chain and the same user's session for follow-on discovery or credential access."
+    risk: "Accept: low-impact discovery on its own; monitor and escalate when combined with other discovery or execution alerts."
+  t1016:
+    secplus: ["2.4", "4.4"]
+    isc2cc: [4, 5]
+    nist: [si-4, au-12]
+    cis: ["8.5", "8.6"]
+    hardening: "Log DNS queries centrally and baseline which processes legitimately contact connectivity-check domains."
+    ir: "Identify the querying process and its parent, then check for proxy or C2 behaviour from the same host."
+    risk: "Accept: network configuration discovery is common noise; tune thresholds and keep the alert as a correlation signal."
+  t1016.001:
+    secplus: ["2.4", "4.4"]
+    isc2cc: [4, 5]
+    nist: [si-4, au-12]
+    cis: ["8.5", "8.8"]
+    hardening: "Log command lines for cmd.exe children and restrict network utilities that standard users do not need."
+    ir: "Determine what launched cmd.exe, review commands run in the same session, and check outbound connections afterwards."
+    risk: "Accept with monitoring: connectivity checks are frequently benign; escalate only with other attacker behaviour."
+  t1018:
+    secplus: ["2.4", "4.4"]
+    isc2cc: [4, 5]
+    nist: [si-4, ca-7]
+    cis: ["8.5", "13.1"]
+    hardening: "Segment workstations from server networks and log net.exe usage with command lines."
+    ir: "Identify the account and host, review which systems were enumerated, and look for follow-on lateral movement."
+    risk: "Mitigate: segmentation limits what enumeration reveals; accept the residual discovery noise."
+  t1021.001:
+    secplus: ["2.2", "3.2", "4.6"]
+    isc2cc: [3, 4]
+    nist: [ac-17, sc-7, ia-2]
+    cis: ["6.4", "13.5", "4.4"]
+    hardening: "Restrict RDP to a jump host or VPN, require MFA for remote access, and enable Network Level Authentication."
+    ir: "Contain the source and destination hosts, disable the used account, and review the RDP session logs for actions taken."
+    risk: "Mitigate: MFA and network restrictions on RDP; transfer residual risk for third-party access via contract controls."
+  t1021.002:
+    secplus: ["2.2", "3.2"]
+    isc2cc: [4]
+    nist: [ac-17, sc-7, sc-8]
+    cis: ["13.4", "4.4", "3.10"]
+    hardening: "Block SMB between workstations with host firewalls, disable SMBv1, and require SMB signing and encryption."
+    ir: "Isolate the source host, identify mapped shares and files accessed, and reset credentials used for the mapping."
+    risk: "Mitigate: host firewall and signing controls; accept the residual risk on file servers that must expose SMB."
+  t1033:
+    secplus: ["2.4", "4.4"]
+    isc2cc: [5]
+    nist: [si-4, au-12]
+    cis: ["8.5", "8.8"]
+    hardening: "Collect command-line audit logs and restrict scripting engines to users who need them."
+    ir: "Check what spawned the scripting engine and whether it ran with user or elevated rights, then widen to the host timeline."
+    risk: "Accept: owner discovery is low-impact; the alert is valuable mostly as correlation context."
+  t1035:
+    secplus: ["2.4", "4.1"]
+    isc2cc: [5]
+    nist: [si-4, cm-7, cm-6]
+    cis: ["4.8", "8.8"]
+    hardening: "Disable unnecessary services, restrict service creation to administrators, and baseline svchost service groups."
+    ir: "Inspect the new or modified service binary and parameters, preserve it, and remove persistence once scoped."
+    risk: "Mitigate: service allowlisting; deprecated ATT&CK ID, retained so rules mid-migration still map (see t1569.002)."
+  t1569.002:
+    secplus: ["2.4", "4.1"]
+    isc2cc: [5]
+    nist: [si-4, cm-7, cm-6]
+    cis: ["4.8", "8.8"]
+    hardening: "Disable unnecessary services, restrict service creation to administrators, and baseline svchost service groups."
+    ir: "Inspect the new or modified service binary and parameters, preserve it, and remove persistence once scoped."
+    risk: "Mitigate: service allowlisting and least privilege; accept residual risk from legitimate administrative tooling."
+  t1036.005:
+    secplus: ["2.4", "4.4"]
+    isc2cc: [5]
+    nist: [si-4, si-7, cm-7]
+    cis: ["2.5", "10.7", "8.8"]
+    hardening: "Enforce application allowlisting so system utilities only run from their expected paths, and alert on path mismatches."
+    ir: "Hash and preserve the masquerading binary, compare it to the legitimate file, and hunt for the same hash across hosts."
+    risk: "Mitigate: allowlisting; accept residual risk where admins run copies of tools from non-standard paths."
+  t1046:
+    secplus: ["2.2", "4.4"]
+    isc2cc: [4, 5]
+    nist: [si-4, sc-7, ca-7]
+    cis: ["13.3", "13.6", "12.2"]
+    hardening: "Deploy network intrusion detection, collect flow logs, and keep externally exposed services to the minimum."
+    ir: "Block or rate-limit the scanning source, confirm which services responded, and prioritise patching of exposed ones."
+    risk: "Accept: internet scanning is constant background noise; mitigate by reducing exposed attack surface."
+  t1048.003:
+    secplus: ["3.3", "4.4", "4.5"]
+    isc2cc: [4, 5]
+    nist: [sc-7, si-4, ac-4]
+    cis: ["3.13", "13.4", "13.10"]
+    hardening: "Use egress filtering with an allowlist, inspect outbound HTTP at the proxy, and deploy data loss prevention for sensitive stores."
+    ir: "Contain the host, identify the destination and data volume sent, and start breach assessment and notification decisions."
+    risk: "Mitigate: egress control and DLP; for confirmed loss, treat as a reportable incident and involve legal."
+  t1049:
+    secplus: ["2.4", "4.4"]
+    isc2cc: [4, 5]
+    nist: [si-4, au-12]
+    cis: ["8.5", "8.8"]
+    hardening: "Log command lines for chained cmd.exe commands and restrict netstat-style tooling for standard users where practical."
+    ir: "Review the chained commands and parent process, then check for connections to unusual hosts from the same machine."
+    risk: "Accept: connection discovery is common; use as a correlation signal."
+  t1053.005:
+    secplus: ["2.4", "4.1", "4.4"]
+    isc2cc: [3, 5]
+    nist: [cm-7, cm-5, ac-6]
+    cis: ["4.8", "5.4", "8.5"]
+    hardening: "Restrict scheduled task creation to administrators and alert on logon or startup triggered tasks created from user context."
+    ir: "Export the task definition, identify the action it runs, delete it once preserved, and hunt for the same task name elsewhere."
+    risk: "Mitigate: least privilege on task creation; accept the residual risk for approved software installers."
+  t1055:
+    secplus: ["2.4", "4.1", "4.5"]
+    isc2cc: [5]
+    nist: [si-4, si-16, si-3]
+    cis: ["10.5", "10.7", "8.8"]
+    hardening: "Enable anti-exploitation features and behaviour-based EDR, and constrain PowerShell with Constrained Language Mode and script block logging."
+    ir: "Isolate the host, capture memory of the injected process, and identify the payload source URL for blocking."
+    risk: "Mitigate: EDR and PowerShell constraints; residual risk accepted for unmanaged developer machines with compensating monitoring."
+  t1057:
+    secplus: ["2.4", "4.4"]
+    isc2cc: [5]
+    nist: [si-4, au-12]
+    cis: ["8.5", "8.8"]
+    hardening: "Collect command-line audit logs and restrict scripting engines for users who do not need them."
+    ir: "Check the scripting engine's parent and the rest of its session for credential or lateral movement activity."
+    risk: "Accept: process discovery is low-impact; escalate only with other attacker behaviour."
+  t1059.001:
+    secplus: ["2.4", "4.1", "4.4"]
+    isc2cc: [5]
+    nist: [si-4, cm-7, au-2]
+    cis: ["2.7", "8.8", "10.7"]
+    hardening: "Enable PowerShell script block and module logging, apply Constrained Language Mode, and allowlist approved scripts."
+    ir: "Collect script block logs, identify the download source and parent process, and quarantine any written files."
+    risk: "Mitigate: logging and language constraints; accept residual risk for administrators who need full PowerShell."
+  t1059.003:
+    secplus: ["2.4", "4.1"]
+    isc2cc: [5]
+    nist: [si-4, cm-7, au-2]
+    cis: ["2.7", "8.8"]
+    hardening: "Allowlist approved scripts, restrict cmd.exe and batch execution from user-writable paths, and log command lines."
+    ir: "Retrieve the batch file, review its contents, and trace its origin (download, email or share) before deletion."
+    risk: "Mitigate: script allowlisting; accept residual risk from legitimate admin automation."
+  t1069.002:
+    secplus: ["2.4", "4.4", "4.6"]
+    isc2cc: [3, 5]
+    nist: [si-4, ac-2, au-6]
+    cis: ["5.1", "8.5", "6.8"]
+    hardening: "Review privileged group membership regularly, apply role-based access control, and log net.exe group enumeration."
+    ir: "Identify the account and host, review which groups were enumerated, and watch that account for privilege escalation."
+    risk: "Mitigate: tidy privileged groups to reduce what enumeration reveals; accept discovery noise."
+  t1082:
+    secplus: ["2.4", "4.4"]
+    isc2cc: [5]
+    nist: [si-4, au-12]
+    cis: ["8.5", "8.8"]
+    hardening: "Collect command-line audit logs and baseline legitimate inventory tooling."
+    ir: "Check the parent process and subsequent commands in the session; treat as reconnaissance and widen the hunt."
+    risk: "Accept: system discovery is low-impact and common; use for correlation."
+  t1083:
+    secplus: ["2.4", "4.4"]
+    isc2cc: [5]
+    nist: [si-4, ac-3]
+    cis: ["3.3", "8.5"]
+    hardening: "Apply least-privilege file ACLs so recursive enumeration yields little, and log command lines."
+    ir: "Identify the directories enumerated, check for staging or archive activity next, and review the account's recent file access."
+    risk: "Accept with monitoring: file discovery is normal user behaviour; escalate when followed by archiving or exfiltration."
+  t1087.001:
+    secplus: ["2.4", "4.4"]
+    isc2cc: [3, 5]
+    nist: [si-4, ac-2]
+    cis: ["5.1", "8.5"]
+    hardening: "Maintain an account inventory, disable dormant local accounts, and log whoami and account enumeration commands."
+    ir: "Check the scripting parent and the rest of the session, and confirm the account used is legitimate."
+    risk: "Accept: local account discovery is low-impact; escalate in combination with credential access."
+  t1105:
+    secplus: ["2.4", "4.4", "4.5"]
+    isc2cc: [4, 5]
+    nist: [si-4, sc-7, cm-7]
+    cis: ["9.3", "13.10", "8.8"]
+    hardening: "Filter outbound web access with a URL allowlist or proxy and block direct PowerShell downloads from untrusted hosts."
+    ir: "Retrieve and hash the downloaded file, block the source URL, and scan for execution of the payload."
+    risk: "Mitigate: egress filtering; accept residual risk for approved software update paths."
+  t1110.001:
+    secplus: ["2.4", "4.6"]
+    isc2cc: [3, 5]
+    nist: [ac-7, ia-5, si-4]
+    cis: ["5.2", "6.3", "8.11"]
+    hardening: "Enforce account lockout, require MFA, ban weak passwords, and restrict net use to administrators."
+    ir: "Identify the targeted accounts and share, reset any account that may have succeeded, and block the source."
+    risk: "Mitigate: lockout and MFA; accept residual risk for legacy systems that cannot enforce MFA, with compensating monitoring."
+  t1112:
+    secplus: ["2.4", "4.1", "4.4"]
+    isc2cc: [5]
+    nist: [cm-6, cm-5, au-12]
+    cis: ["4.1", "4.7", "8.5"]
+    hardening: "Enforce secure configuration baselines through Group Policy and restrict reg.exe for standard users."
+    ir: "Record the key and value changed, revert it to baseline, and determine what process and user made the change."
+    risk: "Mitigate: configuration management; accept low-impact cosmetic changes with monitoring."
+  t1204.002:
+    secplus: ["2.2", "4.5", "5.6"]
+    isc2cc: [2, 5]
+    nist: [at-2, si-3, si-4]
+    cis: ["14.2", "9.6", "10.1"]
+    hardening: "Block macros from internet-sourced Office files, filter risky attachment types, and run phishing awareness training."
+    ir: "Isolate the host, retrieve the document and macro, identify the delivery email, and purge it from other mailboxes."
+    risk: "Mitigate: macro blocking and training; transfer part of the risk with email security services."
+  t1216:
+    secplus: ["2.4", "4.1"]
+    isc2cc: [5]
+    nist: [cm-7, cm-10, si-4]
+    cis: ["2.5", "2.7", "8.8"]
+    hardening: "Use application control to restrict signed proxy-execution binaries and scripts to approved uses."
+    ir: "Identify the proxied payload, preserve the MSI or script, and scope its install or execution footprint."
+    risk: "Mitigate: application control; accept residual risk for legitimate software deployment tools."
+  t1218.007:
+    secplus: ["2.4", "4.1", "4.4"]
+    isc2cc: [5]
+    nist: [cm-7, cm-10, cm-11, si-4]
+    cis: ["2.5", "2.3", "8.8"]
+    hardening: "Restrict msiexec to administrators or software distribution, block installs from user-writable paths, and apply application control."
+    ir: "Retrieve the MSI package, inspect its custom actions, and uninstall and remove artefacts after scoping."
+    risk: "Mitigate: application control; accept residual risk for approved silent deployments."
+  t1218.011:
+    secplus: ["2.4", "4.1", "4.4"]
+    isc2cc: [5]
+    nist: [cm-7, cm-10, si-4]
+    cis: ["2.5", "4.8", "8.8"]
+    hardening: "Block or restrict rundll32 and sdbinst for standard users with application control and audit their command lines."
+    ir: "Identify the DLL or shim database loaded, preserve it, and remove the registration once scoped."
+    risk: "Mitigate: application control; accept residual risk where legacy applications need compatibility shims."
+  t1482:
+    secplus: ["2.4", "4.4"]
+    isc2cc: [4, 5]
+    nist: [si-4, ca-7]
+    cis: ["8.5", "13.1"]
+    hardening: "Restrict directory trust enumeration to administrative accounts and log net.exe command chains."
+    ir: "Identify the account and host, review the trusts enumerated, and watch for cross-domain lateral movement."
+    risk: "Accept with monitoring: trust discovery is rare for standard users and valuable as a high-signal indicator."
+  t1546.011:
+    secplus: ["2.4", "4.1", "4.4"]
+    isc2cc: [5]
+    nist: [cm-6, cm-7, si-7]
+    cis: ["4.1", "4.8", "8.5"]
+    hardening: "Disable application compatibility shim installation for standard users and audit AppCompatFlags registry changes."
+    ir: "Export the shim database and registry keys, remove the registration, and check the shimmed application for tampering."
+    risk: "Mitigate: configuration control; accept residual risk for legitimate compatibility fixes with change approval."
+  t1547.001:
+    secplus: ["2.4", "4.1", "4.4"]
+    isc2cc: [5]
+    nist: [cm-6, cm-7, si-7]
+    cis: ["4.1", "2.3", "8.5"]
+    hardening: "Monitor Run keys and Startup folders, restrict write access, and remove unauthorised software."
+    ir: "Record and remove the autostart entry, identify the referenced binary, and hunt for the same entry on other hosts."
+    risk: "Mitigate: write restrictions and monitoring; accept residual risk for user-installed software, with review."
+  t1555.004:
+    secplus: ["2.4", "4.6"]
+    isc2cc: [3, 5]
+    nist: [ia-5, ac-6, si-4]
+    cis: ["5.2", "5.4", "8.8"]
+    hardening: "Restrict cmdkey use, enable Credential Guard, and prefer MFA over stored RDP credentials."
+    ir: "Identify the stored credentials and targets, reset affected accounts, and review RDP connections that followed."
+    risk: "Mitigate: Credential Guard and MFA; accept residual risk for legitimate stored administrator sessions."
+  t1560.001:
+    secplus: ["3.3", "4.4"]
+    isc2cc: [5]
+    nist: [si-4, sc-7, ac-4]
+    cis: ["3.13", "8.8", "13.4"]
+    hardening: "Restrict archive utilities on sensitive systems, apply DLP, and monitor staging directories."
+    ir: "Locate and preserve the archive, identify what data it contains, and check for exfiltration from the same host."
+    risk: "Mitigate: DLP; accept noise from legitimate compression, escalating when paired with outbound transfer."
+  t1564.001:
+    secplus: ["2.4", "4.1"]
+    isc2cc: [5]
+    nist: [cm-6, cm-5, si-4]
+    cis: ["4.1", "4.7", "8.5"]
+    hardening: "Enforce Explorer settings (show file extensions) through Group Policy and restrict reg.exe for standard users."
+    ir: "Revert the value, look for files using double extensions, and trace the delivery of those files."
+    risk: "Mitigate: configuration management; the change itself is low-impact, so accept with monitoring."
+  t1574.010:
+    secplus: ["2.4", "4.1", "4.6"]
+    isc2cc: [3, 5]
+    nist: [cm-5, ac-6, cm-7]
+    cis: ["5.4", "4.1", "4.8"]
+    hardening: "Audit service binary and folder permissions, remove write access for non-admins, and apply least privilege."
+    ir: "Identify the weak service permission abused, restore ACLs, and replace or verify the service binary."
+    risk: "Mitigate: ACL hardening and periodic permission audits; accept residual risk on legacy services pending replacement."
+  t1614.001:
+    secplus: ["2.4", "4.4"]
+    isc2cc: [5]
+    nist: [si-4, au-12]
+    cis: ["8.5", "8.8"]
+    hardening: "Collect command-line audit logs and baseline legitimate regional and language queries."
+    ir: "Check the process chain for malware that tailors its behaviour to locale, and hunt for follow-on execution."
+    risk: "Accept: language discovery is low-impact alone; treat as a correlation signal."
