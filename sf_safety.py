@@ -11,13 +11,39 @@ Defense layers applied (cross-pillar surface only — each pillar has its own
 intra-system defenses):
 
   Layer 1 (Input validation)        — validate_hunt_record_for_water()
-  Layer 2 (Provenance tracking)     — tag_provenance(), record source/trust
+  Layer 2 (Provenance tracking)     — tag_provenance(), build_hunt_provenance(),
+                                      normalize_provenance(); record source/trust
   Layer 3 (Confidence thresholds)   — should_water_act_on_hunt()
   Layer 4 (Reasoning trace)         — preserved in tag_provenance() audit fields
   Layer 5 (Human-in-the-loop)       — pending_review status on triggered rules
   Layer 6 (Output sanitization)     — done in Water's existing validate_rule
   Layer 7 (Rate limiting)           — RateLimiter, max N triggers/day
   Layer 8 (Anomaly / disagreement)  — cross_pillar_disagreement_check()
+
+PROVENANCE CONTRACT (one schema, W16)
+-------------------------------------
+Every hunt record in sf-hunt-logs carries a nested object:
+
+    "provenance": {
+        "source":      "user" | "hunt" | "web" | "water" | "system" | "unknown",
+        "trust_level": "high" | "medium" | "low" | "quarantined",
+        "origin":      "cli" | "web" | "water" | ...   (how the record was produced)
+        "verifier_id": host that produced it (optional),
+        ...                                             (tag_provenance adds tagged_at,
+                                                         triggered_by_hunt_id)
+    }
+
+  - Operator CLI lookup      -> source "user", trust "high", origin "cli".
+  - Web lookup (untrusted internet users) -> source "web", trust "low", origin "web".
+  - Engine (Water) output    -> source "water" (never read back: layer 2 / ES filter).
+  - Only source in ACTIONABLE_SOURCES ("user", "hunt") with trust "high" may trigger
+    rule generation (layers 2 + 4 in should_water_act_on_hunt).
+  - Readers go through normalize_provenance(): it also understands the LEGACY shape
+    (top-level `source` / `trust_level`) and FAILS CLOSED: a record with no usable
+    provenance is source "unknown", trust "low" and can never trigger Water.
+  - The ES query excludes source water in both shapes (`provenance.source.keyword`
+    and legacy `source.keyword`; the repo creates no mapping for sf-hunt-logs, so
+    dynamic mapping gives text + `.keyword` and `.keyword` is the right field).
 
 CRITICAL: The single most important rule — Water never reads records where
 source == "water". Without this guard, the closed loop becomes a runaway
@@ -79,6 +105,16 @@ SOURCE_USER = "user"        # initiated by analyst (Hunt CLI invocation)
 SOURCE_HUNT = "hunt"        # Hunt automation (alert ingestion, future)
 SOURCE_WATER = "water"      # Water itself — Water MUST NOT read its own records
 SOURCE_SYSTEM = "system"    # automated infrastructure (e.g. scheduled refresh)
+SOURCE_WEB = "web"          # anonymous internet visitor (web lookup): never trusted
+SOURCE_UNKNOWN = "unknown"  # no usable provenance on the record: fail closed
+
+ORIGIN_CLI = "cli"
+ORIGIN_WEB = "web"
+
+# Only these sources may ever trigger rule generation (and only at trust "high").
+ACTIONABLE_SOURCES = frozenset({SOURCE_USER, SOURCE_HUNT})
+_KNOWN_SOURCES = frozenset({SOURCE_USER, SOURCE_HUNT, SOURCE_WATER, SOURCE_SYSTEM, SOURCE_WEB, SOURCE_UNKNOWN})
+_KNOWN_TRUST = frozenset({TRUST_LEVEL_HIGH, TRUST_LEVEL_MEDIUM, TRUST_LEVEL_LOW, TRUST_LEVEL_QUARANTINED})
 
 
 # ── Schema validation (Layer 1) ───────────────────────────────────────────────
@@ -207,7 +243,7 @@ def tag_provenance(
     generated from a Hunt verdict carries the hunt_id that triggered it,
     creating an auditable chain: hunt -> verdict -> rule generation.
     """
-    if source not in {SOURCE_USER, SOURCE_HUNT, SOURCE_WATER, SOURCE_SYSTEM}:
+    if source not in _KNOWN_SOURCES:
         raise ValueError(f"unknown source: {source!r}")
     if trust_level not in {TRUST_LEVEL_HIGH, TRUST_LEVEL_MEDIUM, TRUST_LEVEL_LOW, TRUST_LEVEL_QUARANTINED}:
         raise ValueError(f"unknown trust_level: {trust_level!r}")
@@ -225,6 +261,41 @@ def tag_provenance(
 
     record["provenance"] = provenance
     return record
+
+
+def build_hunt_provenance(origin: str, verifier_id: Optional[str] = None) -> dict:
+    """The provenance object sf_hunt writes into a hunt record (see the contract in
+    the module docstring). Unknown origins fail closed (source unknown, trust low)."""
+    if origin == ORIGIN_CLI:
+        source, trust = SOURCE_USER, TRUST_LEVEL_HIGH
+    elif origin == ORIGIN_WEB:
+        source, trust = SOURCE_WEB, TRUST_LEVEL_LOW
+    else:
+        source, trust = SOURCE_UNKNOWN, TRUST_LEVEL_LOW
+    prov = {"source": source, "trust_level": trust, "origin": sanitize_text(origin, 20)}
+    if verifier_id:
+        prov["verifier_id"] = sanitize_text(verifier_id, 80)
+    return prov
+
+
+def normalize_provenance(record: dict) -> dict:
+    """Return {source, trust_level, ...} for any record shape, failing closed.
+
+    New shape: record["provenance"] dict. Legacy shape: top-level source/trust_level.
+    Anything missing, non-string or unrecognised becomes source "unknown" /
+    trust "low", so an untagged record can never be acted on."""
+    prov = record.get("provenance") if isinstance(record, dict) else None
+    if isinstance(prov, dict) and prov:
+        raw = dict(prov)
+    elif isinstance(record, dict) and ("source" in record or "trust_level" in record):
+        raw = {"source": record.get("source"), "trust_level": record.get("trust_level"), "legacy": True}
+    else:
+        raw = {}
+    source = raw.get("source")
+    trust = raw.get("trust_level")
+    raw["source"] = source if isinstance(source, str) and source in _KNOWN_SOURCES else SOURCE_UNKNOWN
+    raw["trust_level"] = trust if isinstance(trust, str) and trust in _KNOWN_TRUST else TRUST_LEVEL_LOW
+    return raw
 
 
 # ── Confidence gate (Layer 3) — THE critical safety check ─────────────────────
@@ -252,16 +323,16 @@ def should_water_act_on_hunt(record: dict) -> ValidationResult:
     if not schema_check.passed:
         return ValidationResult(False, f"schema: {schema_check.reason}")
 
-    prov = record.get("provenance", {}) or {}
-    source = prov.get("source")
-    trust = prov.get("trust_level")
+    prov = normalize_provenance(record)   # tolerant of legacy shape, fails closed
+    source = prov["source"]
+    trust = prov["trust_level"]
 
     # Step 2: CRITICAL — never act on Water's own outputs
     if source == SOURCE_WATER:
         return ValidationResult(False, "source=water: refusing to act on own output (prevents feedback loop)")
 
     # Step 3: only user-driven or hunt-automation sources
-    if source not in {SOURCE_USER, SOURCE_HUNT}:
+    if source not in ACTIONABLE_SOURCES:
         return ValidationResult(False, f"source={source!r}: only user/hunt sources may trigger Water")
 
     # Step 4: trust level

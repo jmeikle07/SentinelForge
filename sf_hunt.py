@@ -50,6 +50,7 @@ from rich.table import Table
 from rich.text import Text
 
 from hunt_water_rules import bucket_rules
+from sf_safety import build_hunt_provenance
 from lab import config as lab_config
 from lab import http as lab_http
 
@@ -245,7 +246,7 @@ CREATE TABLE IF NOT EXISTS hunts (
     ioc_type       TEXT NOT NULL,
     result_json    TEXT NOT NULL,
     notes          TEXT DEFAULT '',
-    source         TEXT NOT NULL,       -- provenance: 'user' for direct CLI hunts
+    source         TEXT NOT NULL,       -- provenance.source: 'user' for CLI, 'web' for web lookups
     trust_level    TEXT NOT NULL,       -- 'high' | 'medium' | 'low'
     verifier_id    TEXT NOT NULL,       -- machine hostname that ran the hunt
     duration_ms    INTEGER,
@@ -342,8 +343,15 @@ def memory_record_hunt(
     ioc_type: str,
     result: dict,
     duration_ms: int,
+    origin: str = "cli",
 ) -> str:
-    """Write a hunt to SQLite and ship a copy to ES. Returns the hunt_id."""
+    """Write a hunt to SQLite and ship a copy to ES. Returns the hunt_id.
+
+    origin says who asked: "cli" = the operator at the console (source user, trust high);
+    "web" = an anonymous visitor (source web, trust LOW, can never trigger Water);
+    anything else fails closed to low trust. The ES document carries the single
+    provenance contract documented in sf_safety.py: a nested `provenance` object."""
+    prov = build_hunt_provenance(origin, verifier_id=HUNTER_ID)
     hunt_id = str(uuid.uuid4())
     timestamp = datetime.now(timezone.utc).isoformat()
     result_json = json.dumps(result, default=str)
@@ -354,7 +362,7 @@ def memory_record_hunt(
         "source, trust_level, verifier_id, duration_ms, es_synced) "
         "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0)",
         (hunt_id, timestamp, ioc, ioc_type, result_json,
-         "user", "high", HUNTER_ID, duration_ms),
+         prov["source"], prov["trust_level"], HUNTER_ID, duration_ms),
     )
     conn.commit()
 
@@ -365,9 +373,7 @@ def memory_record_hunt(
         "ioc":            ioc,
         "ioc_type":       ioc_type,
         "result":         result,
-        "source":         "user",
-        "trust_level":    "high",
-        "verifier_id":    HUNTER_ID,
+        "provenance":     prov,   # contract: see sf_safety.py (NOT top-level source/trust_level)
         "duration_ms":    duration_ms,
         "buckets_populated": [k for k, v in result.items() if v],
     }

@@ -52,6 +52,7 @@ def test_queue_failure_is_logged_not_swallowed(monkeypatch, tmp_path, caplog):
     monkeypatch.setattr(wht, "HUNT_TRIGGERED_RULES_DIR", tmp_path / "ht")
     from datetime import datetime, timezone
     rec = {"ioc": "8.8.4.4", "ioc_type": "ipv4", "hunt_id": "abcdef123456",
+           "provenance": {"source": "user", "trust_level": "high", "origin": "cli"},
            "@timestamp": datetime.now(timezone.utc).isoformat(),
            "result": {"verdict": {"score": 90, "verdict": "malicious", "conflicts": []},
                       "observed": {"event_count": 5, "honeypots": [{"name": "Cowrie", "count": 5}]},
@@ -75,7 +76,9 @@ def test_queue_failure_is_logged_not_swallowed(monkeypatch, tmp_path, caplog):
         n = wht.process_hunt_triggered_verdicts(lambda i, a: ("title: x", "rid"), lambda *a: None, log,
                                                 queue_for_review_fn=bad_queue)
     assert n == 1  # rule file still written
-    assert any("disk full" in r.getMessage() or r.exc_info for r in caplog.records)
+    # the queue failure itself (not any logged exception) must be reported, with traceback
+    hits = [r for r in caplog.records if "could not queue" in r.getMessage()]
+    assert hits and hits[0].exc_info and "disk full" in str(hits[0].exc_info[1])
 
 
 # ── B3 / W13: the per-record safety + failure isolation ──────────────────────
@@ -101,6 +104,7 @@ class CountingLimiter:
 def _good(**over):
     from datetime import datetime, timezone
     rec = {"ioc": "8.8.4.4", "ioc_type": "ipv4", "hunt_id": "abcdef12-3456",
+           "provenance": {"source": "user", "trust_level": "high", "origin": "cli"},
            "@timestamp": datetime.now(timezone.utc).isoformat(),
            "result": {"verdict": {"score": 90, "verdict": "malicious", "conflicts": []},
                       "observed": {"event_count": 5, "honeypots": [{"name": "Cowrie", "count": 5}]},

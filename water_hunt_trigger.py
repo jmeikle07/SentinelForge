@@ -35,7 +35,7 @@ from lab import http as lab_http
 from sf_safety import (
     RateLimiter,
     sanitize_text,
-    SOURCE_USER, SOURCE_HUNT, TRUST_LEVEL_HIGH,
+    normalize_provenance,
     HUNT_VERDICT_MAX_AGE_HOURS,
     HUNT_TRIGGERED_DAILY_LIMIT,
     tag_provenance,
@@ -139,8 +139,13 @@ def fetch_recent_hunt_verdicts(es_url: str, api_key: str, hours: int = None) -> 
                 ],
                 # CRITICAL: never read Water's own outputs. This is the
                 # primary defense against the feedback amplification loop.
+                # sf-hunt-logs gets no explicit mapping (first _doc POST creates it), so
+                # strings are dynamically mapped text + a `.keyword` subfield: the term
+                # query must target `.keyword`. Both the contract shape and the legacy
+                # top-level shape are excluded.
                 "must_not": [
                     {"term": {"provenance.source.keyword": "water"}},
+                    {"term": {"source.keyword": "water"}},
                 ],
             }
         }
@@ -303,14 +308,9 @@ def process_hunt_triggered_verdicts(generate_fn, save_and_push_fn, log: list, _c
             "hunt_id": record.get("hunt_id"),
             "timestamp_utc": record.get("@timestamp") or record.get("timestamp_utc"),
             "verdict": result.get("verdict"),
-            "provenance": record.get("provenance") or {
-                # If Hunt didn't tag provenance yet (Phase 4 records pre-Phase 6),
-                # treat as user-initiated with high trust by default. Hunt CLI
-                # invocations ARE user-initiated. This is safe because the
-                # gate still requires source != water, score >= 75, etc.
-                "source": SOURCE_USER,
-                "trust_level": TRUST_LEVEL_HIGH,
-            },
+            # Contract shape, legacy top-level shape, or NOTHING: normalize_provenance
+            # fails closed (no provenance == source unknown, trust low, never acted on).
+            "provenance": normalize_provenance(record),
         }
 
         gate = water_should_generate_rule_from_verdict(normalized, existing_rules=[], rate_limiter=limiter)
