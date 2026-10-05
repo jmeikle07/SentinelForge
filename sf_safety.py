@@ -468,6 +468,45 @@ class RateLimiter:
 
 # ── Cross-pillar disagreement detection (Layer 8) ─────────────────────────────
 
+_IP_OR_CIDR_RE = re.compile(r"(?<![\d.])(\d{1,3}(?:\.\d{1,3}){3})(?:/(\d{1,2}))?(?![\d]|\.\d)")
+
+
+def _string_leaves(node, depth: int = 0):
+    if depth > 20:
+        return
+    if isinstance(node, str):
+        yield node
+    elif isinstance(node, dict):
+        for k, v in node.items():
+            yield from _string_leaves(k, depth + 1)
+            yield from _string_leaves(v, depth + 1)
+    elif isinstance(node, (list, tuple)):
+        for v in node:
+            yield from _string_leaves(v, depth + 1)
+    elif node is not None:
+        yield str(node)
+
+
+def _rule_mentions_address(rule: dict, ioc: str, ioc_addr) -> bool:
+    """True if any string in the rule is the IOC itself (whole token, so 18.8.4.40 does not
+    match 8.8.4.4) or an IPv4 network that contains it."""
+    for text in _string_leaves(rule):
+        for m in _IP_OR_CIDR_RE.finditer(text):
+            addr, prefix = m.group(1), m.group(2)
+            if prefix is None:
+                if addr == ioc:
+                    return True
+                continue
+            if ioc_addr is None:
+                continue
+            try:
+                if ioc_addr in ipaddress.ip_network(f"{addr}/{prefix}", strict=False):
+                    return True
+            except ValueError:
+                continue
+    return False
+
+
 def cross_pillar_disagreement_check(
     verdict_record: dict,
     existing_rules: list = None,
@@ -498,23 +537,26 @@ def cross_pillar_disagreement_check(
     label = verdict.get("verdict") if isinstance(verdict, dict) else verdict
 
     if label == "malicious":
+        try:
+            ioc_addr = ipaddress.ip_address(str(ioc))
+        except ValueError:
+            ioc_addr = None
         for rule in existing_rules:
+            if not isinstance(rule, dict):
+                continue
             # Whitelist rules typically have a special title/tag
-            rule_title = (rule.get("title") or "").lower()
-            rule_tags = rule.get("tags") or []
+            rule_title = str(rule.get("title") or "").lower()
+            rule_tags = rule.get("tags") if isinstance(rule.get("tags"), list) else []
             is_whitelist = (
                 "whitelist" in rule_title
                 or "allowlist" in rule_title
-                or any("whitelist" in (t or "").lower() for t in rule_tags)
+                or any(("whitelist" in str(t).lower() or "allowlist" in str(t).lower()) for t in rule_tags)
             )
-            if is_whitelist:
-                # Does the whitelist rule reference this IOC?
-                rule_text = json.dumps(rule, default=str).lower()
-                if str(ioc).lower() in rule_text:
-                    conflicts.append(
-                        f"Hunt says malicious but Water rule {sanitize_text(rule.get('id') or '?', 8)} "
-                        f"explicitly whitelists this IOC"
-                    )
+            if is_whitelist and _rule_mentions_address(rule, str(ioc), ioc_addr):
+                conflicts.append(
+                    f"Hunt says malicious but Water rule {sanitize_text(rule.get('id') or '?', 8)} "
+                    f"explicitly whitelists this IOC"
+                )
 
     return conflicts
 

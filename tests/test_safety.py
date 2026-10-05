@@ -184,3 +184,61 @@ def test_release_gives_slot_back(state_dir):
     assert lim.consume()
     lim.release(5)  # never goes below zero
     assert lim.current_count() == 0
+
+
+# ── layer 8: cross_pillar_disagreement_check ─────────────────────────────────
+
+def _wl(ip, **over):
+    rule = {"id": "abcdef12-0000", "title": "Internal allowlist", "tags": ["allowlist"],
+            "detection": {"selection": {"src_ip": ip}}}
+    rule.update(over)
+    return rule
+
+
+def test_disagreement_detected_for_allowlist_naming_ioc():
+    out = sf_safety.cross_pillar_disagreement_check(_record(), [_wl("8.8.4.4")])
+    assert len(out) == 1 and "abcdef12" in out[0]
+
+
+def test_disagreement_detected_for_cidr_covering_ioc():
+    assert sf_safety.cross_pillar_disagreement_check(_record(), [_wl(["8.8.4.0/24"])])
+
+
+def test_no_disagreement_for_substring_lookalike_or_other_cidr():
+    assert not sf_safety.cross_pillar_disagreement_check(_record(), [_wl("18.8.4.40")])
+    assert not sf_safety.cross_pillar_disagreement_check(_record(), [_wl("8.8.5.0/24")])
+
+
+def test_non_allowlist_rule_naming_ioc_is_not_a_conflict():
+    rule = _wl("8.8.4.4", title="Detect scanner", tags=["attack.t1046"])
+    assert not sf_safety.cross_pillar_disagreement_check(_record(), [rule])
+
+
+def test_non_malicious_verdict_has_no_disagreement():
+    rec = _record(verdict={"score": 80, "verdict": "suspicious", "conflicts": []})
+    assert not sf_safety.cross_pillar_disagreement_check(rec, [_wl("8.8.4.4")])
+
+
+def test_empty_or_none_rules_and_missing_ioc():
+    assert sf_safety.cross_pillar_disagreement_check(_record(), None) == []
+    assert sf_safety.cross_pillar_disagreement_check({"verdict": "malicious"}, [_wl("8.8.4.4")]) == []
+
+
+# ── composite gate ────────────────────────────────────────────────────────────
+
+def test_composite_passes_then_blocks_on_rate_limit_and_conflict(state_dir):
+    lim = sf_safety.RateLimiter("c", daily_limit=1)
+    assert sf_safety.water_should_generate_rule_from_verdict(_record(), [], lim).passed
+    conflict = sf_safety.water_should_generate_rule_from_verdict(_record(), [_wl("8.8.4.4")], lim)
+    assert not conflict.passed and "cross-pillar" in conflict.reason
+    lim.consume()
+    limited = sf_safety.water_should_generate_rule_from_verdict(_record(), [], lim)
+    assert not limited.passed and "rate limit" in limited.reason
+
+
+def test_composite_refuses_before_checking_rate_limit_or_rules():
+    class Boom:
+        daily_limit = 1
+        def can_consume(self): raise AssertionError("must not be reached")
+    water = _record(provenance={"source": "water", "trust_level": "high"})
+    assert not sf_safety.water_should_generate_rule_from_verdict(water, [], Boom()).passed

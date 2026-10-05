@@ -207,3 +207,85 @@ def test_gate_exception_on_one_record_does_not_abort_pass(harness, monkeypatch):
     monkeypatch.setattr(wht, "water_should_generate_rule_from_verdict", boom)
     n, _ = harness.run([_good(), _good(ioc="1.1.1.1", hunt_id="12345678-aaaa")])
     assert n == 1
+
+
+# ── W15: layer 8 gets the REAL existing rules ────────────────────────────────
+
+WHITELIST_RULE = """title: Internal allowlist for known scanner
+id: 11111111-2222-3333-4444-555555555555
+status: experimental
+tags:
+  - allowlist
+  - attack.t1046
+detection:
+  selection:
+    src_ip: {ip}
+  condition: selection
+"""
+
+
+@pytest.fixture
+def rules_dir(monkeypatch, tmp_path):
+    import hunt_water_rules as hwr
+    d = tmp_path / "sigma"
+    (d / "hunt-triggered").mkdir(parents=True)
+    monkeypatch.setattr(hwr, "SIGMA_DIR", d)
+    monkeypatch.setattr(hwr, "SIGMA_HUNT_DIR", d / "hunt-triggered")
+    hwr._PARSE_CACHE.clear()
+    return d
+
+
+def test_pass_receives_real_existing_rules_not_empty_list(harness, rules_dir, monkeypatch):
+    (rules_dir / "ok.yml").write_text(WHITELIST_RULE.format(ip="203.0.113.77"), encoding="utf-8")
+    seen = {}
+    real = wht.water_should_generate_rule_from_verdict
+
+    def spy(record, existing_rules=None, rate_limiter=None):
+        seen["rules"] = existing_rules
+        return real(record, existing_rules=existing_rules, rate_limiter=rate_limiter)
+
+    monkeypatch.setattr(wht, "water_should_generate_rule_from_verdict", spy)
+    harness.run([_good()])
+    assert [r["title"] for r in seen["rules"]] == ["Internal allowlist for known scanner"]
+
+
+def test_allowlist_rule_naming_the_ioc_blocks_generation(harness, rules_dir):
+    (rules_dir / "wl.yml").write_text(WHITELIST_RULE.format(ip="8.8.4.4"), encoding="utf-8")
+    n, _ = harness.run([_good()])
+    assert n == 0 and harness.calls == [] and harness.lim.used == 0
+
+
+def test_allowlist_cidr_covering_the_ioc_blocks_generation(harness, rules_dir):
+    (rules_dir / "wl.yml").write_text(WHITELIST_RULE.format(ip="'8.8.4.0/24'"), encoding="utf-8")
+    n, _ = harness.run([_good()])
+    assert n == 0 and harness.calls == []
+
+
+def test_allowlist_for_a_different_ip_does_not_block(harness, rules_dir):
+    (rules_dir / "wl.yml").write_text(WHITELIST_RULE.format(ip="18.8.4.40"), encoding="utf-8")
+    n, _ = harness.run([_good()])
+    assert n == 1
+
+
+def test_deprecated_allowlist_is_not_active_and_does_not_block(harness, rules_dir):
+    (rules_dir / "wl.yml").write_text(
+        WHITELIST_RULE.format(ip="8.8.4.4").replace("experimental", "deprecated"), encoding="utf-8")
+    n, _ = harness.run([_good()])
+    assert n == 1
+
+
+def test_unreadable_rule_file_fails_closed_and_is_logged(harness, rules_dir, caplog):
+    (rules_dir / "broken.yml").write_text("title: [unclosed\n  x: : :\n", encoding="utf-8")
+    with caplog.at_level(logging.ERROR, logger="water_hunt_trigger"):
+        n, _ = harness.run([_good()])
+    assert n == 0 and harness.calls == [] and harness.lim.used == 0
+    assert any("broken.yml" in r.getMessage() for r in caplog.records)
+
+
+def test_missing_rules_dir_means_no_rules_not_a_crash(harness, monkeypatch, tmp_path):
+    import hunt_water_rules as hwr
+    monkeypatch.setattr(hwr, "SIGMA_DIR", tmp_path / "nope")
+    monkeypatch.setattr(hwr, "SIGMA_HUNT_DIR", tmp_path / "nope" / "h")
+    hwr._PARSE_CACHE.clear()
+    n, _ = harness.run([_good()])
+    assert n == 1

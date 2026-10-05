@@ -278,6 +278,18 @@ def process_hunt_triggered_verdicts(generate_fn, save_and_push_fn, log: list, _c
 
     _say(f"  [dim]Found {len(records)} recent verdicts[/]" if _con else f"  Found {len(records)} recent verdicts")
 
+    # Layer 8 needs the REAL active rules. If they cannot be read we cannot prove that
+    # no allowlist covers a record's IOC, so the whole pass fails closed (nothing is
+    # generated) and the reason is logged. Loaded once per pass; parse results are
+    # cached per file on (mtime, size).
+    from hunt_water_rules import RuleLoadError, load_active_rules  # lazy: hunt_water_rules imports this module
+    try:
+        existing_rules = load_active_rules()
+    except RuleLoadError as exc:
+        logger.error("hunt-trigger pass skipped (fail closed): cannot load existing rules: %s", exc)
+        _say(f"  Hunt-trigger pass skipped: cannot verify existing rules ({sanitize_text(exc, 200)})")
+        return 0
+
     # Step 2: set up rate limiter
     limiter = RateLimiter("hunt_triggered_rules", daily_limit=HUNT_TRIGGERED_DAILY_LIMIT)
     remaining = limiter.remaining()
@@ -313,7 +325,7 @@ def process_hunt_triggered_verdicts(generate_fn, save_and_push_fn, log: list, _c
             "provenance": normalize_provenance(record),
         }
 
-        gate = water_should_generate_rule_from_verdict(normalized, existing_rules=[], rate_limiter=limiter)
+        gate = water_should_generate_rule_from_verdict(normalized, existing_rules=existing_rules, rate_limiter=limiter)
         if not gate.passed:
             skipped_by_gate += 1
             _say(f"  [dim]· skip {ioc}: {sanitize_text(gate.reason, 200)}[/]" if _con else f"  · skip {ioc}: {sanitize_text(gate.reason, 200)}")

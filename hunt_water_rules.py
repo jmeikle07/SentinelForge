@@ -190,6 +190,50 @@ def _parse_rule_file(path: Path) -> dict:
     return rule
 
 
+class RuleLoadError(RuntimeError):
+    """One or more production rule files could not be read or parsed."""
+
+
+_RAW_CACHE: dict = {}   # path -> ((mtime_ns, size), parsed rule dict | None)
+
+
+def load_active_rules(rules_dir=None) -> list:
+    """Full parsed production rules (detections/sigma/*.yml|yaml) that are not deprecated.
+
+    Feeds sf_safety's layer-8 disagreement check. Cached per file on (mtime, size).
+    A missing directory means "no rules" ([]); an unreadable or unparseable file raises
+    RuleLoadError listing every offender, so the caller can decide (the Water gate fails
+    closed: it cannot prove an unreadable rule is not an allowlist for the IOC)."""
+    base = Path(rules_dir) if rules_dir is not None else SIGMA_DIR
+    if not base.is_dir():
+        log.warning("rules dir %s does not exist: no existing rules to check", base)
+        return []
+    try:
+        paths = sorted([*base.glob("*.yml"), *base.glob("*.yaml")])
+    except OSError as exc:
+        raise RuleLoadError(f"cannot list {base}: {exc}") from exc
+    rules, problems = [], []
+    for path in paths:
+        try:
+            st = path.stat()
+            stamp = (st.st_mtime_ns, st.st_size)
+            hit = _RAW_CACHE.get(path)
+            if hit is not None and hit[0] == stamp:
+                rule = hit[1]
+            else:
+                rule = yaml.safe_load(path.read_text(encoding="utf-8"))
+                _RAW_CACHE[path] = (stamp, rule)
+        except (OSError, UnicodeDecodeError, yaml.YAMLError) as exc:
+            log.error("cannot load rule %s: %s", path.name, exc)
+            problems.append(path.name)
+            continue
+        if isinstance(rule, dict) and str(rule.get("status", "")).lower() != "deprecated":
+            rules.append(rule)
+    if problems:
+        raise RuleLoadError(f"unreadable rule files: {', '.join(problems)}")
+    return rules
+
+
 def find_rules_for_techniques(technique_ids: list) -> list:
     """
     Walk the detections/sigma/ tree (production + hunt-triggered) and return
