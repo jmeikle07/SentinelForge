@@ -447,6 +447,7 @@ def save_validation(rule_path, rule_text, feedback_history, approvals, avg_score
     m, mt = _ID_RE.search(rule_text), _TITLE_RE.search(rule_text)
     rid = m.group(1).strip() if m else os.path.basename(rule_path)
     title = mt.group(1).strip() if mt else None
+    vfile.parent.mkdir(parents=True, exist_ok=True)
     data = lab_state.read(vfile, default={})  # StateCorrupt propagates: never overwrite a corrupt file
     attempts = []
     for i, fb in enumerate(feedback_history, 1):

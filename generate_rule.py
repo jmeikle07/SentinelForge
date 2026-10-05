@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """
-1xLoZec Detection Lab
-tallkitchen_water — Autonomous Detection Engineering Pipeline
+SentinelForge Detection Lab
+Autonomous rule engine - detection engineering pipeline
 
 Loads credentials from .env automatically.
-Set STOP_TALLKITCHEN_WATER=true in .env to pause all auto-deployment.
+Set STOP_SF_ENGINE=true in .env to pause all auto-deployment.
 """
 
 import os
@@ -14,30 +14,35 @@ import uuid
 import ssl
 import smtplib
 import subprocess
-import warnings
+import functools
 from datetime import datetime, timezone, timedelta
 from email.message import EmailMessage
+from itertools import islice
 from pathlib import Path
 
-import requests
 import anthropic
+import yaml
 import logging as _logging
 _logging.getLogger("httpx").setLevel(_logging.WARNING)
 from dotenv import load_dotenv
 
+from lab import config as lab_config
+from lab import state as lab_state
+from lab.es import search_all, SearchError
+from lab.http import session as make_session
+
 load_dotenv()
 from water_hunt_trigger import process_hunt_triggered_verdicts
-# ── Config ────────────────────────────────────────────────────────────────────
-ELASTIC_URL        = os.getenv("ELASTIC_URL",        "https://10.0.0.1:9200")
-ELASTIC_API_KEY    = os.getenv("ELASTIC_API_KEY",    "")
-ANTHROPIC_API_KEY  = os.getenv("ANTHROPIC_API_KEY",  "")
-GMAIL_FROM         = os.getenv("GMAIL_FROM",         "")
-GMAIL_TO           = os.getenv("GMAIL_TO",           "")
-GMAIL_APP_PASSWORD = os.getenv("GMAIL_APP_PASSWORD", "")
+# -- Config ---------------------------------------------------------------------
+# Elasticsearch/Kibana settings come from lab.config.load() (no default host).
+HERE               = Path(__file__).resolve().parent
 TARGET_HOST        = os.getenv("TARGET_HOST",        "*")
 SIGMA_OUTPUT_DIR   = "detections/sigma"
-STATE_DIR          = Path("state")
-STOP_TALLKITCHEN_WATER   = os.getenv("STOP_TALLKITCHEN_WATER", "false").lower() == "true"
+STATE_DIR          = HERE / "state"
+STOP_SF_ENGINE     = os.getenv("STOP_SF_ENGINE", "false").lower() == "true"
+MODEL_DEFAULT      = "claude-sonnet-4-6"
+MAX_EVENTS         = 5000   # safety cap on paged Elasticsearch results per run
+GIT_TIMEOUT        = 120
 
 # Sysmon ECS fields to pull from Elasticsearch
 SYSMON_ECS_FIELDS = [
@@ -75,8 +80,6 @@ from rich.panel import Panel
 from rich import box
 from rich.logging import RichHandler
 import logging
-import urllib3
-urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # ── Terminal output ────────────────────────────────────────────────────────────
 # Color hierarchy — one job per color:
@@ -104,7 +107,7 @@ logging.basicConfig(
         omit_repeated_times=False,
     )]
 )
-_log = logging.getLogger("tallkitchen")
+_log = logging.getLogger("sentinelforge")
 
 def _step_ok(label, detail="", duration=None):
     """Completed step — green checkmark, white label, cyan detail, dim timing."""
@@ -130,7 +133,7 @@ def _sev_color(sev):
 def _print_header(lookback, mins_since=None):
     _con.print()
     _con.rule(
-        "[bold cyan]🥄 tallkitchen_water  ·  1xLoZec Detection Lab[/]",
+        "[bold cyan]🥄 SentinelForge rule engine  ·  Detection Lab[/]",
         style="cyan"
     )
     if mins_since is not None:
@@ -165,7 +168,7 @@ def _print_panel(analysis, events, iocs, lookback, seen, next_fmt, pct):
     content = chr(10).join(lines)
     _con.print(Panel(
         content,
-        title="[bold cyan]🥄 tallkitchen_water  ·  1xLoZec Detection Lab[/]",
+        title="[bold cyan]🥄 SentinelForge rule engine  ·  Detection Lab[/]",
         title_align="left",
         border_style="cyan",
         box=box.ROUNDED,
@@ -173,34 +176,63 @@ def _print_panel(analysis, events, iocs, lookback, seen, next_fmt, pct):
     ))
 
 
-# ── State ──────────────────────────────────────────────────────────────────────
+# -- State ----------------------------------------------------------------------
+def _read_state(path, default):
+    """lab.state.read, but tolerant of a not-yet-created state directory (lab.state's lockfile
+    needs the directory to exist even when the file does not)."""
+    Path(path).parent.mkdir(parents=True, exist_ok=True)
+    return lab_state.read(path, default=default)
+
+
 def load_state():
-    STATE_DIR.mkdir(exist_ok=True)
-    def _l(f): return json.loads(f.read_text()) if f.exists() else None
+    """Read the four state files. A corrupt file raises lab.state.StateCorrupt (it is moved
+    to <name>.corrupt) rather than being silently replaced with an empty value."""
     return (
-        _l(STATE_DIR / "seen_techniques.json") or {},
-        _l(STATE_DIR / "last_run.json") or {},
-        _l(STATE_DIR / "hunt_log.json") or [],
-        _l(STATE_DIR / "weekly_digest.json") or {"week_start": None},
+        _read_state(STATE_DIR / "seen_techniques.json", None) or {},
+        _read_state(STATE_DIR / "last_run.json", None) or {},
+        _read_state(STATE_DIR / "hunt_log.json", None) or [],
+        _read_state(STATE_DIR / "weekly_digest.json", None) or {"week_start": None},
     )
 
 def save_state(seen, last, log, digest):
-    STATE_DIR.mkdir(exist_ok=True)
-    (STATE_DIR / "seen_techniques.json").write_text(json.dumps(seen, indent=2))
-    (STATE_DIR / "last_run.json").write_text(json.dumps(last, indent=2))
-    (STATE_DIR / "hunt_log.json").write_text(json.dumps(log, indent=2))
-    (STATE_DIR / "weekly_digest.json").write_text(json.dumps(digest, indent=2))
+    lab_state.write(STATE_DIR / "seen_techniques.json", seen)
+    lab_state.write(STATE_DIR / "last_run.json", last)
+    lab_state.write(STATE_DIR / "hunt_log.json", log)
+    lab_state.write(STATE_DIR / "weekly_digest.json", digest)
+
+
+class GitError(RuntimeError):
+    """A git command failed or timed out; the message carries git's stderr."""
+
+
+def _git(*args):
+    try:
+        return subprocess.run(["git", *args], check=True, capture_output=True, text=True,
+                              timeout=GIT_TIMEOUT, cwd=HERE)
+    except subprocess.CalledProcessError as exc:
+        parts = []
+        for stream in (exc.stderr, exc.stdout):
+            parts.append(stream.decode(errors="replace") if isinstance(stream, bytes) else (stream or ""))
+        raise GitError(f"git {' '.join(args[:2])} failed: {' '.join(parts).strip()[:300]}") from exc
+    except (subprocess.TimeoutExpired, OSError) as exc:
+        raise GitError(f"git {' '.join(args[:2])} failed: {exc}") from exc
+
+def _commit(message):
+    """Commit staged changes. Returns False when there was nothing to commit (not a failure)."""
+    try:
+        _git("commit", "-m", message)
+    except GitError as exc:
+        if "nothing to commit" in str(exc) or "nothing added to commit" in str(exc):
+            return False
+        raise
+    return True
 
 def git_push_state():
-    try:
-        subprocess.run(["git","add","state/"], check=True, capture_output=True)
-        r = subprocess.run(["git","commit","-m","update: tallkitchen_water state"],
-                           capture_output=True, text=True)
-        if "nothing to commit" not in r.stdout:
-            subprocess.run(["git","pull","--rebase"], check=True, capture_output=True)
-            subprocess.run(["git","push"], check=True, capture_output=True)
-    except subprocess.CalledProcessError:
-        pass
+    """Commit and push state/. Raises GitError (never silently swallows a failed push)."""
+    _git("add", "state/")
+    if _commit("update: SentinelForge engine state"):
+        _git("pull", "--rebase")
+        _git("push")
 
 def coverage_stats(seen):
     covered_tactics = {v.get("tactic","") for v in seen.values() if v.get("tactic")}
@@ -238,15 +270,13 @@ def flatten_dict(d, parent_key="", sep="."):
     return dict(items)
 
 
-# ── Elasticsearch ──────────────────────────────────────────────────────────────
+# -- Elasticsearch ----------------------------------------------------------------
 def query_elasticsearch(lookback_minutes):
-    headers = {"Content-Type": "application/json"}
-    if ELASTIC_API_KEY:
-        headers["Authorization"] = f"ApiKey {ELASTIC_API_KEY}"
+    """Return every matching event in the window (paged with search_after, capped at MAX_EVENTS)."""
+    settings = lab_config.load()
     host_filter = {"match_all": {}} if TARGET_HOST == "*" else {"term": {"host.name": TARGET_HOST}}
-    query = {
-        "size": 100,
-        "sort": [{"@timestamp": {"order": "desc"}}],
+    body = {
+        "sort": [{"@timestamp": {"order": "desc"}}, {"_doc": "asc"}],
         "_source": SYSMON_ECS_FIELDS,
         "query": {"bool": {
             "must": [host_filter,
@@ -257,12 +287,14 @@ def query_elasticsearch(lookback_minutes):
             ]}}]
         }}
     }
-    r = requests.post(f"{ELASTIC_URL}/logs-*/_search",
-                      headers=headers, json=query, verify=False, timeout=30)
-    if r.status_code != 200:
-        print(f"Elasticsearch error: {r.status_code}")
+    try:
+        hits = islice(search_all(make_session(timeout=30), "logs-*", body,
+                                 base_url=settings.elastic_url, api_key=settings.elastic_api_key),
+                      MAX_EVENTS)
+        return [h["_source"] for h in hits]
+    except SearchError as exc:
+        _log.error("Elasticsearch error: %s", exc)
         return []
-    return [h["_source"] for h in r.json().get("hits", {}).get("hits", [])]
 
 
 # ── Preprocessing ──────────────────────────────────────────────────────────────
@@ -313,8 +345,29 @@ def preprocess_events(events):
 
 
 # ── Stage 1: Claude analyzes ───────────────────────────────────────────────────
+class LLMResponseError(RuntimeError):
+    """The model returned something that is not the JSON we asked for."""
+    def __init__(self, message, raw=""):
+        super().__init__(message)
+        self.raw = raw
+
+
+def _anthropic_key():
+    return os.environ.get("ANTHROPIC_API_KEY", "")
+
+
+def model_name():
+    return os.environ.get("MODEL_NAME") or MODEL_DEFAULT
+
+
+@functools.lru_cache(maxsize=1)
+def get_client():
+    """One Anthropic client per run (shared by analysis, generation and AI-context calls)."""
+    return anthropic.Anthropic(api_key=_anthropic_key())
+
+
 def analyze_with_claude(iocs, events_count, seen, lookback):
-    client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+    client = get_client()
     prompt = f"""You are a detection engineer analyzing Windows endpoint telemetry. Analyze {events_count} events from the last {lookback} minutes.
 
 IOC Summary:
@@ -339,14 +392,40 @@ Return JSON only:
   "false_positive_risk": "low, medium, or high — how likely this rule is to fire on legitimate activity",
   "skip_reason": "Only fill this if already_covered is true, otherwise leave empty."
 }}"""
-    msg = client.messages.create(model="claude-sonnet-4-6", max_tokens=1024,
+    msg = client.messages.create(model=model_name(), max_tokens=1024,
                                   messages=[{"role":"user","content":prompt}])
-    return json.loads(msg.content[0].text.replace("```json","").replace("```","").strip())
+    raw = msg.content[0].text
+    try:
+        return json.loads(raw.replace("```json","").replace("```","").strip())
+    except ValueError as exc:
+        raise LLMResponseError(f"analysis response is not valid JSON: {exc}", raw) from exc
+
+
+def queue_failed(stage, raw, error, now_ts):
+    """Record a failed generation step in state/failed_rules.json for later inspection."""
+    path = STATE_DIR / "failed_rules.json"
+    items = _read_state(path, [])
+    items.append({"stage": stage, "error": str(error), "raw": (raw or "")[:4000], "queued_at": now_ts})
+    lab_state.write(path, items)
+
+
+def analyze_or_queue_failed(iocs, events_count, seen, lookback, now_ts):
+    """Run analysis; on malformed JSON retry once, then queue the failure and return None."""
+    last = None
+    for attempt in (1, 2):
+        try:
+            return analyze_with_claude(iocs, events_count, seen, lookback)
+        except LLMResponseError as exc:
+            last = exc
+            _log.warning("analysis attempt %d returned malformed JSON", attempt)
+    queue_failed("analysis", last.raw, last, now_ts)
+    return None
 
 
 # ── Stage 2: Generate Sigma Rule ───────────────────────────────────────────────
 def generate_sigma_rule(iocs, analysis):
-    client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+    client = get_client()
+    author = os.environ.get("SF_AUTHOR", "SentinelForge")
     rule_id = str(uuid.uuid4())
     today   = datetime.now(timezone.utc).strftime("%Y/%m/%d")
     prompt  = f"""You are a detection engineer writing a Sigma rule for Elastic SIEM with Sysmon data using ECS field names.
@@ -369,10 +448,10 @@ winlog.event_data.IntegrityLevel, winlog.event_data.PipeName
 Rules: ECS field names only. Most distinctive indicators only. Realistic false positives. Correct severity.
 CRITICAL: the event id field is `event.code` (NOT `EventID`). Sysmon process creation is `event.code: 1`. Never write `EventID`.
 BANNED modifiers — NEVER use: |in, |lowercasefield, |re — not supported by pySigma 0.11.23. Use |contains, |startswith, |endswith, or exact match only.
-Required: id: {rule_id}, date: {today}, author: 1xLoZec, status: experimental
+Required: id: {rule_id}, date: {today}, author: {author}, status: experimental
 
 Return valid Sigma YAML only. No markdown. No explanation."""
-    msg = client.messages.create(model="claude-sonnet-4-6", max_tokens=2048,
+    msg = client.messages.create(model=model_name(), max_tokens=2048,
                                   messages=[{"role":"user","content":prompt}])
     sigma = msg.content[0].text.strip().replace("```yaml","").replace("```","").strip()
     sigma = normalize_sigma_fields(sigma)
@@ -404,10 +483,10 @@ def write_ai_context(analysis):
     """Optional AI-written context for a rule, shown to the analyst LABELED as an AI note.
     Grounded in the real analysis data. Subordinate to the human-written technique meaning,
     never the source of truth. Returns '' on any failure so a missing note never breaks anything."""
-    if not ANTHROPIC_API_KEY:
+    if not _anthropic_key():
         return ""
     try:
-        client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+        client = get_client()
         prompt = f"""Write ONE short, plain-English sentence (max 30 words) giving a new SOC analyst
 useful context about this specific detection. Use simple language, no jargon, no hype. State only what
 is supported by the data below. Do not give a verdict or say whether it is safe. Do not invent details.
@@ -418,30 +497,39 @@ Reasoning: {analysis.get('reasoning')}
 
 Respond with just the sentence, nothing else."""
         resp = client.messages.create(
-            model="claude-sonnet-4-6",
+            model=model_name(),
             max_tokens=120,
             messages=[{"role": "user", "content": prompt}],
         )
         text = "".join(b.text for b in resp.content if hasattr(b, "text")).strip()
         # keep it to a single clean sentence
         return text.split("\n")[0].strip()
-    except Exception:
+    except (anthropic.APIError, IndexError, AttributeError) as exc:
+        _log.warning("AI context note unavailable: %s", exc)
         return ""
+
+
+def is_valid_sigma(sigma_yaml):
+    """True when the text parses as a Sigma rule mapping with the required structure."""
+    try:
+        rule = yaml.safe_load(sigma_yaml)
+    except yaml.YAMLError:
+        return False
+    if not isinstance(rule, dict):
+        return False
+    if not all(k in rule for k in ("title", "id", "logsource", "detection")):
+        return False
+    det = rule["detection"]
+    return isinstance(rule["logsource"], dict) and isinstance(det, dict) and "condition" in det
 
 
 def queue_for_review(sigma_yaml, analysis, rule_id, now_ts):
     """Review gate: hold a validated rule for human approval instead of deploying."""
-    import json as _json
-    base = os.path.dirname(os.path.abspath(__file__))
-    pending_dir = os.path.join(base, "detections", "pending")
-    os.makedirs(pending_dir, exist_ok=True)
-    with open(os.path.join(pending_dir, f"{rule_id}.yml"), "w") as fh:
-        fh.write(sigma_yaml)
-    pfile = os.path.join(base, "state", "pending_rules.json")
-    try:
-        items = _json.loads(open(pfile).read())
-    except Exception:
-        items = []
+    pending_dir = HERE / "detections" / "pending"
+    pending_dir.mkdir(parents=True, exist_ok=True)
+    (pending_dir / f"{rule_id}.yml").write_text(sigma_yaml, encoding="utf-8")
+    pfile = HERE / "state" / "pending_rules.json"
+    items = _read_state(pfile, [])  # StateCorrupt propagates: never reset the queue to []
     items.append({
         "rule_id": rule_id,
         "technique_id": analysis["technique_id"],
@@ -451,9 +539,8 @@ def queue_for_review(sigma_yaml, analysis, rule_id, now_ts):
         "queued_at": now_ts,
         "ai_context": write_ai_context(analysis),
     })
-    with open(pfile, "w") as fh:
-        fh.write(_json.dumps(items, indent=2))
-    return pfile
+    lab_state.write(pfile, items)
+    return str(pfile)
 
 
 def save_and_push(sigma_yaml, analysis, rule_id):
@@ -463,41 +550,57 @@ def save_and_push(sigma_yaml, analysis, rule_id):
              .replace("(","").replace(")",""))
     filename = f"{tid}-{tname}-autogen.yml"
     filepath = os.path.join(SIGMA_OUTPUT_DIR, filename)
-    os.makedirs(SIGMA_OUTPUT_DIR, exist_ok=True)
-    with open(filepath, "w") as f:
-        f.write(sigma_yaml)
-    try:
-        subprocess.run(["git","add",filepath], check=True, capture_output=True)
-        commit_msg = f"auto-generate: {analysis['technique_id']} {analysis['technique_name']} [{rule_id[:8]}]"
-        r = subprocess.run(["git","commit","-m",commit_msg], check=True, capture_output=True, text=True)
-        pass  # git stdout suppressed
-        subprocess.run(["git","pull","--rebase"], check=True, capture_output=True)
-        subprocess.run(["git","push"], check=True, capture_output=True)
-
-    except subprocess.CalledProcessError:
-        pass  # git error suppressed — panel shows deployment status
+    out_dir = HERE / SIGMA_OUTPUT_DIR
+    out_dir.mkdir(parents=True, exist_ok=True)
+    (out_dir / filename).write_text(sigma_yaml, encoding="utf-8")
+    # The file is on disk either way; a failed publish raises GitError so callers can surface it.
+    _git("add", str(out_dir / filename))
+    if _commit(f"auto-generate: {analysis['technique_id']} {analysis['technique_name']} [{rule_id[:8]}]"):
+        _git("pull", "--rebase")
+        _git("push")
     return filepath
 
 
 # ── Email shared helpers ───────────────────────────────────────────────────────
 def send_email(subject, html):
-    if not all([GMAIL_FROM, GMAIL_TO, GMAIL_APP_PASSWORD]):
+    host = os.getenv("SMTP_HOST", "")
+    port = int(os.getenv("SMTP_PORT", "587") or 587)
+    user = os.getenv("SMTP_USER", "")
+    password = os.getenv("SMTP_PASSWORD", "")
+    mail_from = os.getenv("SMTP_FROM", "") or user
+    mail_to = os.getenv("SMTP_TO", "")
+    if not all([host, mail_from, mail_to]):
         print("  Email not configured.")
         return
     try:
         msg = EmailMessage()
         msg["Subject"] = subject
-        msg["From"]    = GMAIL_FROM
-        msg["To"]      = GMAIL_TO
+        msg["From"]    = mail_from
+        msg["To"]      = mail_to
         msg.set_content("Open in a modern email client to view this report.")
         msg.add_alternative(html, subtype="html")
         ctx = ssl.create_default_context()
-        with smtplib.SMTP_SSL("smtp.gmail.com", 465, context=ctx) as s:
-            s.login(GMAIL_FROM, GMAIL_APP_PASSWORD)
+        server = (smtplib.SMTP_SSL(host, port, context=ctx, timeout=30) if port == 465
+                  else smtplib.SMTP(host, port, timeout=30))
+        with server as s:
+            if port != 465:
+                s.starttls(context=ctx)
+            if user:
+                s.login(user, password)
             s.send_message(msg)
-        print(f"  Email sent to {GMAIL_TO}")
-    except Exception as e:
-        print(f"  Email failed: {e}")
+        print(f"  Email sent to {mail_to}")
+    except (smtplib.SMTPException, OSError) as e:
+        _log.error("Email failed: %s", e)
+
+def _ci_link(green):
+    """CI/CD button; only rendered when SF_REPO_URL is configured."""
+    repo = os.getenv("SF_REPO_URL", "").rstrip("/")
+    if not repo:
+        return ""
+    return (f'<a href="{repo}/actions" style="display:inline-block;background:{green};color:#000000;'
+            'text-decoration:none;padding:10px 20px;border-radius:6px;font-size:13px;font-weight:700;">'
+            'CI/CD Pipeline</a>')
+
 
 # shared color palette
 BG      = "#0d1117"
@@ -546,7 +649,7 @@ def _wrapper(content, footer=""):
     return f"""<!DOCTYPE html>
 <html lang="en">
 <head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>tallkitchen_water</title></head>
+<title>SentinelForge</title></head>
 <body style="margin:0;padding:0;background:{BG};font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;">
 <table width="100%" cellpadding="0" cellspacing="0" style="background:{BG};">
 <tr><td align="center" style="padding:32px 16px;">
@@ -554,7 +657,7 @@ def _wrapper(content, footer=""):
        style="background:{CARD};border-radius:10px;border:1px solid {BORDER};overflow:hidden;">
 
 <tr><td style="padding:22px 36px 16px;border-bottom:1px solid {BORDER};">
-  <p style="margin:0;font-size:10px;font-weight:600;letter-spacing:2px;color:{MUTED};text-transform:uppercase;">1xLoZec Detection Lab</p>
+  <p style="margin:0;font-size:10px;font-weight:600;letter-spacing:2px;color:{MUTED};text-transform:uppercase;">SentinelForge Detection Lab</p>
 </td></tr>
 
 {content}
@@ -748,11 +851,7 @@ def email_rule_deployed(analysis, iocs, sigma_yaml, rule_id, events_count, lookb
 <tr><td style="padding:0 36px 28px;">
   <table cellpadding="0" cellspacing="0"><tr>
     <td>
-      <a href="https://github.com/1xLoZec/detection-lab/actions"
-         style="display:inline-block;background:{GREEN};color:#000000;text-decoration:none;
-                padding:10px 20px;border-radius:6px;font-size:13px;font-weight:700;">
-        CI/CD Pipeline
-      </a>
+      {_ci_link(GREEN)}
     </td>
   </tr></table>
 </td></tr>
@@ -943,11 +1042,7 @@ def email_weekly_digest(seen, log):
 
 <tr><td style="padding:0 36px 28px;">
   <table cellpadding="0" cellspacing="0"><tr><td>
-    <a href="https://github.com/1xLoZec/detection-lab/actions"
-       style="display:inline-block;background:{GREEN};color:#000000;text-decoration:none;
-              padding:10px 20px;border-radius:6px;font-size:13px;font-weight:700;">
-      CI/CD Pipeline
-    </a>
+    {_ci_link(GREEN)}
   </td></tr></table>
 </td></tr>
 """
@@ -966,28 +1061,37 @@ def email_stopped():
 <tr><td style="padding:0 36px 28px;">
   <p style="margin:0;font-size:14px;color:{TEXT};line-height:1.7;padding:14px 16px;
      background:{BG};border-left:3px solid {YELLOW};border-radius:0 6px 6px 0;">
-    tallkitchen_water is currently paused.<br><br>
-    Set <code style="font-family:monospace;background:{BG};padding:2px 6px;border-radius:3px;color:{GREEN};">STOP_TALLKITCHEN_WATER=false</code>
+    The SentinelForge rule engine is currently paused.<br><br>
+    Set <code style="font-family:monospace;background:{BG};padding:2px 6px;border-radius:3px;color:{GREEN};">STOP_SF_ENGINE=false</code>
     in your <code style="font-family:monospace;background:{BG};padding:2px 6px;border-radius:3px;color:{GREEN};">.env</code>
     file to resume autonomous detection.
   </p>
 </td></tr>
 """
-    send_email("[Pipeline Paused] tallkitchen_water is stopped", _wrapper(content))
+    send_email("[Pipeline Paused] SentinelForge rule engine is stopped", _wrapper(content))
 
 
 
 
 # ── Main pipeline ──────────────────────────────────────────────────────────────
+def _try_push_state():
+    """Publish state/ but never abort the run: a failed push is surfaced as a loud error."""
+    try:
+        _try_push_state()
+    except GitError as exc:
+        _con.print(f"  [red]State push failed (state is saved locally):[/] {exc}")
+        _log.error("state push failed: %s", exc)
+
+
 def main():
     import time as _t
 
-    if not ANTHROPIC_API_KEY:
+    if not _anthropic_key():
         _con.print("[red]Error:[/] ANTHROPIC_API_KEY not set. Check your .env file.")
         sys.exit(1)
 
-    if STOP_TALLKITCHEN_WATER:
-        _con.print("[yellow]Pipeline paused.[/] [dim]STOP_TALLKITCHEN_WATER=true in .env[/]")
+    if STOP_SF_ENGINE:
+        _con.print("[yellow]Pipeline paused.[/] [dim]STOP_SF_ENGINE=true in .env[/]")
         email_stopped()
         sys.exit(0)
 
@@ -995,7 +1099,7 @@ def main():
     now_ts = datetime.now(timezone.utc).isoformat()
 
     # Phase 6.B: hunt-trigger pass — independent of coverage flow below.
-    # Pulls high-confidence verdicts from tk-hunt-logs, applies safety gates,
+    # Pulls high-confidence verdicts from sf-hunt-logs, applies safety gates,
     # generates rules for any that pass. Failures here are swallowed so the
     # normal coverage flow always continues.
     try:
@@ -1008,8 +1112,8 @@ def main():
         )
         if hunt_generated > 0:
             save_state(seen, last, log, digest)
-    except Exception as _hunt_err:
-        _con.print(f"  [yellow]Hunt-trigger pass error (continuing with coverage flow): {_hunt_err}[/]")
+    except Exception as _hunt_err:  # isolation boundary: the hunt pass must never stop the coverage flow
+        _log.exception("Hunt-trigger pass error (continuing with coverage flow)")
 
 
     if should_send_weekly_digest(digest):
@@ -1029,7 +1133,11 @@ def main():
     # Step 1: Elasticsearch
     t0 = _t.time()
     with _con.status("[cyan]Querying Elasticsearch...[/]", spinner="dots", spinner_style="cyan"):
-        events = query_elasticsearch(lookback)
+        try:
+            events = query_elasticsearch(lookback)
+        except lab_config.ConfigError as exc:
+            _con.print(f"[red]Error:[/] {exc}")
+            sys.exit(1)
     _step_ok("Elasticsearch", f"pulled {len(events)} Sysmon events from the last {lookback} minutes", _t.time()-t0)
 
     if not events:
@@ -1037,7 +1145,7 @@ def main():
         log.append({"timestamp":now_ts,"result":"no_events","lookback":lookback})
         last["timestamp"] = now_ts
         save_state(seen, last, log, digest)
-        git_push_state()
+        _try_push_state()
         sys.exit(0)
 
     # Step 2: Preprocessing
@@ -1049,7 +1157,14 @@ def main():
     # Step 3: Claude analyzes
     t0 = _t.time()
     with _con.status("[cyan]Claude is analyzing...[/]", spinner="dots", spinner_style="cyan"):
-        analysis = analyze_with_claude(iocs, len(events), seen, lookback)
+        analysis = analyze_or_queue_failed(iocs, len(events), seen, lookback, now_ts)
+    if analysis is None:
+        _con.print("[red]x  Analysis returned malformed output twice; queued as failed.[/]")
+        log.append({"timestamp": now_ts, "result": "analysis_failed", "lookback": lookback})
+        last["timestamp"] = now_ts
+        save_state(seen, last, log, digest)
+        _try_push_state()
+        return
     sv  = analysis.get("severity","?").upper()
     sc  = _sev_color(analysis.get("severity","low"))
     cf  = analysis.get("confidence","?").upper()
@@ -1072,7 +1187,7 @@ def main():
             "confidence":analysis["confidence"], "lookback":lookback
         })
         save_state(seen, last, log, digest)
-        git_push_state()
+        _try_push_state()
         email_nothing_new(len(events), lookback, analysis, seen)
         covered, total, pct, _ = coverage_stats(seen)
         _con.print()
@@ -1085,8 +1200,9 @@ def main():
     with _con.status("[cyan]Generating Sigma rule...[/]", spinner="dots", spinner_style="cyan"):
         sigma_yaml, rule_id = generate_sigma_rule(iocs, analysis)
 
-    if not all(f in sigma_yaml for f in ["title:","id:","logsource:","detection:","condition:"]):
+    if not is_valid_sigma(sigma_yaml):
         _con.print("[red]✗  Rule failed validation.[/]")
+        queue_failed("generation", sigma_yaml, "generated text is not a valid Sigma rule", now_ts)
         sys.exit(1)
 
     # Step 5: deploy — or HOLD for human review if the gate is on
@@ -1102,11 +1218,11 @@ def main():
             "rule_id": rule_id, "lookback": lookback,
         })
         save_state(seen, last, log, digest)
-        git_push_state()
+        _try_push_state()
         try:
             email_rule_pending(analysis, iocs, sigma_yaml, rule_id, len(events), lookback, seen)
-        except Exception:
-            pass
+        except (smtplib.SMTPException, OSError, KeyError) as exc:
+            _log.error("pending-review email failed: %s", exc)
         _con.print()
         _con.print(f"  [yellow]Rule held for review[/] - approve with: [white]python3 approve.py approve {rule_id[:8]}[/]")
         _con.print()
@@ -1114,8 +1230,17 @@ def main():
     # Step 5: Push to GitHub
     t0 = _t.time()
     with _con.status("[cyan]Pushing to GitHub...[/]", spinner="dots", spinner_style="cyan"):
-        filepath = save_and_push(sigma_yaml, analysis, rule_id)
-    _step_ok("Deployed", "Sigma rule pushed to GitHub — CI/CD pipeline is validating", _t.time()-t0)
+        try:
+            filepath = save_and_push(sigma_yaml, analysis, rule_id)
+            push_ok = True
+        except GitError as exc:
+            _log.error("rule saved locally but git publish failed: %s", exc)
+            filepath = os.path.join(SIGMA_OUTPUT_DIR, "(unpublished)")
+            push_ok = False
+    if push_ok:
+        _step_ok("Deployed", "Sigma rule pushed to GitHub — CI/CD pipeline is validating", _t.time()-t0)
+    else:
+        _con.print("  [red]Rule saved locally but NOT pushed; fix git and push manually.[/]")
 
     # Update state
     seen[analysis["technique_id"]] = {
@@ -1133,11 +1258,14 @@ def main():
         "rule_id":rule_id, "filepath":filepath, "lookback":lookback
     })
     save_state(seen, last, log, digest)
-    git_push_state()
+    _try_push_state()
 
     # Update ATT&CK heatmap
-    import subprocess as _sp
-    _sp.run(["python3", "generate_heatmap.py"], capture_output=True)
+    try:
+        subprocess.run([sys.executable, str(HERE / "generate_heatmap.py")], check=True,
+                       capture_output=True, timeout=120, cwd=HERE)
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError) as exc:
+        _log.error("heatmap regeneration failed: %s", exc)
 
     # Email
     email_rule_deployed(analysis, iocs, sigma_yaml, rule_id, len(events), lookback, filepath, seen)
