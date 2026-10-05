@@ -10,6 +10,7 @@ Set STOP_SF_ENGINE=true in .env to pause all auto-deployment.
 import os
 import re
 import sys
+import copy
 import json
 import fnmatch
 import secrets
@@ -191,21 +192,67 @@ def _read_state(path, default):
     return lab_state.read(path, default=default)
 
 
+# What this run last read from / wrote to each state file (path -> value). save_state merges only
+# what THIS run changed into the latest on-disk value, so a concurrent writer (approve.py,
+# another engine run) is never overwritten. Without a baseline the whole value is written.
+_BASE = {}
+_STATE_FILES = ("seen_techniques.json", "last_run.json", "hunt_log.json", "weekly_digest.json")
+
+
 def load_state():
     """Read the four state files. A corrupt file raises lab.state.StateCorrupt (it is moved
     to <name>.corrupt) rather than being silently replaced with an empty value."""
-    return (
-        _read_state(STATE_DIR / "seen_techniques.json", None) or {},
-        _read_state(STATE_DIR / "last_run.json", None) or {},
-        _read_state(STATE_DIR / "hunt_log.json", None) or [],
-        _read_state(STATE_DIR / "weekly_digest.json", None) or {"week_start": None},
-    )
+    seen = _read_state(STATE_DIR / "seen_techniques.json", None) or {}
+    last = _read_state(STATE_DIR / "last_run.json", None) or {}
+    log = _read_state(STATE_DIR / "hunt_log.json", None) or []
+    digest = _read_state(STATE_DIR / "weekly_digest.json", None) or {"week_start": None}
+    for name, value in zip(_STATE_FILES, (seen, last, log, digest)):
+        _BASE[STATE_DIR / name] = copy.deepcopy(value)
+    return seen, last, log, digest
+
+
+def _merge_dict(path, mine):
+    """update() `path` with only the keys this run added or changed since it last synced."""
+    base = _BASE.get(path)
+    if base is None:
+        changes, full = mine, True
+    else:
+        changes, full = {k: v for k, v in mine.items() if k not in base or base[k] != v}, False
+
+    def fn(cur):
+        if full:
+            return mine
+        cur = {} if cur is None else cur
+        if not isinstance(cur, dict):
+            raise ValueError(f"{path.name} is not a JSON object")
+        return {**cur, **changes}
+
+    lab_state.update(path, fn, default={})
+    _BASE[path] = copy.deepcopy(mine)
+
+
+def _merge_log(path, mine):
+    """update() the append-only log with only the entries this run added since it last synced."""
+    base = _BASE.get(path)
+    new = mine if base is None else mine[len(base):]
+
+    def fn(cur):
+        if base is None:
+            return mine
+        cur = [] if cur is None else cur
+        if not isinstance(cur, list):
+            raise ValueError(f"{path.name} is not a JSON list")
+        return cur + new
+
+    lab_state.update(path, fn, default=[])
+    _BASE[path] = copy.deepcopy(mine)
+
 
 def save_state(seen, last, log, digest):
-    lab_state.write(STATE_DIR / "seen_techniques.json", seen)
-    lab_state.write(STATE_DIR / "last_run.json", last)
-    lab_state.write(STATE_DIR / "hunt_log.json", log)
-    lab_state.write(STATE_DIR / "weekly_digest.json", digest)
+    _merge_dict(STATE_DIR / "seen_techniques.json", seen)
+    _merge_dict(STATE_DIR / "last_run.json", last)
+    _merge_log(STATE_DIR / "hunt_log.json", log)
+    _merge_dict(STATE_DIR / "weekly_digest.json", digest)
 
 
 class GitError(RuntimeError):
@@ -421,12 +468,17 @@ Return JSON only:
         raise LLMResponseError(f"analysis response is not valid JSON: {exc}", raw) from exc
 
 
+def _appended(items, entry, path):
+    if not isinstance(items, list):
+        raise ValueError(f"{Path(path).name} is not a JSON list")
+    return items + [entry]
+
+
 def queue_failed(stage, raw, error, now_ts):
     """Record a failed generation step in state/failed_rules.json for later inspection."""
     path = STATE_DIR / "failed_rules.json"
-    items = _read_state(path, [])
-    items.append({"stage": stage, "error": str(error), "raw": (raw or "")[:4000], "queued_at": now_ts})
-    lab_state.write(path, items)
+    entry = {"stage": stage, "error": str(error), "raw": (raw or "")[:4000], "queued_at": now_ts}
+    lab_state.update(path, lambda items: _appended(items, entry, path), default=[])
 
 
 def analyze_or_queue_failed(iocs, events_count, seen, lookback, now_ts):
@@ -982,8 +1034,7 @@ def queue_for_review(sigma_yaml, analysis, rule_id, now_ts):
     # rule_id names the file: it must be a plain name that stays inside detections/pending.
     confined_path(pending_dir, f"{rule_id}.yml").write_text(sigma_yaml, encoding="utf-8")
     pfile = HERE / "state" / "pending_rules.json"
-    items = _read_state(pfile, [])  # StateCorrupt propagates: never reset the queue to []
-    items.append({
+    entry = {
         "rule_id": rule_id,
         "technique_id": analysis["technique_id"],
         "technique_name": analysis["technique_name"],
@@ -991,8 +1042,10 @@ def queue_for_review(sigma_yaml, analysis, rule_id, now_ts):
         "confidence": analysis.get("confidence"),
         "queued_at": now_ts,
         "ai_context": write_ai_context(analysis),
-    })
-    lab_state.write(pfile, items)
+    }
+    # One locked read-modify-write: approve.py or another run may touch the queue at any time.
+    # StateCorrupt propagates: never reset the queue to [].
+    lab_state.update(pfile, lambda items: _appended(items, entry, pfile), default=[])
     return str(pfile)
 
 

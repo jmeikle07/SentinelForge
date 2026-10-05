@@ -21,7 +21,7 @@ try:
 except ImportError:
     pass
 
-from lab import config, es, http
+from lab import config, es, http, state as lab_state
 
 log = logging.getLogger("sf.efficacy")
 
@@ -116,7 +116,7 @@ def main():
         "rules_error": errors,
         "by_technique": results,
     }
-    (STATE_DIR / "rule_efficacy.json").write_text(json.dumps(out, indent=2))
+    lab_state.write(STATE_DIR / "rule_efficacy.json", out)  # atomic + locked: sf_web reads it concurrently
 
     print("\n  SentinelForge rule efficacy")
     print(f"  {'-'*46}")
