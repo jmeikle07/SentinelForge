@@ -1,0 +1,37 @@
+title: Network Service Scanning from Known Mass Scanner IPs
+id: 3f9a6b93-3242-4661-b8bc-e6871b802615
+status: experimental
+description: Detects inbound network connection attempts from known mass scanning IP addresses indicative of Network Service Scanning (T1046). The source IP 77.83.240.70 (ASN 49870, Alsycon B.V.) was observed hitting multiple honeypot types with over 1 million events in 24 hours, suggesting automated mass scanning behaviour.
+author: 1xLoZec
+date: 2026/05/27
+references:
+    - https://attack.mitre.org/techniques/T1046/
+tags:
+    - attack.discovery
+    - attack.t1046
+logsource:
+    product: windows
+    service: sysmon
+detection:
+    selection_event:
+        event.code: '3'
+    selection_source_ip:
+        source.ip:
+            - '77.83.240.70'
+    filter_legitimate_services:
+        destination.port:
+            - 80
+            - 443
+    condition: selection_event and selection_source_ip and not filter_legitimate_services
+fields:
+    - source.ip
+    - destination.ip
+    - destination.port
+    - process.name
+    - process.executable
+    - process.command_line
+falsepositives:
+    - Legitimate security scanners or vulnerability assessment tools from shared infrastructure
+    - CDN or proxy services sharing IP address space
+    - Penetration testing engagements from third-party vendors
+level: high

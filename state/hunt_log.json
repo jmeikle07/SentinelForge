@@ -1,0 +1,1689 @@
+[
+  {
+    "timestamp": "2026-05-10T07:21:09.396447+00:00",
+    "result": "deployed",
+    "technique_id": "T1059.001",
+    "technique_name": "Command and Scripting Interpreter: PowerShell",
+    "confidence": "high",
+    "rule_id": "ae4b60ce-b6c0-4ca8-82df-9469de001220",
+    "filepath": "detections/sigma/T1059-001-command-and-scripting-interpreter:-powershell-autogen.yml",
+    "lookback": 60
+  },
+  {
+    "timestamp": "2026-05-10T08:01:43.617305+00:00",
+    "result": "deployed",
+    "technique_id": "T1087.001",
+    "technique_name": "Account Discovery: Local Account",
+    "confidence": "high",
+    "rule_id": "5d9f4578-3ec8-4b4a-902d-62f951b3d28a",
+    "filepath": "detections/sigma/T1087-001-account-discovery:-local-account-autogen.yml",
+    "lookback": 45
+  },
+  {
+    "timestamp": "2026-05-10T08:13:55.059141+00:00",
+    "result": "deployed",
+    "technique_id": "T1016",
+    "technique_name": "System Network Configuration Discovery",
+    "confidence": "high",
+    "rule_id": "c480bbba-f460-498b-94cb-9921a52d9ec9",
+    "filepath": "detections/sigma/T1016-system-network-configuration-discovery-autogen.yml",
+    "lookback": 17
+  },
+  {
+    "timestamp": "2026-05-10T08:34:26.089672+00:00",
+    "result": "deployed",
+    "technique_id": "T1082",
+    "technique_name": "System Information Discovery",
+    "confidence": "high",
+    "rule_id": "32bcde9b-c3c8-4b34-ae75-89d885cda787",
+    "filepath": "detections/sigma/T1082-system-information-discovery-autogen.yml",
+    "lookback": 25
+  },
+  {
+    "timestamp": "2026-05-10T08:49:56.330051+00:00",
+    "result": "deployed",
+    "technique_id": "T1204.002",
+    "technique_name": "User Execution: Malicious File",
+    "confidence": "high",
+    "rule_id": "e998f335-c133-40a1-b6dd-8dab20e774ae",
+    "filepath": "detections/sigma/T1204-002-user-execution:-malicious-file-autogen.yml",
+    "lookback": 20
+  },
+  {
+    "timestamp": "2026-05-10T08:53:51.098208+00:00",
+    "result": "deployed",
+    "technique_id": "T1055",
+    "technique_name": "Process Injection",
+    "confidence": "high",
+    "rule_id": "0f2928af-3955-4131-ae07-2a35ad02725e",
+    "filepath": "detections/sigma/T1055-process-injection-autogen.yml",
+    "lookback": 10
+  },
+  {
+    "timestamp": "2026-05-10T15:53:26.098559+00:00",
+    "result": "deployed",
+    "technique_id": "T1547.001",
+    "technique_name": "Boot or Logon Autostart Execution: Registry Run Keys / Startup Folder",
+    "confidence": "medium",
+    "rule_id": "0fb1a2d5-180c-471d-827c-8bdc4b0a03b9",
+    "filepath": "detections/sigma/T1547-001-boot-or-logon-autostart-execution:-registry-run-keys---startup-folder-autogen.yml",
+    "lookback": 424
+  },
+  {
+    "timestamp": "2026-05-10T16:33:17.220543+00:00",
+    "result": "deployed",
+    "technique_id": "T1021.001",
+    "technique_name": "Remote Services: Remote Desktop Protocol",
+    "confidence": "high",
+    "rule_id": "e02cc050-88ca-459a-8b12-b17d384eeb00",
+    "filepath": "detections/sigma/T1021-001-remote-services:-remote-desktop-protocol-autogen.yml",
+    "lookback": 44
+  },
+  {
+    "timestamp": "2026-05-10T16:49:35.563902+00:00",
+    "result": "deployed",
+    "technique_id": "T1555.004",
+    "technique_name": "Credentials from Password Stores: Windows Credential Manager",
+    "confidence": "high",
+    "rule_id": "0ba73e8e-e872-4067-ac92-e53d7af7b7f1",
+    "filepath": "detections/sigma/T1555-004-credentials-from-password-stores:-windows-credential-manager-autogen.yml",
+    "lookback": 21
+  },
+  {
+    "timestamp": "2026-05-10T17:28:21.536890+00:00",
+    "result": "deployed",
+    "technique_id": "T1560.001",
+    "technique_name": "Archive Collected Data: Archive via Utility",
+    "confidence": "high",
+    "rule_id": "83e6d320-4d0e-4b8c-95fc-4e5c7fe4afda",
+    "filepath": "detections/sigma/T1560-001-archive-collected-data:-archive-via-utility-autogen.yml",
+    "lookback": 43
+  },
+  {
+    "timestamp": "2026-05-10T17:30:03.138867+00:00",
+    "result": "deployed",
+    "technique_id": "T1057",
+    "technique_name": "Process Discovery",
+    "confidence": "medium",
+    "rule_id": "a43bd367-b5b5-4a03-b2b4-f3053b2eef83",
+    "filepath": "detections/sigma/T1057-process-discovery-autogen.yml",
+    "lookback": 10
+  },
+  {
+    "timestamp": "2026-05-10T17:31:50.986599+00:00",
+    "result": "deployed",
+    "technique_id": "T1033",
+    "technique_name": "System Owner/User Discovery",
+    "confidence": "high",
+    "rule_id": "36b76eed-fe01-4c10-a2d2-c97f8bcc01fa",
+    "filepath": "detections/sigma/T1033-system-owner-user-discovery-autogen.yml",
+    "lookback": 10
+  },
+  {
+    "timestamp": "2026-05-10T17:33:16.838537+00:00",
+    "result": "confidence_too_low",
+    "technique_id": "T1195.002",
+    "technique_name": "Supply Chain Compromise: Compromise Software Supply Chain",
+    "confidence": "low",
+    "lookback": 10
+  },
+  {
+    "timestamp": "2026-05-10T17:37:04.496464+00:00",
+    "result": "deployed",
+    "technique_id": "T1021.002",
+    "technique_name": "Remote Services: SMB/Windows Admin Shares",
+    "confidence": "high",
+    "rule_id": "c413ce24-f558-4226-810b-c52b958638f0",
+    "filepath": "detections/sigma/T1021-002-remote-services:-smb-windows-admin-shares-autogen.yml",
+    "lookback": 10
+  },
+  {
+    "timestamp": "2026-05-10T17:55:16.780740+00:00",
+    "result": "deployed",
+    "technique_id": "T1048.003",
+    "technique_name": "Exfiltration Over Alternative Protocol: Exfiltration Over Unencrypted Non-C2 Protocol",
+    "confidence": "high",
+    "rule_id": "723b2878-ced4-4052-ab1c-05629a5f4127",
+    "filepath": "detections/sigma/T1048-003-exfiltration-over-alternative-protocol:-exfiltration-over-unencrypted-non-c2-protocol-autogen.yml",
+    "lookback": 23
+  },
+  {
+    "timestamp": "2026-05-10T17:57:01.558767+00:00",
+    "result": "deployed",
+    "technique_id": "T1564.001",
+    "technique_name": "Hide Artifacts: Hidden Files and Directories",
+    "confidence": "high",
+    "rule_id": "c2664794-610c-4732-ba19-2782eacd278f",
+    "filepath": "detections/sigma/T1564-001-hide-artifacts:-hidden-files-and-directories-autogen.yml",
+    "lookback": 10
+  },
+  {
+    "timestamp": "2026-05-10T18:00:51.426451+00:00",
+    "result": "deployed",
+    "technique_id": "T1112",
+    "technique_name": "Modify Registry",
+    "confidence": "high",
+    "rule_id": "ec96bb5c-362a-4a2a-b306-ec3f189432bb",
+    "filepath": "detections/sigma/T1112-modify-registry-autogen.yml",
+    "lookback": 10
+  },
+  {
+    "timestamp": "2026-05-10T18:04:32.985037+00:00",
+    "result": "deployed",
+    "technique_id": "T1564.003",
+    "technique_name": "Hide Artifacts: Hidden Window",
+    "confidence": "medium",
+    "rule_id": "aea83186-6d3e-4623-aa2d-e7f2a21a088e",
+    "filepath": "detections/sigma/T1564-003-hide-artifacts:-hidden-window-autogen.yml",
+    "lookback": 10
+  },
+  {
+    "timestamp": "2026-05-10T18:08:33.118289+00:00",
+    "result": "deployed",
+    "technique_id": "T1518.001",
+    "technique_name": "Software Discovery: Security Software Discovery",
+    "confidence": "medium",
+    "rule_id": "9144651a-2b56-4047-ba53-1cff3babe181",
+    "filepath": "detections/sigma/T1518-001-software-discovery:-security-software-discovery-autogen.yml",
+    "lookback": 10
+  },
+  {
+    "timestamp": "2026-05-10T18:17:41.285044+00:00",
+    "result": "deployed",
+    "technique_id": "T1059.003",
+    "technique_name": "Command and Scripting Interpreter: Windows Command Shell",
+    "confidence": "high",
+    "rule_id": "62ed787d-48b7-4072-bca6-2a9048ed8bec",
+    "filepath": "detections/sigma/T1059-003-command-and-scripting-interpreter:-windows-command-shell-autogen.yml",
+    "lookback": 14
+  },
+  {
+    "timestamp": "2026-05-10T18:22:28.268979+00:00",
+    "result": "deployed",
+    "technique_id": "T1003.002",
+    "technique_name": "OS Credential Dumping: Security Account Manager",
+    "confidence": "high",
+    "rule_id": "c5830d3b-c4fb-465d-8540-44e6b09fc8e7",
+    "filepath": "detections/sigma/T1003-002-os-credential-dumping:-security-account-manager-autogen.yml",
+    "lookback": 10
+  },
+  {
+    "timestamp": "2026-05-10T18:28:37.089496+00:00",
+    "result": "deployed",
+    "technique_id": "T1218.007",
+    "technique_name": "System Binary Proxy Execution: Msiexec",
+    "confidence": "high",
+    "rule_id": "d134f553-f48a-471e-b593-05e99a4f57d6",
+    "filepath": "detections/sigma/T1218-007-system-binary-proxy-execution:-msiexec-autogen.yml",
+    "lookback": 11
+  },
+  {
+    "timestamp": "2026-05-10T18:31:24.087481+00:00",
+    "result": "deployed",
+    "technique_id": "T1216",
+    "technique_name": "System Script Proxy Execution",
+    "confidence": "medium",
+    "rule_id": "b8ee8991-c2af-4d5e-9dd8-4702f01a2e14",
+    "filepath": "detections/sigma/T1216-system-script-proxy-execution-autogen.yml",
+    "lookback": 10
+  },
+  {
+    "timestamp": "2026-05-10T18:35:44.746794+00:00",
+    "result": "deployed",
+    "technique_id": "T1036.005",
+    "technique_name": "Masquerading: Match Legitimate Name or Location",
+    "confidence": "medium",
+    "rule_id": "68a6befc-d840-4c30-8e8f-6b21ecd6d4d5",
+    "filepath": "detections/sigma/T1036-005-masquerading:-match-legitimate-name-or-location-autogen.yml",
+    "lookback": 10
+  },
+  {
+    "timestamp": "2026-05-10T18:43:55.502481+00:00",
+    "result": "deployed",
+    "technique_id": "T1069.002",
+    "technique_name": "Permission Groups Discovery: Domain Groups",
+    "confidence": "high",
+    "rule_id": "eb0dc4a9-2abf-4471-8905-68bcef7c63c8",
+    "filepath": "detections/sigma/T1069-002-permission-groups-discovery:-domain-groups-autogen.yml",
+    "lookback": 13
+  },
+  {
+    "timestamp": "2026-05-10T18:50:26.823039+00:00",
+    "result": "deployed",
+    "technique_id": "T1049",
+    "technique_name": "System Network Connections Discovery",
+    "confidence": "high",
+    "rule_id": "7bf6f4b4-b3fc-4563-8f05-9b3d9c62132b",
+    "filepath": "detections/sigma/T1049-system-network-connections-discovery-autogen.yml",
+    "lookback": 11
+  },
+  {
+    "timestamp": "2026-05-10T19:17:31.030180+00:00",
+    "result": "deployed",
+    "technique_id": "T1053.005",
+    "technique_name": "Scheduled Task/Job: Scheduled Task",
+    "confidence": "high",
+    "rule_id": "fe6d1f50-c1bc-4a22-ac80-c9712bab85c7",
+    "filepath": "detections/sigma/T1053-005-scheduled-task-job:-scheduled-task-autogen.yml",
+    "lookback": 32
+  },
+  {
+    "timestamp": "2026-05-10T19:19:08.144951+00:00",
+    "result": "confidence_too_low",
+    "technique_id": "T1195.002",
+    "technique_name": "Supply Chain Compromise: Compromise Software Supply Chain",
+    "confidence": "low",
+    "lookback": 10
+  },
+  {
+    "timestamp": "2026-05-10T19:29:01.026393+00:00",
+    "result": "confidence_too_low",
+    "technique_id": "T1195.002",
+    "technique_name": "Supply Chain Compromise: Compromise Software Supply Chain",
+    "confidence": "low",
+    "lookback": 14
+  },
+  {
+    "timestamp": "2026-05-10T19:47:07.925416+00:00",
+    "result": "deployed",
+    "technique_id": "T1016.001",
+    "technique_name": "System Network Configuration Discovery: Internet Connection Discovery",
+    "confidence": "high",
+    "rule_id": "f7f59eb3-ad8b-4d57-b1cc-fe60a5418b39",
+    "filepath": "detections/sigma/T1016-001-system-network-configuration-discovery:-internet-connection-discovery-autogen.yml",
+    "lookback": 23
+  },
+  {
+    "timestamp": "2026-05-10T19:52:26.775991+00:00",
+    "result": "deployed",
+    "technique_id": "T1482",
+    "technique_name": "Domain Trust Discovery",
+    "confidence": "high",
+    "rule_id": "cb9127a0-e005-4aff-a599-dd2dff0eec62",
+    "filepath": "detections/sigma/T1482-domain-trust-discovery-autogen.yml",
+    "lookback": 10
+  },
+  {
+    "timestamp": "2026-05-10T20:10:25.371431+00:00",
+    "result": "deployed",
+    "technique_id": "T1018",
+    "technique_name": "Remote System Discovery",
+    "confidence": "high",
+    "rule_id": "7d5e8bb8-a144-4791-a605-fd4a955ddc89",
+    "filepath": "detections/sigma/T1018-remote-system-discovery-autogen.yml",
+    "lookback": 22
+  },
+  {
+    "timestamp": "2026-05-10T20:17:03.429796+00:00",
+    "result": "deployed",
+    "technique_id": "T1083",
+    "technique_name": "File and Directory Discovery",
+    "confidence": "high",
+    "rule_id": "bdade355-a931-4fba-b349-eedb384f8993",
+    "filepath": "detections/sigma/T1083-file-and-directory-discovery-autogen.yml",
+    "lookback": 11
+  },
+  {
+    "timestamp": "2026-05-10T20:19:42.154280+00:00",
+    "result": "deployed",
+    "technique_id": "T1012",
+    "technique_name": "Query Registry",
+    "confidence": "medium",
+    "rule_id": "da3d7d73-325d-4fd8-b3ec-3d7e01dcd0b3",
+    "filepath": "detections/sigma/T1012-query-registry-autogen.yml",
+    "lookback": 10
+  },
+  {
+    "timestamp": "2026-05-11T09:35:56.759390+00:00",
+    "result": "deployed",
+    "technique_id": "T1012",
+    "technique_name": "Query Registry",
+    "confidence": "high",
+    "rule_id": "85b96de7-a91c-4938-846f-1853ee7e39d9",
+    "filepath": "detections/sigma/T1012-query-registry-autogen.yml",
+    "lookback": 801
+  },
+  {
+    "timestamp": "2026-05-11T18:19:28.396993+00:00",
+    "result": "deployed",
+    "technique_id": "T1614.001",
+    "technique_name": "System Location Discovery: System Language Discovery",
+    "confidence": "medium",
+    "rule_id": "b8765da9-bc02-4c22-8b48-01096420d98a",
+    "filepath": "detections/sigma/T1614-001-system-location-discovery:-system-language-discovery-autogen.yml",
+    "lookback": 528
+  },
+  {
+    "timestamp": "2026-05-11T18:44:59.364279+00:00",
+    "result": "deployed",
+    "technique_id": "T1218.011",
+    "technique_name": "System Binary Proxy Execution: Rundll32",
+    "confidence": "medium",
+    "rule_id": "5c8ea8be-7a0e-4809-b65a-2d26f91ee077",
+    "filepath": "detections/sigma/T1218-011-system-binary-proxy-execution:-rundll32-autogen.yml",
+    "lookback": 30
+  },
+  {
+    "timestamp": "2026-05-11T19:07:11.804947+00:00",
+    "result": "already_covered",
+    "technique_id": "T1218.011",
+    "technique_name": "System Binary Proxy Execution: Rundll32",
+    "confidence": "medium",
+    "lookback": 27
+  },
+  {
+    "timestamp": "2026-05-11T19:23:14.657042+00:00",
+    "result": "deployed",
+    "technique_id": "T1033",
+    "technique_name": "System Owner/User Discovery",
+    "confidence": "high",
+    "rule_id": "0d36e12f-4b63-4cf0-8483-8552b1d57090",
+    "filepath": "detections/sigma/T1033-system-owner-user-discovery-autogen.yml",
+    "lookback": 21
+  },
+  {
+    "timestamp": "2026-05-12T00:52:18.023311+00:00",
+    "result": "already_covered",
+    "technique_id": "T1218.011",
+    "technique_name": "System Binary Proxy Execution: Rundll32",
+    "confidence": "medium",
+    "lookback": 334
+  },
+  {
+    "timestamp": "2026-05-15T18:02:48.408457+00:00",
+    "result": "hunt_triggered_generation_failed",
+    "ioc": "77.83.240.70",
+    "triggered_by_hunt_id": "c5a527c7-fb72-4fc4-9b23-19c0f2112499",
+    "error": "'detection_focus'"
+  },
+  {
+    "timestamp": "2026-05-15T18:02:48.222893+00:00",
+    "result": "deployed",
+    "technique_id": "T1574.010",
+    "technique_name": "Hijack Execution Flow: Services File Permissions Weakness",
+    "confidence": "medium",
+    "rule_id": "63a6f63d-043a-4ddc-9f24-febd436a77f5",
+    "filepath": "detections/sigma/T1574-010-hijack-execution-flow:-services-file-permissions-weakness-autogen.yml",
+    "lookback": 1440
+  },
+  {
+    "timestamp": "2026-05-15T18:20:51.663218+00:00",
+    "result": "hunt_triggered_generation_failed",
+    "ioc": "77.83.240.70",
+    "triggered_by_hunt_id": "c5a527c7-fb72-4fc4-9b23-19c0f2112499",
+    "error": "Object of type set is not JSON serializable"
+  },
+  {
+    "timestamp": "2026-05-15T18:20:51.480365+00:00",
+    "result": "deployed",
+    "technique_id": "T1016",
+    "technique_name": "System Network Configuration Discovery",
+    "confidence": "medium",
+    "rule_id": "1020dcc4-0817-41c0-ba1e-7d3034e816c6",
+    "filepath": "detections/sigma/T1016-system-network-configuration-discovery-autogen.yml",
+    "lookback": 23
+  },
+  {
+    "timestamp": "2026-05-15T18:24:36.923867+00:00",
+    "result": "hunt_triggered_pending_review",
+    "ioc": "77.83.240.70",
+    "technique_id": "T1046",
+    "technique_name": "Network Service Scanning",
+    "confidence": "high",
+    "rule_id": "cba69621-c204-439b-b782-2637e1e65097",
+    "filepath": "detections/sigma/hunt-triggered/T1046-c5a527c7-77-83-240-70.yml",
+    "triggered_by_hunt_id": "c5a527c7-fb72-4fc4-9b23-19c0f2112499",
+    "honeypots_seen": [
+      "P0f",
+      "Suricata",
+      "Honeytrap",
+      "Miniprint",
+      "Fatt",
+      "Ipphoney"
+    ],
+    "total_events": 599131,
+    "provenance": {
+      "source": "water",
+      "trust_level": "medium",
+      "tagged_at": "2026-05-15T18:24:36.923887+00:00",
+      "triggered_by_hunt_id": "c5a527c7-fb72-4fc4-9b23-19c0f2112499"
+    }
+  },
+  {
+    "timestamp": "2026-05-15T18:24:29.483158+00:00",
+    "result": "deployed",
+    "technique_id": "T1035",
+    "technique_name": "Service Execution",
+    "confidence": "medium",
+    "rule_id": "6d060b71-5faf-425c-bf21-bb7751cc0e83",
+    "filepath": "detections/sigma/T1035-service-execution-autogen.yml",
+    "lookback": 10
+  },
+  {
+    "timestamp": "2026-05-15T23:37:54.452522+00:00",
+    "result": "hunt_triggered_pending_review",
+    "ioc": "77.83.240.70",
+    "technique_id": "T1046",
+    "technique_name": "Network Service Scanning",
+    "confidence": "high",
+    "rule_id": "88a7cdbe-c5a2-4451-9f85-fe64f51d3b6c",
+    "filepath": "detections/sigma/hunt-triggered/T1046-78249213-77-83-240-70.yml",
+    "triggered_by_hunt_id": "78249213-c0a7-4f39-8034-4cb8da24a929",
+    "honeypots_seen": [
+      "P0f",
+      "Suricata",
+      "Honeytrap",
+      "Miniprint",
+      "Fatt",
+      "Ipphoney"
+    ],
+    "total_events": 599131,
+    "provenance": {
+      "source": "water",
+      "trust_level": "medium",
+      "tagged_at": "2026-05-15T23:37:54.452554+00:00",
+      "triggered_by_hunt_id": "78249213-c0a7-4f39-8034-4cb8da24a929"
+    }
+  },
+  {
+    "timestamp": "2026-05-15T23:37:43.228898+00:00",
+    "result": "confidence_too_low",
+    "technique_id": "T1195.002",
+    "technique_name": "Supply Chain Compromise: Compromise Software Supply Chain",
+    "confidence": "low",
+    "lookback": 318
+  },
+  {
+    "timestamp": "2026-05-15T23:50:10.779383+00:00",
+    "result": "hunt_triggered_pending_review",
+    "ioc": "77.83.240.70",
+    "technique_id": "T1046",
+    "technique_name": "Network Service Scanning",
+    "confidence": "high",
+    "rule_id": "7413d35d-bfe5-4a44-8fff-0db713915937",
+    "filepath": "detections/sigma/hunt-triggered/T1046-78249213-77-83-240-70.yml",
+    "triggered_by_hunt_id": "78249213-c0a7-4f39-8034-4cb8da24a929",
+    "honeypots_seen": [
+      "P0f",
+      "Suricata",
+      "Honeytrap",
+      "Miniprint",
+      "Fatt",
+      "Ipphoney"
+    ],
+    "total_events": 599131,
+    "provenance": {
+      "source": "water",
+      "trust_level": "medium",
+      "tagged_at": "2026-05-15T23:50:10.779399+00:00",
+      "triggered_by_hunt_id": "78249213-c0a7-4f39-8034-4cb8da24a929"
+    }
+  },
+  {
+    "timestamp": "2026-05-15T23:50:03.456294+00:00",
+    "result": "deployed",
+    "technique_id": "T1110.001",
+    "technique_name": "Brute Force: Password Guessing",
+    "confidence": "high",
+    "rule_id": "77ecdffa-3fa9-462a-a86d-ea87e42455d0",
+    "filepath": "detections/sigma/T1110-001-brute-force:-password-guessing-autogen.yml",
+    "lookback": 17
+  },
+  {
+    "timestamp": "2026-05-27T00:29:09.561488+00:00",
+    "result": "hunt_triggered_pending_review",
+    "ioc": "77.83.240.70",
+    "technique_id": "T1046",
+    "technique_name": "Network Service Scanning",
+    "confidence": "high",
+    "rule_id": "06d2c842-40d9-435d-aa3f-91a0982edadb",
+    "filepath": "detections/sigma/hunt-triggered/T1046-e37bc06b-77-83-240-70.yml",
+    "triggered_by_hunt_id": "e37bc06b-5f70-4d16-acd1-e2e4f86cda11",
+    "honeypots_seen": [
+      "P0f",
+      "Suricata",
+      "Honeytrap",
+      "Fatt",
+      "Miniprint",
+      "Ipphoney"
+    ],
+    "total_events": 1113574,
+    "provenance": {
+      "source": "water",
+      "trust_level": "medium",
+      "tagged_at": "2026-05-27T00:29:09.561504+00:00",
+      "triggered_by_hunt_id": "e37bc06b-5f70-4d16-acd1-e2e4f86cda11"
+    }
+  },
+  {
+    "timestamp": "2026-05-27T00:29:01.483506+00:00",
+    "result": "already_covered",
+    "technique_id": "T1218.011",
+    "technique_name": "System Binary Proxy Execution: Rundll32",
+    "confidence": "high",
+    "lookback": 1440
+  },
+  {
+    "timestamp": "2026-05-27T00:33:41.380865+00:00",
+    "result": "hunt_triggered_pending_review",
+    "ioc": "77.83.240.70",
+    "technique_id": "T1046",
+    "technique_name": "Network Service Scanning",
+    "confidence": "high",
+    "rule_id": "b70565cc-77c4-4dd4-8838-a1fdb18a392d",
+    "filepath": "detections/sigma/hunt-triggered/T1046-e37bc06b-77-83-240-70.yml",
+    "triggered_by_hunt_id": "e37bc06b-5f70-4d16-acd1-e2e4f86cda11",
+    "honeypots_seen": [
+      "P0f",
+      "Suricata",
+      "Honeytrap",
+      "Fatt",
+      "Miniprint",
+      "Ipphoney"
+    ],
+    "total_events": 1113574,
+    "provenance": {
+      "source": "water",
+      "trust_level": "medium",
+      "tagged_at": "2026-05-27T00:33:41.380878+00:00",
+      "triggered_by_hunt_id": "e37bc06b-5f70-4d16-acd1-e2e4f86cda11"
+    }
+  },
+  {
+    "timestamp": "2026-05-27T00:33:31.722716+00:00",
+    "result": "already_covered",
+    "technique_id": "T1053.005",
+    "technique_name": "Scheduled Task/Job: Scheduled Task",
+    "confidence": "high",
+    "lookback": 10
+  },
+  {
+    "timestamp": "2026-05-27T00:35:21.961691+00:00",
+    "result": "deployed",
+    "technique_id": "T1046",
+    "technique_name": "Network Service Scanning",
+    "confidence": "high",
+    "rule_id": "b70565cc-77c4-4dd4-8838-a1fdb18a392d",
+    "filepath": "detections/sigma/T1046-network-service-scanning-autogen.yml",
+    "approved_by": "human"
+  },
+  {
+    "timestamp": "2026-05-27T00:37:56.007197+00:00",
+    "result": "hunt_triggered_pending_review",
+    "ioc": "77.83.240.70",
+    "technique_id": "T1046",
+    "technique_name": "Network Service Scanning",
+    "confidence": "high",
+    "rule_id": "3f9a6b93-3242-4661-b8bc-e6871b802615",
+    "filepath": "detections/sigma/hunt-triggered/T1046-e37bc06b-77-83-240-70.yml",
+    "triggered_by_hunt_id": "e37bc06b-5f70-4d16-acd1-e2e4f86cda11",
+    "honeypots_seen": [
+      "P0f",
+      "Suricata",
+      "Honeytrap",
+      "Fatt",
+      "Miniprint",
+      "Ipphoney"
+    ],
+    "total_events": 1113574,
+    "provenance": {
+      "source": "water",
+      "trust_level": "medium",
+      "tagged_at": "2026-05-27T00:37:56.007208+00:00",
+      "triggered_by_hunt_id": "e37bc06b-5f70-4d16-acd1-e2e4f86cda11"
+    }
+  },
+  {
+    "timestamp": "2026-05-27T00:37:48.502259+00:00",
+    "result": "pending_review",
+    "technique_id": "T1053.002",
+    "technique_name": "Scheduled Task/Job: At",
+    "confidence": "medium",
+    "rule_id": "cde037fa-003b-43a1-8a00-7b1a043e392f",
+    "lookback": 10
+  },
+  {
+    "timestamp": "2026-05-27T12:00:14.844939+00:00",
+    "result": "hunt_triggered_pending_review",
+    "ioc": "77.83.240.70",
+    "technique_id": "T1046",
+    "technique_name": "Network Service Scanning",
+    "confidence": "high",
+    "rule_id": "601cc03c-8ca1-48a4-b9e1-297ef3e0927e",
+    "filepath": "detections/sigma/hunt-triggered/T1046-e37bc06b-77-83-240-70.yml",
+    "triggered_by_hunt_id": "e37bc06b-5f70-4d16-acd1-e2e4f86cda11",
+    "honeypots_seen": [
+      "P0f",
+      "Suricata",
+      "Honeytrap",
+      "Fatt",
+      "Miniprint",
+      "Ipphoney"
+    ],
+    "total_events": 1113574,
+    "provenance": {
+      "source": "water",
+      "trust_level": "medium",
+      "tagged_at": "2026-05-27T12:00:14.845004+00:00",
+      "triggered_by_hunt_id": "e37bc06b-5f70-4d16-acd1-e2e4f86cda11"
+    }
+  },
+  {
+    "timestamp": "2026-05-27T12:00:03.932489+00:00",
+    "result": "pending_review",
+    "technique_id": "T1547.009",
+    "technique_name": "Boot or Logon Autostart Execution: Shortcut Modification",
+    "confidence": "medium",
+    "rule_id": "6dab6f31-3bfc-4dae-ae35-88114e36dc80",
+    "lookback": 687
+  },
+  {
+    "timestamp": "2026-05-28T00:00:05.964221+00:00",
+    "result": "pending_review",
+    "technique_id": "T1574.002",
+    "technique_name": "Hijack Execution Flow: DLL Side-Loading",
+    "confidence": "medium",
+    "rule_id": "2c4af804-dedd-41d3-b68c-62c8767ef180",
+    "lookback": 725
+  },
+  {
+    "timestamp": "2026-05-28T12:00:06.600931+00:00",
+    "result": "pending_review",
+    "technique_id": "T1574.002",
+    "technique_name": "Hijack Execution Flow: DLL Side-Loading",
+    "confidence": "medium",
+    "rule_id": "5ed8d0ad-8fed-49ee-aac9-3f82a442319b",
+    "lookback": 725
+  },
+  {
+    "timestamp": "2026-05-29T00:00:05.947838+00:00",
+    "result": "already_covered",
+    "technique_id": "T1218.011",
+    "technique_name": "System Binary Proxy Execution: Rundll32",
+    "confidence": "high",
+    "lookback": 724
+  },
+  {
+    "timestamp": "2026-05-29T12:00:06.141636+00:00",
+    "result": "pending_review",
+    "technique_id": "T1574.001",
+    "technique_name": "Hijack Execution Flow: DLL Search Order Hijacking",
+    "confidence": "medium",
+    "rule_id": "c9fb18b1-51b6-4a9f-bb62-c409dbc7c429",
+    "lookback": 725
+  },
+  {
+    "timestamp": "2026-05-30T00:00:02.850260+00:00",
+    "result": "pending_review",
+    "technique_id": "T1197",
+    "technique_name": "BITS Jobs",
+    "confidence": "medium",
+    "rule_id": "a5e42eef-e419-44b0-acad-1dc5471d4fb9",
+    "lookback": 724
+  },
+  {
+    "timestamp": "2026-05-30T12:00:05.948208+00:00",
+    "result": "pending_review",
+    "technique_id": "T1195.002",
+    "technique_name": "Supply Chain Compromise: Compromise Software Supply Chain",
+    "confidence": "medium",
+    "rule_id": "4e2e2961-dd5f-4a68-817b-76b29a6f8348",
+    "lookback": 725
+  },
+  {
+    "timestamp": "2026-05-31T00:00:05.940002+00:00",
+    "result": "confidence_too_low",
+    "technique_id": "T1195.002",
+    "technique_name": "Supply Chain Compromise: Compromise Software Supply Chain",
+    "confidence": "low",
+    "lookback": 725
+  },
+  {
+    "timestamp": "2026-05-31T12:00:05.612490+00:00",
+    "result": "pending_review",
+    "technique_id": "T1574.001",
+    "technique_name": "Hijack Execution Flow: DLL Search Order Hijacking",
+    "confidence": "medium",
+    "rule_id": "a5c15337-1bdd-4b85-8d66-79b4dcd198fe",
+    "lookback": 724
+  },
+  {
+    "timestamp": "2026-06-01T00:00:06.017161+00:00",
+    "result": "pending_review",
+    "technique_id": "T1195.002",
+    "technique_name": "Supply Chain Compromise: Compromise Software Supply Chain",
+    "confidence": "medium",
+    "rule_id": "81b83b2d-776d-412c-b318-4a53e7b54f9a",
+    "lookback": 725
+  },
+  {
+    "timestamp": "2026-06-01T12:00:04.037911+00:00",
+    "result": "pending_review",
+    "technique_id": "T1574.001",
+    "technique_name": "Hijack Execution Flow: DLL Search Order Hijacking",
+    "confidence": "medium",
+    "rule_id": "30ba40ce-b054-4d5d-ab96-a446bf911b2a",
+    "lookback": 724
+  },
+  {
+    "timestamp": "2026-06-02T00:00:01.896083+00:00",
+    "result": "pending_review",
+    "technique_id": "T1195.002",
+    "technique_name": "Supply Chain Compromise: Compromise Software Supply Chain",
+    "confidence": "medium",
+    "rule_id": "6b35df2f-f06a-4ccc-a06f-0ba99351521b",
+    "lookback": 724
+  },
+  {
+    "timestamp": "2026-06-02T12:00:02.302165+00:00",
+    "result": "pending_review",
+    "technique_id": "T1547.009",
+    "technique_name": "Boot or Logon Autostart Execution: Shortcut Modification",
+    "confidence": "medium",
+    "rule_id": "1bb71557-113b-4671-b554-75fd355655a9",
+    "lookback": 725
+  },
+  {
+    "timestamp": "2026-06-03T00:00:06.042179+00:00",
+    "result": "pending_review",
+    "technique_id": "T1195.002",
+    "technique_name": "Supply Chain Compromise: Compromise Software Supply Chain",
+    "confidence": "medium",
+    "rule_id": "39b854a4-a877-4e4e-a317-e9bcae2b32c2",
+    "lookback": 725
+  },
+  {
+    "timestamp": "2026-06-04T00:00:05.883134+00:00",
+    "result": "pending_review",
+    "technique_id": "T1195.002",
+    "technique_name": "Supply Chain Compromise: Compromise Software Supply Chain",
+    "confidence": "medium",
+    "rule_id": "716ee502-3cf7-4ea6-9622-6c0c45119ef3",
+    "lookback": 1440
+  },
+  {
+    "timestamp": "2026-06-04T12:00:03.988870+00:00",
+    "result": "no_events",
+    "lookback": 724
+  },
+  {
+    "timestamp": "2026-06-05T00:00:02.844474+00:00",
+    "result": "no_events",
+    "lookback": 724
+  },
+  {
+    "timestamp": "2026-06-05T12:00:05.108425+00:00",
+    "result": "no_events",
+    "lookback": 725
+  },
+  {
+    "timestamp": "2026-06-06T00:00:05.904573+00:00",
+    "result": "no_events",
+    "lookback": 725
+  },
+  {
+    "timestamp": "2026-06-06T12:00:05.855799+00:00",
+    "result": "no_events",
+    "lookback": 725
+  },
+  {
+    "timestamp": "2026-06-07T00:00:05.932590+00:00",
+    "result": "no_events",
+    "lookback": 725
+  },
+  {
+    "timestamp": "2026-06-07T12:00:05.007213+00:00",
+    "result": "no_events",
+    "lookback": 724
+  },
+  {
+    "timestamp": "2026-06-08T00:00:05.914277+00:00",
+    "result": "no_events",
+    "lookback": 725
+  },
+  {
+    "timestamp": "2026-06-08T12:00:05.356865+00:00",
+    "result": "no_events",
+    "lookback": 724
+  },
+  {
+    "timestamp": "2026-06-09T00:00:05.830865+00:00",
+    "result": "no_events",
+    "lookback": 725
+  },
+  {
+    "timestamp": "2026-06-09T12:00:05.069687+00:00",
+    "result": "no_events",
+    "lookback": 724
+  },
+  {
+    "timestamp": "2026-06-10T00:00:00.551003+00:00",
+    "result": "no_events",
+    "lookback": 724
+  },
+  {
+    "timestamp": "2026-06-10T12:00:05.835697+00:00",
+    "result": "no_events",
+    "lookback": 725
+  },
+  {
+    "timestamp": "2026-06-11T00:00:05.824953+00:00",
+    "result": "no_events",
+    "lookback": 725
+  },
+  {
+    "timestamp": "2026-06-11T12:00:05.835544+00:00",
+    "result": "no_events",
+    "lookback": 725
+  },
+  {
+    "timestamp": "2026-06-12T00:00:02.866741+00:00",
+    "result": "no_events",
+    "lookback": 724
+  },
+  {
+    "timestamp": "2026-06-12T12:00:05.832145+00:00",
+    "result": "no_events",
+    "lookback": 725
+  },
+  {
+    "timestamp": "2026-06-13T00:00:05.881656+00:00",
+    "result": "no_events",
+    "lookback": 725
+  },
+  {
+    "timestamp": "2026-06-14T00:00:05.372131+00:00",
+    "result": "no_events",
+    "lookback": 1440
+  },
+  {
+    "timestamp": "2026-06-14T12:00:03.383773+00:00",
+    "result": "no_events",
+    "lookback": 724
+  },
+  {
+    "timestamp": "2026-06-15T12:00:03.425614+00:00",
+    "result": "no_events",
+    "lookback": 1440
+  },
+  {
+    "timestamp": "2026-06-16T00:00:04.637559+00:00",
+    "result": "no_events",
+    "lookback": 725
+  },
+  {
+    "timestamp": "2026-06-16T12:00:05.973614+00:00",
+    "result": "no_events",
+    "lookback": 725
+  },
+  {
+    "timestamp": "2026-06-17T00:00:05.594844+00:00",
+    "result": "no_events",
+    "lookback": 724
+  },
+  {
+    "timestamp": "2026-06-17T12:00:05.973932+00:00",
+    "result": "no_events",
+    "lookback": 725
+  },
+  {
+    "timestamp": "2026-06-18T00:00:01.979078+00:00",
+    "result": "no_events",
+    "lookback": 724
+  },
+  {
+    "timestamp": "2026-06-18T12:00:05.995561+00:00",
+    "result": "no_events",
+    "lookback": 725
+  },
+  {
+    "timestamp": "2026-06-19T00:00:06.006743+00:00",
+    "result": "no_events",
+    "lookback": 725
+  },
+  {
+    "timestamp": "2026-06-19T12:00:05.984269+00:00",
+    "result": "no_events",
+    "lookback": 725
+  },
+  {
+    "timestamp": "2026-06-19T15:01:22.444641+00:00",
+    "result": "deployed",
+    "technique_id": "T1046",
+    "technique_name": "Network Service Scanning",
+    "confidence": "high",
+    "rule_id": "3f9a6b93-3242-4661-b8bc-e6871b802615",
+    "filepath": "detections/sigma/T1046-network-service-scanning-autogen.yml",
+    "approved_by": "human"
+  },
+  {
+    "timestamp": "2026-06-20T00:00:06.065252+00:00",
+    "result": "no_events",
+    "lookback": 725
+  },
+  {
+    "timestamp": "2026-06-20T12:00:01.992351+00:00",
+    "result": "no_events",
+    "lookback": 724
+  },
+  {
+    "timestamp": "2026-06-21T00:00:05.056991+00:00",
+    "result": "no_events",
+    "lookback": 725
+  },
+  {
+    "timestamp": "2026-06-21T12:00:06.531454+00:00",
+    "result": "no_events",
+    "lookback": 725
+  },
+  {
+    "timestamp": "2026-06-22T00:00:05.981825+00:00",
+    "result": "no_events",
+    "lookback": 724
+  },
+  {
+    "timestamp": "2026-06-22T12:00:05.985526+00:00",
+    "result": "no_events",
+    "lookback": 725
+  },
+  {
+    "timestamp": "2026-06-23T00:00:04.946707+00:00",
+    "result": "no_events",
+    "lookback": 724
+  },
+  {
+    "timestamp": "2026-06-23T12:00:00.717568+00:00",
+    "result": "no_events",
+    "lookback": 724
+  },
+  {
+    "timestamp": "2026-06-24T00:00:05.523593+00:00",
+    "result": "no_events",
+    "lookback": 725
+  },
+  {
+    "timestamp": "2026-06-24T12:00:06.070748+00:00",
+    "result": "no_events",
+    "lookback": 725
+  },
+  {
+    "timestamp": "2026-06-25T00:00:01.005264+00:00",
+    "result": "no_events",
+    "lookback": 724
+  },
+  {
+    "timestamp": "2026-06-25T12:00:05.035287+00:00",
+    "result": "no_events",
+    "lookback": 725
+  },
+  {
+    "timestamp": "2026-06-26T00:00:05.006533+00:00",
+    "result": "no_events",
+    "lookback": 725
+  },
+  {
+    "timestamp": "2026-06-26T12:00:05.364672+00:00",
+    "result": "no_events",
+    "lookback": 725
+  },
+  {
+    "timestamp": "2026-06-27T00:00:06.077905+00:00",
+    "result": "no_events",
+    "lookback": 725
+  },
+  {
+    "timestamp": "2026-06-27T12:00:02.859767+00:00",
+    "result": "no_events",
+    "lookback": 724
+  },
+  {
+    "timestamp": "2026-06-28T00:00:02.117817+00:00",
+    "result": "no_events",
+    "lookback": 725
+  },
+  {
+    "timestamp": "2026-06-28T12:00:05.357334+00:00",
+    "result": "no_events",
+    "lookback": 725
+  },
+  {
+    "timestamp": "2026-06-29T00:00:05.974524+00:00",
+    "result": "no_events",
+    "lookback": 725
+  },
+  {
+    "timestamp": "2026-06-29T12:00:05.931951+00:00",
+    "result": "no_events",
+    "lookback": 725
+  },
+  {
+    "timestamp": "2026-06-30T00:00:01.961882+00:00",
+    "result": "no_events",
+    "lookback": 724
+  },
+  {
+    "timestamp": "2026-06-30T12:00:03.008739+00:00",
+    "result": "no_events",
+    "lookback": 725
+  },
+  {
+    "timestamp": "2026-07-01T00:00:00.650713+00:00",
+    "result": "no_events",
+    "lookback": 724
+  },
+  {
+    "timestamp": "2026-07-01T12:00:06.038423+00:00",
+    "result": "no_events",
+    "lookback": 725
+  },
+  {
+    "timestamp": "2026-07-02T00:00:05.957914+00:00",
+    "result": "no_events",
+    "lookback": 725
+  },
+  {
+    "timestamp": "2026-07-02T12:00:05.834321+00:00",
+    "result": "no_events",
+    "lookback": 725
+  },
+  {
+    "timestamp": "2026-07-03T00:00:05.083774+00:00",
+    "result": "no_events",
+    "lookback": 724
+  },
+  {
+    "timestamp": "2026-07-03T12:00:03.039841+00:00",
+    "result": "no_events",
+    "lookback": 724
+  },
+  {
+    "timestamp": "2026-07-04T00:00:05.879197+00:00",
+    "result": "no_events",
+    "lookback": 725
+  },
+  {
+    "timestamp": "2026-07-04T12:00:05.510501+00:00",
+    "result": "no_events",
+    "lookback": 724
+  },
+  {
+    "timestamp": "2026-07-05T00:00:06.021005+00:00",
+    "result": "no_events",
+    "lookback": 725
+  },
+  {
+    "timestamp": "2026-07-05T12:00:01.768661+00:00",
+    "result": "no_events",
+    "lookback": 724
+  },
+  {
+    "timestamp": "2026-07-06T00:00:02.020394+00:00",
+    "result": "no_events",
+    "lookback": 725
+  },
+  {
+    "timestamp": "2026-07-06T12:00:02.966951+00:00",
+    "result": "no_events",
+    "lookback": 725
+  },
+  {
+    "timestamp": "2026-07-07T00:00:06.001906+00:00",
+    "result": "no_events",
+    "lookback": 725
+  },
+  {
+    "timestamp": "2026-07-07T12:00:05.529811+00:00",
+    "result": "no_events",
+    "lookback": 724
+  },
+  {
+    "timestamp": "2026-07-08T00:00:06.000818+00:00",
+    "result": "no_events",
+    "lookback": 725
+  },
+  {
+    "timestamp": "2026-07-08T12:00:00.578545+00:00",
+    "result": "no_events",
+    "lookback": 724
+  },
+  {
+    "timestamp": "2026-07-09T00:00:04.971504+00:00",
+    "result": "no_events",
+    "lookback": 725
+  },
+  {
+    "timestamp": "2026-07-09T12:00:05.143646+00:00",
+    "result": "no_events",
+    "lookback": 725
+  },
+  {
+    "timestamp": "2026-07-10T00:00:06.088236+00:00",
+    "result": "no_events",
+    "lookback": 725
+  },
+  {
+    "timestamp": "2026-07-10T12:00:06.049245+00:00",
+    "result": "no_events",
+    "lookback": 725
+  },
+  {
+    "timestamp": "2026-07-11T00:00:05.923885+00:00",
+    "result": "no_events",
+    "lookback": 725
+  },
+  {
+    "timestamp": "2026-07-11T12:00:01.956196+00:00",
+    "result": "no_events",
+    "lookback": 724
+  },
+  {
+    "timestamp": "2026-07-12T00:00:04.911799+00:00",
+    "result": "no_events",
+    "lookback": 725
+  },
+  {
+    "timestamp": "2026-07-12T12:00:05.368701+00:00",
+    "result": "no_events",
+    "lookback": 725
+  },
+  {
+    "timestamp": "2026-07-13T00:00:05.474948+00:00",
+    "result": "no_events",
+    "lookback": 725
+  },
+  {
+    "timestamp": "2026-07-13T12:00:06.038470+00:00",
+    "result": "no_events",
+    "lookback": 725
+  },
+  {
+    "timestamp": "2026-07-14T00:00:03.953168+00:00",
+    "result": "no_events",
+    "lookback": 724
+  },
+  {
+    "timestamp": "2026-07-14T12:00:05.221893+00:00",
+    "result": "no_events",
+    "lookback": 725
+  },
+  {
+    "timestamp": "2026-07-15T00:00:05.905160+00:00",
+    "result": "no_events",
+    "lookback": 725
+  },
+  {
+    "timestamp": "2026-07-15T12:00:06.033744+00:00",
+    "result": "no_events",
+    "lookback": 725
+  },
+  {
+    "timestamp": "2026-07-16T00:00:05.520911+00:00",
+    "result": "no_events",
+    "lookback": 724
+  },
+  {
+    "timestamp": "2026-07-16T12:00:05.975383+00:00",
+    "result": "no_events",
+    "lookback": 725
+  },
+  {
+    "timestamp": "2026-07-17T00:00:01.965018+00:00",
+    "result": "no_events",
+    "lookback": 724
+  },
+  {
+    "timestamp": "2026-07-17T12:00:01.928722+00:00",
+    "result": "no_events",
+    "lookback": 725
+  },
+  {
+    "timestamp": "2026-07-18T00:00:05.194702+00:00",
+    "result": "no_events",
+    "lookback": 725
+  },
+  {
+    "timestamp": "2026-07-18T12:00:05.539379+00:00",
+    "result": "no_events",
+    "lookback": 725
+  },
+  {
+    "timestamp": "2026-07-19T00:00:05.997269+00:00",
+    "result": "no_events",
+    "lookback": 725
+  },
+  {
+    "timestamp": "2026-07-19T12:00:01.906932+00:00",
+    "result": "no_events",
+    "lookback": 724
+  },
+  {
+    "timestamp": "2026-07-20T00:00:06.018352+00:00",
+    "result": "no_events",
+    "lookback": 725
+  },
+  {
+    "timestamp": "2026-07-20T12:00:05.936991+00:00",
+    "result": "no_events",
+    "lookback": 725
+  },
+  {
+    "timestamp": "2026-07-21T00:00:05.969626+00:00",
+    "result": "no_events",
+    "lookback": 725
+  },
+  {
+    "timestamp": "2026-07-21T12:00:05.769691+00:00",
+    "result": "no_events",
+    "lookback": 724
+  },
+  {
+    "timestamp": "2026-07-22T00:00:04.985025+00:00",
+    "result": "no_events",
+    "lookback": 724
+  },
+  {
+    "timestamp": "2026-07-22T12:00:02.971641+00:00",
+    "result": "no_events",
+    "lookback": 724
+  },
+  {
+    "timestamp": "2026-07-23T00:00:05.971031+00:00",
+    "result": "no_events",
+    "lookback": 725
+  },
+  {
+    "timestamp": "2026-07-23T12:00:05.446805+00:00",
+    "result": "no_events",
+    "lookback": 724
+  },
+  {
+    "timestamp": "2026-07-24T00:00:06.390362+00:00",
+    "result": "no_events",
+    "lookback": 725
+  },
+  {
+    "timestamp": "2026-07-24T12:00:03.953254+00:00",
+    "result": "no_events",
+    "lookback": 724
+  },
+  {
+    "timestamp": "2026-07-25T00:00:05.394499+00:00",
+    "result": "no_events",
+    "lookback": 725
+  },
+  {
+    "timestamp": "2026-07-25T12:00:06.046027+00:00",
+    "result": "no_events",
+    "lookback": 725
+  },
+  {
+    "timestamp": "2026-07-26T00:00:05.284371+00:00",
+    "result": "no_events",
+    "lookback": 725
+  },
+  {
+    "timestamp": "2026-07-26T12:00:05.880043+00:00",
+    "result": "no_events",
+    "lookback": 725
+  },
+  {
+    "timestamp": "2026-07-27T00:00:05.672013+00:00",
+    "result": "no_events",
+    "lookback": 725
+  },
+  {
+    "timestamp": "2026-07-27T12:00:05.948090+00:00",
+    "result": "no_events",
+    "lookback": 725
+  },
+  {
+    "timestamp": "2026-07-28T00:00:05.680066+00:00",
+    "result": "no_events",
+    "lookback": 724
+  },
+  {
+    "timestamp": "2026-07-28T12:00:05.968200+00:00",
+    "result": "no_events",
+    "lookback": 725
+  },
+  {
+    "timestamp": "2026-07-29T00:00:06.011918+00:00",
+    "result": "no_events",
+    "lookback": 725
+  },
+  {
+    "timestamp": "2026-07-29T12:00:06.040041+00:00",
+    "result": "no_events",
+    "lookback": 725
+  },
+  {
+    "timestamp": "2026-07-30T00:00:04.999200+00:00",
+    "result": "no_events",
+    "lookback": 724
+  },
+  {
+    "timestamp": "2026-07-30T12:00:05.993630+00:00",
+    "result": "no_events",
+    "lookback": 725
+  },
+  {
+    "timestamp": "2026-07-31T00:00:06.120515+00:00",
+    "result": "no_events",
+    "lookback": 725
+  },
+  {
+    "timestamp": "2026-07-31T12:00:05.583512+00:00",
+    "result": "no_events",
+    "lookback": 724
+  },
+  {
+    "timestamp": "2026-08-01T00:00:05.987180+00:00",
+    "result": "no_events",
+    "lookback": 725
+  },
+  {
+    "timestamp": "2026-08-01T12:00:06.055015+00:00",
+    "result": "no_events",
+    "lookback": 725
+  },
+  {
+    "timestamp": "2026-08-02T00:00:05.933163+00:00",
+    "result": "no_events",
+    "lookback": 725
+  },
+  {
+    "timestamp": "2026-08-02T12:00:05.274993+00:00",
+    "result": "no_events",
+    "lookback": 724
+  },
+  {
+    "timestamp": "2026-08-03T00:00:05.999223+00:00",
+    "result": "no_events",
+    "lookback": 725
+  },
+  {
+    "timestamp": "2026-08-03T12:00:06.007370+00:00",
+    "result": "no_events",
+    "lookback": 725
+  },
+  {
+    "timestamp": "2026-08-04T00:00:05.977729+00:00",
+    "result": "no_events",
+    "lookback": 725
+  },
+  {
+    "timestamp": "2026-08-04T12:00:05.506406+00:00",
+    "result": "no_events",
+    "lookback": 724
+  },
+  {
+    "timestamp": "2026-08-05T00:00:06.029100+00:00",
+    "result": "no_events",
+    "lookback": 725
+  },
+  {
+    "timestamp": "2026-08-05T12:00:05.919470+00:00",
+    "result": "no_events",
+    "lookback": 725
+  },
+  {
+    "timestamp": "2026-08-06T00:00:06.518058+00:00",
+    "result": "no_events",
+    "lookback": 725
+  },
+  {
+    "timestamp": "2026-08-06T12:00:05.821462+00:00",
+    "result": "no_events",
+    "lookback": 724
+  },
+  {
+    "timestamp": "2026-08-07T00:00:05.554376+00:00",
+    "result": "no_events",
+    "lookback": 725
+  },
+  {
+    "timestamp": "2026-08-07T12:00:05.504185+00:00",
+    "result": "no_events",
+    "lookback": 725
+  },
+  {
+    "timestamp": "2026-08-08T00:00:04.515357+00:00",
+    "result": "no_events",
+    "lookback": 724
+  },
+  {
+    "timestamp": "2026-08-08T12:00:06.477798+00:00",
+    "result": "no_events",
+    "lookback": 725
+  },
+  {
+    "timestamp": "2026-08-09T00:00:06.499972+00:00",
+    "result": "no_events",
+    "lookback": 725
+  },
+  {
+    "timestamp": "2026-08-09T12:00:05.406736+00:00",
+    "result": "no_events",
+    "lookback": 724
+  },
+  {
+    "timestamp": "2026-08-10T00:00:04.516002+00:00",
+    "result": "no_events",
+    "lookback": 724
+  },
+  {
+    "timestamp": "2026-08-10T12:00:06.504984+00:00",
+    "result": "no_events",
+    "lookback": 725
+  },
+  {
+    "timestamp": "2026-08-11T00:00:06.406192+00:00",
+    "result": "no_events",
+    "lookback": 725
+  },
+  {
+    "timestamp": "2026-08-11T12:00:06.501205+00:00",
+    "result": "no_events",
+    "lookback": 725
+  },
+  {
+    "timestamp": "2026-08-12T00:00:05.482021+00:00",
+    "result": "no_events",
+    "lookback": 724
+  },
+  {
+    "timestamp": "2026-08-12T12:00:04.535145+00:00",
+    "result": "no_events",
+    "lookback": 724
+  },
+  {
+    "timestamp": "2026-08-13T00:00:04.480221+00:00",
+    "result": "no_events",
+    "lookback": 725
+  },
+  {
+    "timestamp": "2026-08-13T12:00:05.481093+00:00",
+    "result": "no_events",
+    "lookback": 725
+  },
+  {
+    "timestamp": "2026-08-14T00:00:05.520685+00:00",
+    "result": "no_events",
+    "lookback": 725
+  },
+  {
+    "timestamp": "2026-08-14T12:00:05.555166+00:00",
+    "result": "no_events",
+    "lookback": 725
+  },
+  {
+    "timestamp": "2026-08-15T00:00:06.507561+00:00",
+    "result": "no_events",
+    "lookback": 725
+  },
+  {
+    "timestamp": "2026-08-15T12:00:06.291127+00:00",
+    "result": "no_events",
+    "lookback": 724
+  },
+  {
+    "timestamp": "2026-08-16T00:00:06.286101+00:00",
+    "result": "no_events",
+    "lookback": 725
+  },
+  {
+    "timestamp": "2026-08-16T12:00:06.490981+00:00",
+    "result": "no_events",
+    "lookback": 725
+  },
+  {
+    "timestamp": "2026-08-17T00:00:06.541159+00:00",
+    "result": "no_events",
+    "lookback": 725
+  },
+  {
+    "timestamp": "2026-08-17T12:00:06.325822+00:00",
+    "result": "no_events",
+    "lookback": 724
+  },
+  {
+    "timestamp": "2026-08-18T00:00:04.482874+00:00",
+    "result": "no_events",
+    "lookback": 724
+  },
+  {
+    "timestamp": "2026-08-18T12:00:06.501378+00:00",
+    "result": "no_events",
+    "lookback": 725
+  },
+  {
+    "timestamp": "2026-08-19T00:00:05.853568+00:00",
+    "result": "no_events",
+    "lookback": 724
+  },
+  {
+    "timestamp": "2026-08-19T12:00:05.832968+00:00",
+    "result": "no_events",
+    "lookback": 725
+  },
+  {
+    "timestamp": "2026-08-20T00:00:06.510849+00:00",
+    "result": "no_events",
+    "lookback": 725
+  },
+  {
+    "timestamp": "2026-08-20T12:00:05.418329+00:00",
+    "result": "no_events",
+    "lookback": 724
+  },
+  {
+    "timestamp": "2026-08-21T00:00:05.670269+00:00",
+    "result": "no_events",
+    "lookback": 725
+  },
+  {
+    "timestamp": "2026-08-21T12:00:06.492893+00:00",
+    "result": "no_events",
+    "lookback": 725
+  },
+  {
+    "timestamp": "2026-08-22T00:00:05.402769+00:00",
+    "result": "no_events",
+    "lookback": 724
+  },
+  {
+    "timestamp": "2026-08-22T12:00:04.399816+00:00",
+    "result": "no_events",
+    "lookback": 724
+  },
+  {
+    "timestamp": "2026-08-23T00:00:06.555401+00:00",
+    "result": "no_events",
+    "lookback": 725
+  },
+  {
+    "timestamp": "2026-08-23T12:00:06.411701+00:00",
+    "result": "no_events",
+    "lookback": 725
+  },
+  {
+    "timestamp": "2026-08-24T00:00:06.514152+00:00",
+    "result": "no_events",
+    "lookback": 725
+  },
+  {
+    "timestamp": "2026-08-24T12:00:06.431574+00:00",
+    "result": "no_events",
+    "lookback": 725
+  },
+  {
+    "timestamp": "2026-08-25T00:00:05.400921+00:00",
+    "result": "no_events",
+    "lookback": 724
+  },
+  {
+    "timestamp": "2026-08-25T12:00:04.369381+00:00",
+    "result": "no_events",
+    "lookback": 724
+  },
+  {
+    "timestamp": "2026-08-26T00:00:06.411573+00:00",
+    "result": "no_events",
+    "lookback": 725
+  },
+  {
+    "timestamp": "2026-08-26T12:00:05.528937+00:00",
+    "result": "no_events",
+    "lookback": 724
+  },
+  {
+    "timestamp": "2026-08-27T00:00:04.436597+00:00",
+    "result": "no_events",
+    "lookback": 724
+  },
+  {
+    "timestamp": "2026-08-27T12:00:05.402758+00:00",
+    "result": "no_events",
+    "lookback": 725
+  },
+  {
+    "timestamp": "2026-08-28T00:00:05.937010+00:00",
+    "result": "no_events",
+    "lookback": 725
+  },
+  {
+    "timestamp": "2026-08-28T12:00:06.537599+00:00",
+    "result": "no_events",
+    "lookback": 725
+  },
+  {
+    "timestamp": "2026-08-29T00:00:04.532260+00:00",
+    "result": "no_events",
+    "lookback": 724
+  },
+  {
+    "timestamp": "2026-08-29T12:00:06.418757+00:00",
+    "result": "no_events",
+    "lookback": 725
+  },
+  {
+    "timestamp": "2026-08-30T00:00:06.396895+00:00",
+    "result": "no_events",
+    "lookback": 725
+  },
+  {
+    "timestamp": "2026-08-30T12:00:06.402207+00:00",
+    "result": "no_events",
+    "lookback": 725
+  },
+  {
+    "timestamp": "2026-08-31T00:00:05.371743+00:00",
+    "result": "no_events",
+    "lookback": 724
+  },
+  {
+    "timestamp": "2026-08-31T12:00:04.403535+00:00",
+    "result": "no_events",
+    "lookback": 724
+  }
+]

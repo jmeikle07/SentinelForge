@@ -1,0 +1,14 @@
+.env
+venv/
+__pycache__/
+*.pyc
+elastalert/smtp_auth.yaml
+elastalert/elastalert.log
+elastalert/elastalert.log
+state/tallkitchen/*.db
+state/tallkitchen/*.db-journal
+state/tallkitchen/spamhaus_drop.txt
+state/tallkitchen/spamhaus_drop.txt
+detections/sigma/hunt-triggered/
+elastalert/elastalert.log
+nohup.out

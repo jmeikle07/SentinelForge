@@ -1,0 +1,136 @@
+[
+  {
+    "rule_id": "cde037fa-003b-43a1-8a00-7b1a043e392f",
+    "technique_id": "T1053.002",
+    "technique_name": "Scheduled Task/Job: At",
+    "tactic": "execution",
+    "confidence": "medium",
+    "queued_at": "2026-05-27T00:37:48.502259+00:00"
+  },
+  {
+    "rule_id": "601cc03c-8ca1-48a4-b9e1-297ef3e0927e",
+    "technique_id": "T1046",
+    "technique_name": "Network Service Scanning",
+    "tactic": "discovery",
+    "confidence": "high",
+    "queued_at": "2026-05-27T12:00:12.617518+00:00",
+    "ai_context": "A network service scan was detected, meaning something on the network was probing devices or ports to discover what services are running."
+  },
+  {
+    "rule_id": "6dab6f31-3bfc-4dae-ae35-88114e36dc80",
+    "technique_id": "T1547.009",
+    "technique_name": "Boot or Logon Autostart Execution: Shortcut Modification",
+    "tactic": "persistence",
+    "confidence": "medium",
+    "queued_at": "2026-05-27T12:00:03.932489+00:00",
+    "ai_context": "Windows compatibility shim database files (msimain.sdb and sysmain.sdb) were silently installed and registered in the registry, which can cause certain applications to behave differently each time they run."
+  },
+  {
+    "rule_id": "2c4af804-dedd-41d3-b68c-62c8767ef180",
+    "technique_id": "T1574.002",
+    "technique_name": "Hijack Execution Flow: DLL Side-Loading",
+    "tactic": "defense-evasion",
+    "confidence": "medium",
+    "queued_at": "2026-05-28T00:00:05.964221+00:00",
+    "ai_context": "Rundll32.exe loaded a Windows compatibility DLL and a separate tool silently installed shim database files while writing related entries to the registry."
+  },
+  {
+    "rule_id": "5ed8d0ad-8fed-49ee-aac9-3f82a442319b",
+    "technique_id": "T1574.002",
+    "technique_name": "Hijack Execution Flow: DLL Side-Loading",
+    "tactic": "defense-evasion",
+    "confidence": "medium",
+    "queued_at": "2026-05-28T12:00:06.600931+00:00",
+    "ai_context": "Windows ran a scheduled task that loaded a compatibility database file and registered shim entries in the registry, which can sometimes be used to redirect how programs load DLL files."
+  },
+  {
+    "rule_id": "c9fb18b1-51b6-4a9f-bb62-c409dbc7c429",
+    "technique_id": "T1574.001",
+    "technique_name": "Hijack Execution Flow: DLL Search Order Hijacking",
+    "tactic": "defense-evasion",
+    "confidence": "medium",
+    "queued_at": "2026-05-29T12:00:06.141636+00:00",
+    "ai_context": "Windows ran a scheduled task that loaded a system DLL and updated application compatibility database entries in the registry, which are steps sometimes used to redirect how programs load DLL files."
+  },
+  {
+    "rule_id": "a5e42eef-e419-44b0-acad-1dc5471d4fb9",
+    "technique_id": "T1197",
+    "technique_name": "BITS Jobs",
+    "tactic": "defense-evasion",
+    "confidence": "medium",
+    "queued_at": "2026-05-30T00:00:02.850260+00:00",
+    "ai_context": "Windows update and error-reporting processes ran under SYSTEM account alongside a network connectivity check and an upload action, which are behaviours sometimes used to hide malicious file transfers within normal Windows traffic."
+  },
+  {
+    "rule_id": "4e2e2961-dd5f-4a68-817b-76b29a6f8348",
+    "technique_id": "T1195.002",
+    "technique_name": "Supply Chain Compromise: Compromise Software Supply Chain",
+    "tactic": "initial-access",
+    "confidence": "medium",
+    "queued_at": "2026-05-30T12:00:05.948208+00:00",
+    "ai_context": "A script in the Windows System32 folder triggered the silent installation of application compatibility databases and wrote related registry keys, which is an unusual combination sometimes used to maintain persistence."
+  },
+  {
+    "rule_id": "a5c15337-1bdd-4b85-8d66-79b4dcd198fe",
+    "technique_id": "T1574.001",
+    "technique_name": "Hijack Execution Flow: DLL Search Order Hijacking",
+    "tactic": "defense-evasion",
+    "confidence": "medium",
+    "queued_at": "2026-05-31T12:00:05.612490+00:00",
+    "ai_context": "A program silently installed application compatibility shim databases and updated related registry entries, which can be used to redirect how other programs run on this machine."
+  },
+  {
+    "rule_id": "81b83b2d-776d-412c-b318-4a53e7b54f9a",
+    "technique_id": "T1195.002",
+    "technique_name": "Supply Chain Compromise: Compromise Software Supply Chain",
+    "tactic": "initial-access",
+    "confidence": "medium",
+    "queued_at": "2026-06-01T00:00:06.017161+00:00",
+    "ai_context": "Windows Defender update processes dropped executable files to temporary folders while a separate tool modified application compatibility databases, which are system files that can change how programs run."
+  },
+  {
+    "rule_id": "30ba40ce-b054-4d5d-ab96-a446bf911b2a",
+    "technique_id": "T1574.001",
+    "technique_name": "Hijack Execution Flow: DLL Search Order Hijacking",
+    "tactic": "defense-evasion",
+    "confidence": "medium",
+    "queued_at": "2026-06-01T12:00:04.037911+00:00",
+    "ai_context": "Sdbinst.exe and rundll32.exe made registry changes related to Windows application compatibility shim databases, which can be used to redirect how programs load certain files."
+  },
+  {
+    "rule_id": "6b35df2f-f06a-4ccc-a06f-0ba99351521b",
+    "technique_id": "T1195.002",
+    "technique_name": "Supply Chain Compromise: Compromise Software Supply Chain",
+    "tactic": "initial-access",
+    "confidence": "medium",
+    "queued_at": "2026-06-02T00:00:01.896083+00:00",
+    "ai_context": "Executable files with GUID-based names were dropped into Windows temp folders by Defender's update tool while Edge's updater ran scheduled tasks at the same time."
+  },
+  {
+    "rule_id": "1bb71557-113b-4671-b554-75fd355655a9",
+    "technique_id": "T1547.009",
+    "technique_name": "Boot or Logon Autostart Execution: Shortcut Modification",
+    "tactic": "persistence",
+    "confidence": "medium",
+    "queued_at": "2026-06-02T12:00:02.302165+00:00",
+    "ai_context": "A Windows tool that installs application compatibility databases ran silently in the background, making machine-wide registry changes \u2014 the same method legitimate Windows updates and malicious persistence both use."
+  },
+  {
+    "rule_id": "39b854a4-a877-4e4e-a317-e9bcae2b32c2",
+    "technique_id": "T1195.002",
+    "technique_name": "Supply Chain Compromise: Compromise Software Supply Chain",
+    "tactic": "initial-access",
+    "confidence": "medium",
+    "queued_at": "2026-06-03T00:00:06.042179+00:00",
+    "ai_context": "Several Windows update processes ran at the same time and dropped executable files into temporary folders, which can sometimes indicate abuse of legitimate update channels to deliver files."
+  },
+  {
+    "rule_id": "716ee502-3cf7-4ea6-9622-6c0c45119ef3",
+    "technique_id": "T1195.002",
+    "technique_name": "Supply Chain Compromise: Compromise Software Supply Chain",
+    "tactic": "initial-access",
+    "confidence": "medium",
+    "queued_at": "2026-06-04T00:00:05.883134+00:00",
+    "ai_context": "During a Windows Update process, a tool that installs application compatibility patches ran silently and wrote entries to the registry, which is normal behaviour but can also be abused to modify how programs run."
+  }
+]
