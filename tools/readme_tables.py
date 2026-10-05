@@ -16,31 +16,45 @@ from pathlib import Path
 import yaml
 
 ROOT = Path(__file__).resolve().parent.parent
+if str(ROOT) not in sys.path:  # allow `python tools/readme_tables.py`
+    sys.path.insert(0, str(ROOT))
+
+from lab.coverage import TACTICS as _KILL_CHAIN  # noqa: E402  (single source of truth)
+
 BEGIN = "<!-- BEGIN GENERATED: detections-table -->"
 END = "<!-- END GENERATED: detections-table -->"
 CERT_BEGIN = "<!-- BEGIN GENERATED: cert-table -->"
 CERT_END = "<!-- END GENERATED: cert-table -->"
 
-TACTIC_ORDER = [
-    "initial_access", "execution", "persistence", "privilege_escalation",
-    "defense_evasion", "credential_access", "discovery", "lateral_movement",
-    "collection", "command_and_control", "exfiltration",
-]
+# All 14 ATT&CK enterprise tactics in kill-chain order, tag style (underscores).
+TACTIC_ORDER = [t.replace("-", "_") for t in _KILL_CHAIN]
+
+
+class TableError(Exception):
+    """A rule or mapping cannot be rendered into the README tables."""
+
+
+def _tags(rule: object) -> list[str]:
+    tags = rule.get("tags") if isinstance(rule, dict) else None
+    if not isinstance(tags, list):
+        title = rule.get("title") if isinstance(rule, dict) else rule
+        raise TableError(f"rule {title!r}: 'tags' must be a list")
+    return [t for t in tags if isinstance(t, str)]
 
 
 def _techniques(rule: dict) -> list[str]:
-    return [t[7:] for t in rule.get("tags", []) if t.startswith("attack.t")]
+    return [t[7:] for t in _tags(rule) if t.startswith("attack.t")]
 
 
 def _tactics(rule: dict) -> list[str]:
-    return [t[7:] for t in rule.get("tags", [])
+    return [t[7:] for t in _tags(rule)
             if t.startswith("attack.") and t[7:] in TACTIC_ORDER]
 
 
 def _primary_tactic(rule: dict) -> str:
     tactics = _tactics(rule)
     if not tactics:
-        raise KeyError(f"rule {rule.get('title')!r} has no ATT&CK tactic tag")
+        raise TableError(f"rule {rule.get('title')!r} has no ATT&CK tactic tag")
     return min(tactics, key=TACTIC_ORDER.index)
 
 
@@ -67,7 +81,12 @@ def detections_table(rules: list[dict], mapping: dict) -> str:
         return (TACTIC_ORDER.index(row["tactic"]), parts)
 
     for tech, row in sorted(by_tech.items(), key=key):
-        entry = mapping["techniques"][tech]  # KeyError on unmapped technique
+        entry = (mapping.get("techniques") or {}).get(tech)
+        if not isinstance(entry, dict):
+            raise TableError(f"technique {tech} has no entry in mapping.yml")
+        missing = [f for f in ("hardening", "ir", "risk") if not entry.get(f)]
+        if missing:
+            raise TableError(f"mapping.yml technique {tech} lacks {', '.join(missing)}")
         cells = [
             row["tactic"].replace("_", " ").title(),
             tech.upper(),
@@ -83,7 +102,7 @@ def cert_table(rules: list[dict], objectives: dict) -> str:
     def count(prefix):
         c: dict[str, int] = {}
         for r in rules:
-            for tag in r.get("tags", []):
+            for tag in _tags(r):
                 if tag.startswith(prefix):
                     c[tag[len(prefix):]] = c.get(tag[len(prefix):], 0) + 1
         return c
@@ -91,12 +110,18 @@ def cert_table(rules: list[dict], objectives: dict) -> str:
     def numkey(k):
         return [int(p) for p in k.split(".")]
 
+    def title(section, group, key):
+        try:
+            return objectives[section][group][key]
+        except (KeyError, TypeError):
+            raise TableError(f"objectives.yml has no {section}.{group}[{key!r}]") from None
+
     lines = ["| Security+ SY0-701 objective | Title | Rules |", "|---|---|---|"]
     for k, n in sorted(count("cert.secplus.").items(), key=lambda kv: numkey(kv[0])):
-        lines.append(f"| {k} | {objectives['secplus']['objectives'][k]} | {n} |")
+        lines.append(f"| {k} | {title('secplus', 'objectives', k)} | {n} |")
     lines += ["", "| ISC2 CC domain | Title | Rules |", "|---|---|---|"]
     for k, n in sorted(count("cert.isc2cc.d").items()):
-        lines.append(f"| D{k} | {objectives['isc2cc']['domains'][k]} | {n} |")
+        lines.append(f"| D{k} | {title('isc2cc', 'domains', k)} | {n} |")
     return "\n".join(lines)
 
 
@@ -113,29 +138,61 @@ def render_block(rules: list[dict], mapping: dict) -> str:
     )
 
 
+def _span(readme: str, begin: str, end: str) -> tuple[int, int]:
+    if begin not in readme or end not in readme or readme.index(begin) > readme.index(end):
+        raise TableError(f"README.md is missing the {begin} ... {end} markers")
+    return readme.index(begin), readme.index(end) + len(end)
+
+
 def render_readme(readme: str, rules: list[dict], mapping: dict, objectives: dict | None = None) -> str:
-    start, stop = readme.index(BEGIN), readme.index(END) + len(END)
+    start, stop = _span(readme, BEGIN, END)
     readme = readme[:start] + render_block(rules, mapping) + readme[stop:]
     if objectives is not None:
-        start, stop = readme.index(CERT_BEGIN), readme.index(CERT_END) + len(CERT_END)
+        start, stop = _span(readme, CERT_BEGIN, CERT_END)
         block = f"{CERT_BEGIN}\n{cert_table(rules, objectives)}\n{CERT_END}"
         readme = readme[:start] + block + readme[stop:]
     return readme
 
 
+def _read(path: Path) -> str:
+    try:
+        return path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError) as exc:
+        raise TableError(f"{path.name}: cannot read: {exc}") from None
+
+
+def _load(path: Path):
+    try:
+        data = yaml.safe_load(_read(path))
+    except yaml.YAMLError as exc:
+        raise TableError(f"{path.name}: invalid YAML: {exc}") from None
+    return data
+
+
 def main(argv: list[str] | None = None) -> int:
+    try:
+        return _main(argv)
+    except TableError as exc:
+        print(f"error: {' '.join(str(exc).split())}", file=sys.stderr)
+        return 2
+
+
+def _main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     g = ap.add_mutually_exclusive_group(required=True)
     g.add_argument("--check", action="store_true")
     g.add_argument("--write", action="store_true")
+    ap.add_argument("--rules-dir", type=Path, default=ROOT / "detections" / "sigma")
+    ap.add_argument("--mapping", type=Path, default=ROOT / "docs" / "compliance" / "mapping.yml")
+    ap.add_argument("--objectives", type=Path, default=ROOT / "docs" / "compliance" / "objectives.yml")
+    ap.add_argument("--readme", type=Path, default=ROOT / "README.md")
     args = ap.parse_args(argv)
 
-    rules = [yaml.safe_load(p.read_text(encoding="utf-8"))
-             for p in sorted((ROOT / "detections" / "sigma").glob("*.yml"))]
-    mapping = yaml.safe_load((ROOT / "docs" / "compliance" / "mapping.yml").read_text(encoding="utf-8"))
-    objectives = yaml.safe_load((ROOT / "docs" / "compliance" / "objectives.yml").read_text(encoding="utf-8"))
-    path = ROOT / "README.md"
-    current = path.read_text(encoding="utf-8")
+    rules = [_load(p) for p in sorted(args.rules_dir.glob("*.yml"))]
+    mapping = _load(args.mapping)
+    objectives = _load(args.objectives)
+    path = args.readme
+    current = _read(path)
     new = render_readme(current, rules, mapping, objectives)
     if args.check:
         if new != current:
