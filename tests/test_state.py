@@ -10,7 +10,7 @@ def test_state_write_is_atomic_and_corrupt_file_raises(tmp_path):
     p = tmp_path / "s.json"
     state.write(p, [1, 2, 3])
     assert state.read(p) == [1, 2, 3]
-    assert [f.name for f in tmp_path.iterdir()] == ["s.json"]  # no temp/lock leftovers
+    assert sorted(f.name for f in tmp_path.iterdir() if f.suffix != ".lock") == ["s.json"]  # no temp leftovers
 
     p.write_text('{"half": ', encoding="utf-8")
     with pytest.raises(state.StateCorrupt):
@@ -26,7 +26,7 @@ def test_write_failure_keeps_old_file(tmp_path):
     with pytest.raises(TypeError):
         state.write(p, {"a": object()})  # not JSON serializable
     assert json.loads(p.read_text()) == {"a": 1}
-    assert [f.name for f in tmp_path.iterdir()] == ["s.json"]
+    assert sorted(f.name for f in tmp_path.iterdir() if f.suffix != ".lock") == ["s.json"]
 
 
 def test_read_missing_raises_or_default(tmp_path):

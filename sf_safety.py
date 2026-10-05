@@ -305,46 +305,15 @@ def should_water_act_on_hunt(record: dict) -> ValidationResult:
 # limiter needs the whole sequence atomic, so it takes this lock first. It is a
 # kernel advisory lock on a dedicated file (msvcrt on Windows, flock elsewhere):
 # released by the OS when the holder dies, so there is no stale-lock takeover.
-_TXN_THREAD_LOCK = threading.RLock()
 _TXN_TIMEOUT = 30.0
-
-try:  # Windows
-    import msvcrt as _msvcrt
-except ImportError:  # POSIX
-    _msvcrt = None
-    import fcntl as _fcntl
 
 
 @contextmanager
 def _file_transaction(lock_path: Path, timeout: float = _TXN_TIMEOUT):
-    """Exclusive cross-process (and cross-thread) lock held for a whole with-block."""
-    lock_path.parent.mkdir(parents=True, exist_ok=True)
-    with _TXN_THREAD_LOCK:
-        fd = os.open(lock_path, os.O_RDWR | os.O_CREAT, 0o644)
-        try:
-            deadline = time.monotonic() + timeout
-            while True:
-                try:
-                    if _msvcrt is not None:
-                        os.lseek(fd, 0, os.SEEK_SET)
-                        _msvcrt.locking(fd, _msvcrt.LK_NBLCK, 1)
-                    else:
-                        _fcntl.flock(fd, _fcntl.LOCK_EX | _fcntl.LOCK_NB)
-                    break
-                except OSError:
-                    if time.monotonic() > deadline:
-                        raise TimeoutError(f"could not lock {lock_path}") from None
-                    time.sleep(0.005)
-            try:
-                yield
-            finally:
-                if _msvcrt is not None:
-                    os.lseek(fd, 0, os.SEEK_SET)
-                    _msvcrt.locking(fd, _msvcrt.LK_UNLCK, 1)
-                else:
-                    _fcntl.flock(fd, _fcntl.LOCK_UN)
-        finally:
-            os.close(fd)
+    """Exclusive cross-process (and cross-thread) lock held for a whole with-block
+    (shared implementation: lab.state.file_lock)."""
+    with lab_state.file_lock(lock_path, timeout):
+        yield
 
 
 # ── Rate limiting (Layer 7) ───────────────────────────────────────────────────
