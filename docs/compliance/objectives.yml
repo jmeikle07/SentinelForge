@@ -1,11 +1,11 @@
-retrieved: '2026-10-04'
+retrieved: '2026-10-05'
 note: Objective IDs/titles copied from the official outlines; NIST and CIS sections list only the IDs referenced by mapping.yml. Maintained for SentinelForge by Jahsean Meikle.
 secplus:
   exam: CompTIA Security+ SY0-701
   document: Exam Objectives Version 6.0
   source_url: https://comptiacdn.azureedge.net/webcontent/docs/default-source/exam-objectives/comptia-security-sy0-701-exam-objectives-(6-0).pdf
   landing_url: https://www.comptia.org/certifications/security
-  retrieved: '2026-10-04'
+  retrieved: '2026-10-05'
   domains:
     '1': General Security Concepts
     '2': Threats, Vulnerabilities, and Mitigations
@@ -45,7 +45,16 @@ isc2cc:
   exam: ISC2 Certified in Cybersecurity (CC)
   document: Certified in Cybersecurity Certification Exam Outline, effective date September 1, 2026
   source_url: https://www.isc2.org/certifications/cc/cc-certification-exam-outline
-  retrieved: '2026-10-04'
+  landing_url: https://www.isc2.org/certifications/cc
+  retrieved: '2026-10-05'
+  effective_date: '2026-09-01'
+  verification: "Domain names and numbers copied from the HTML of both URLs above on the retrieval date (page lists 'EFFECTIVE DATE: SEPTEMBER 1, 2026'; linked PDF Revised-01-2026-Final.pdf). Average exam weights on the page are D1 24%, D2 17.3%, D3 20%, D4 21.3%, D5 17.3%."
+  weights:
+    '1': 24
+    '2': 17.3
+    '3': 20
+    '4': 21.3
+    '5': 17.3
   domains:
     '1': Security Principles
     '2': Security Governance
@@ -55,7 +64,7 @@ isc2cc:
 nist_800_53:
   source: NIST SP 800-53 Rev 5 (OSCAL catalog, Rev 5.2.0 content, last modified 2026-05-11)
   source_url: https://raw.githubusercontent.com/usnistgov/oscal-content/main/nist.gov/SP800-53/rev5/json/NIST_SP-800-53_rev5_catalog.json
-  retrieved: '2026-10-04'
+  retrieved: '2026-10-05'
   controls:
     ac-17: Remote Access
     ac-2: Account Management
@@ -85,7 +94,8 @@ cis_v8:
   source: CIS Controls v8 safeguard list (via MITRE CTID Mappings Explorer, CIS Controls v8.1.2 mapping; official CIS download requires a form)
   source_url: https://github.com/center-for-threat-informed-defense/mappings-explorer/blob/main/mappings/cis/attack-19.1/cis-8.1.2/enterprise/cis-8.1.2_attack-19.1-enterprise.json
   landing_url: https://www.cisecurity.org/controls/cis-controls-list
-  retrieved: '2026-10-04'
+  titles_verified_against: "https://cas.docs.cisecurity.org/en/latest/source/ (CIS Controls v8 documentation, one page per control; the CTID dataset spells 13.5 'Remote Access', the CIS documentation says 'Remote Assets')"
+  retrieved: '2026-10-05'
   safeguards:
     '2.3': Address Unauthorized Software
     '2.5': Allowlist Authorized Software
@@ -116,7 +126,7 @@ cis_v8:
     '13.1': Centralize Security Event Alerting
     '13.3': Deploy a Network Intrusion Detection Solution
     '13.4': Perform Traffic Filtering Between Network Segments
-    '13.5': Manage Access Control for Remote Access
+    '13.5': Manage Access Control for Remote Assets
     '13.6': Collect Network Traffic Flow Logs
     '13.10': Perform Application Layer Filtering
     '14.2': Train Workforce Members to Recognize Social Engineering Attacks
