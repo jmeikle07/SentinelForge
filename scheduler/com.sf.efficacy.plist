@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- __SF_LAB_DIR__ is replaced with the absolute project path at install time.
+     See docs/SETUP.md ("Scheduling with launchd"). -->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.sf.efficacy</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>__SF_LAB_DIR__/run_efficacy.sh</string>
+  </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>SF_LAB_DIR</key>
+    <string>__SF_LAB_DIR__</string>
+  </dict>
+  <key>StartInterval</key>
+  <integer>900</integer>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>StandardOutPath</key>
+  <string>__SF_LAB_DIR__/logs/sf_efficacy_launchd.log</string>
+  <key>StandardErrorPath</key>
+  <string>__SF_LAB_DIR__/logs/sf_efficacy_launchd.log</string>
+</dict>
+</plist>

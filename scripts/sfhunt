@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+# sfhunt: short alias for sf_hunt.py (the SentinelForge hunt CLI).
+# Passes all arguments through. Activates the project venv if one exists.
+# SF_LAB_DIR overrides the project directory (default: the repo containing this script).
+set -e
+SF_LAB_DIR="${SF_LAB_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
+cd "$SF_LAB_DIR"
+if [ -f "venv/bin/activate" ]; then
+    # shellcheck disable=SC1091
+    source venv/bin/activate
+elif [ -f "venv/Scripts/activate" ]; then
+    # shellcheck disable=SC1091
+    source venv/Scripts/activate
+fi
+exec python sf_hunt.py "$@"

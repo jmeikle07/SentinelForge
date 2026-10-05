@@ -1,34 +1,48 @@
 title: PowerShell Launching .bat/.cmd File via Start-Process or Invoke-Expression
 id: e6f5978e-b45f-4713-a7a2-104d1217ffa1
 status: experimental
-description: Detects PowerShell using Start-Process or Invoke-Expression to execute .bat or .cmd files, indicative of T1059.003 Windows Command Shell chaining.
-author: 1xLoZec
+description: |
+  Detects PowerShell using Start-Process or Invoke-Expression to execute .bat or .cmd files, indicative of T1059.003 Windows Command Shell chaining.
+
+  Defender notes:
+  - Hardening control: Allowlist approved scripts, restrict cmd.exe and batch execution from user-writable paths, and log command lines.
+  - IR step: Retrieve the batch file, review its contents, and trace its origin (download, email or share) before deletion.
+  - Risk treatment: Mitigate: script allowlisting; accept residual risk from legitimate admin automation.
+author: Jahsean Meikle
 date: 2026/05/10
 references:
-    - https://attack.mitre.org/techniques/T1059/003/
+- https://attack.mitre.org/techniques/T1059/003/
 tags:
-    - attack.execution
-    - attack.t1059.003
+- attack.execution
+- attack.t1059.003
+- cert.secplus.2.4
+- cert.secplus.4.1
+- cert.isc2cc.d5
+- nist.800-53.au-2
+- nist.800-53.cm-7
+- nist.800-53.si-4
+- cis.v8.2.7
+- cis.v8.8.8
 logsource:
-    category: process_creation
-    product: windows
+  category: process_creation
+  product: windows
 detection:
-    selection:
-        process.name: powershell.exe
-        process.command_line|contains:
-            - 'Start-Process'
-            - 'Invoke-Expression'
-    selection_ext:
-        process.command_line|contains:
-            - '.bat'
-            - '.cmd'
-    condition: selection and selection_ext
+  selection:
+    process.name: powershell.exe
+    process.command_line|contains:
+    - Start-Process
+    - Invoke-Expression
+  selection_ext:
+    process.command_line|contains:
+    - .bat
+    - .cmd
+  condition: selection and selection_ext
 falsepositives:
-    - Legitimate administrative scripts using PowerShell to launch batch files
-    - Software installers or deployment tools that chain PowerShell with batch file execution
-    - Developer tooling or build systems invoking batch files via PowerShell
+- Legitimate administrative scripts using PowerShell to launch batch files
+- Software installers or deployment tools that chain PowerShell with batch file execution
+- Developer tooling or build systems invoking batch files via PowerShell
 level: high
 fields:
-    - process.name
-    - process.command_line
-    - process.parent.name
+- process.name
+- process.command_line
+- process.parent.name

@@ -1,51 +1,64 @@
 title: Cmdkey Credential Store Followed by MSTSC RDP Lateral Movement
 id: 43846fcf-f24e-420e-8469-6a61e6201646
 status: experimental
-description: Detects cmdkey.exe storing TERMSRV credentials followed by mstsc.exe launching an RDP connection, indicative of scripted lateral movement via RDP. This pattern matches T1021.001 where credentials are pre-staged via cmdkey before initiating Remote Desktop sessions.
-author: 1xLoZec
+description: |
+  Detects cmdkey.exe storing TERMSRV credentials followed by mstsc.exe launching an RDP connection, indicative of scripted lateral movement via RDP. This pattern matches T1021.001 where credentials are pre-staged via cmdkey before initiating Remote Desktop sessions.
+
+  Defender notes:
+  - Hardening control: Restrict RDP to a jump host or VPN, require MFA for remote access, and enable Network Level Authentication.
+  - IR step: Contain the source and destination hosts, disable the used account, and review the RDP session logs for actions taken.
+  - Risk treatment: Mitigate: MFA and network restrictions on RDP; transfer residual risk for third-party access via contract controls.
+author: Jahsean Meikle
 date: 2026/05/10
 references:
-    - https://attack.mitre.org/techniques/T1021/001/
-    - https://docs.microsoft.com/en-us/windows-server/administration/windows-commands/cmdkey
+- https://attack.mitre.org/techniques/T1021/001/
+- https://docs.microsoft.com/en-us/windows-server/administration/windows-commands/cmdkey
 tags:
-    - attack.lateral_movement
-    - attack.t1021.001
+- attack.lateral_movement
+- attack.t1021.001
+- cert.secplus.2.2
+- cert.secplus.3.2
+- cert.secplus.4.6
+- cert.isc2cc.d3
+- cert.isc2cc.d4
+- nist.800-53.ac-17
+- nist.800-53.ia-2
+- nist.800-53.sc-7
+- cis.v8.4.4
+- cis.v8.6.4
+- cis.v8.13.4
+- cis.v8.13.5
 logsource:
-    category: process_creation
-    product: windows
+  category: process_creation
+  product: windows
 detection:
-    selection_cmdkey_termsrv:
-        event.code: '1'
-        process.name: 'cmdkey.exe'
-        process.command_line|contains:
-            - '/generic:TERMSRV/'
-            - '/pass:'
-    selection_cmdkey_parent:
-        process.parent.name:
-            - 'cmd.exe'
-            - 'powershell.exe'
-    selection_mstsc:
-        event.code: '1'
-        process.name: 'mstsc.exe'
-        process.command_line|contains: '/v:'
-    selection_mstsc_parent:
-        process.parent.name:
-            - 'cmd.exe'
-            - 'powershell.exe'
-    condition: (selection_cmdkey_termsrv and selection_cmdkey_parent) or (selection_mstsc and selection_mstsc_parent)
+  selection_cmdkey_termsrv:
+    event.code: '1'
+    process.name: cmdkey.exe
+    process.command_line|contains:
+    - /generic:TERMSRV/
+    - '/pass:'
+  selection_cmdkey_parent:
+    process.parent.name:
+    - cmd.exe
+    - powershell.exe
+  selection_mstsc:
+    event.code: '1'
+    process.name: mstsc.exe
+    process.command_line|contains: '/v:'
+  selection_mstsc_parent:
+    process.parent.name:
+    - cmd.exe
+    - powershell.exe
+  condition: (selection_cmdkey_termsrv and selection_cmdkey_parent) or (selection_mstsc and selection_mstsc_parent)
 falsepositives:
-    - Legitimate IT administrators using scripted RDP automation tools for remote management
-    - Deployment or configuration management scripts that pre-stage RDP credentials
-    - Jump host or bastion server automation that stores credentials before connecting
+- Legitimate IT administrators using scripted RDP automation tools for remote management
+- Deployment or configuration management scripts that pre-stage RDP credentials
+- Jump host or bastion server automation that stores credentials before connecting
 level: high
 fields:
-    - process.name
-    - process.command_line
-    - process.parent.name
-    - process.executable
-    - winlog.event_data.IntegrityLevel
-
-
-
-
-
+- process.name
+- process.command_line
+- process.parent.name
+- process.executable
+- winlog.event_data.IntegrityLevel

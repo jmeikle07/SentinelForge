@@ -1,37 +1,52 @@
 title: Network Service Scanning from Known Mass Scanner IPs
 id: 3f9a6b93-3242-4661-b8bc-e6871b802615
 status: experimental
-description: Detects inbound network connection attempts from known mass scanning IP addresses indicative of Network Service Scanning (T1046). The source IP 77.83.240.70 (ASN 49870, Alsycon B.V.) was observed hitting multiple honeypot types with over 1 million events in 24 hours, suggesting automated mass scanning behaviour.
-author: 1xLoZec
+description: |
+  Detects inbound network connection attempts from known mass scanning IP addresses indicative of Network Service Scanning (T1046). The source IP 77.83.240.70 (ASN 49870, Alsycon B.V.) was observed hitting multiple honeypot types with over 1 million events in 24 hours, suggesting automated mass scanning behaviour.
+
+  Defender notes:
+  - Hardening control: Deploy network intrusion detection, collect flow logs, and keep externally exposed services to the minimum.
+  - IR step: Block or rate-limit the scanning source, confirm which services responded, and prioritise patching of exposed ones.
+  - Risk treatment: Accept: internet scanning is constant background noise; mitigate by reducing exposed attack surface.
+author: Jahsean Meikle
 date: 2026/05/27
 references:
-    - https://attack.mitre.org/techniques/T1046/
+- https://attack.mitre.org/techniques/T1046/
 tags:
-    - attack.discovery
-    - attack.t1046
+- attack.discovery
+- attack.t1046
+- cert.secplus.2.2
+- cert.secplus.4.4
+- cert.isc2cc.d4
+- cert.isc2cc.d5
+- nist.800-53.ca-7
+- nist.800-53.sc-7
+- nist.800-53.si-4
+- cis.v8.8.5
+- cis.v8.12.2
+- cis.v8.13.3
+- cis.v8.13.6
 logsource:
-    product: windows
-    service: sysmon
+  category: network_connection
+  product: windows
 detection:
-    selection_event:
-        event.code: '3'
-    selection_source_ip:
-        source.ip:
-            - '77.83.240.70'
-    filter_legitimate_services:
-        destination.port:
-            - 80
-            - 443
-    condition: selection_event and selection_source_ip and not filter_legitimate_services
+  selection_source_ip:
+    source.ip|cidr:
+    - 77.83.240.70/32
+  filter_legitimate_services:
+    destination.port:
+    - 80
+    - 443
+  condition: selection_source_ip and not filter_legitimate_services
 fields:
-    - source.ip
-    - destination.ip
-    - destination.port
-    - process.name
-    - process.executable
-    - process.command_line
+- source.ip
+- destination.ip
+- destination.port
+- process.name
+- process.executable
+- process.command_line
 falsepositives:
-    - Legitimate security scanners or vulnerability assessment tools from shared infrastructure
-    - CDN or proxy services sharing IP address space
-    - Penetration testing engagements from third-party vendors
+- Legitimate security scanners or vulnerability assessment tools from shared infrastructure
+- CDN or proxy services sharing IP address space
+- Penetration testing engagements from third-party vendors
 level: high

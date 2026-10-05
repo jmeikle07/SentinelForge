@@ -1,35 +1,58 @@
 title: Application Shimming via AppCompatFlags Registry Write
 id: 575160f3-5822-495e-afce-54fee80dca9a
 status: experimental
-description: Detects registry writes to HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\SdbUpdates by processes other than sdbinst.exe, indicating potential Application Shimming persistence (T1546.011). Legitimate shim installations are performed by sdbinst.exe; writes from other processes may indicate abuse.
-author: 1xLoZec
+related:
+- id: c27fffce-2372-458e-ae4b-4f247823dc2c
+  type: similar
+- id: 9d19c38d-a376-4e18-a517-db535a8322be
+  type: similar
+- id: 5c8ea8be-7a0e-4809-b65a-2d26f91ee077
+  type: similar
+description: |
+  Detects registry writes to HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\SdbUpdates by processes other than sdbinst.exe, indicating potential Application Shimming persistence (T1546.011). Legitimate shim installations are performed by sdbinst.exe; writes from other processes may indicate abuse.
+
+  Defender notes:
+  - Hardening control: Disable application compatibility shim installation for standard users and audit AppCompatFlags registry changes.
+  - IR step: Export the shim database and registry keys, remove the registration, and check the shimmed application for tampering.
+  - Risk treatment: Mitigate: configuration control; accept residual risk for legitimate compatibility fixes with change approval.
+author: Jahsean Meikle
 date: 2026/05/10
 references:
-  - https://attack.mitre.org/techniques/T1546/011/
-  - https://www.geoffchappell.com/studies/windows/win32/apphelp/sdb/index.htm
-  - https://docs.microsoft.com/en-us/windows/win32/devnotes/sdbinstall
+- https://attack.mitre.org/techniques/T1546/011/
+- https://www.geoffchappell.com/studies/windows/win32/apphelp/sdb/index.htm
+- https://docs.microsoft.com/en-us/windows/win32/devnotes/sdbinstall
 tags:
-  - attack.persistence
-  - attack.t1546.011
+- attack.persistence
+- attack.t1546.011
+- cert.secplus.2.4
+- cert.secplus.4.1
+- cert.secplus.4.4
+- cert.isc2cc.d5
+- nist.800-53.cm-6
+- nist.800-53.cm-7
+- nist.800-53.si-7
+- cis.v8.4.1
+- cis.v8.4.8
+- cis.v8.8.5
 logsource:
   product: windows
   category: registry_set
 detection:
   selection:
     event.code: '13'
-    registry.key|contains: 'AppCompatFlags\SdbUpdates'
+    registry.key|contains: AppCompatFlags\SdbUpdates
   filter_sdbinst:
-    process.name: 'sdbinst.exe'
+    process.name: sdbinst.exe
   condition: selection and not filter_sdbinst
 fields:
-  - process.name
-  - process.executable
-  - process.command_line
-  - process.parent.name
-  - registry.key
-  - registry.value
+- process.name
+- process.executable
+- process.command_line
+- process.parent.name
+- registry.key
+- registry.value
 falsepositives:
-  - Legitimate Windows Update operations may install shim databases via sdbinst.exe during OS patching cycles
-  - Enterprise application compatibility toolkits used by IT administrators to deploy shims for legacy software
-  - Group Policy-based shim deployments managed by domain administrators for application compatibility purposes
+- Legitimate Windows Update operations may install shim databases via sdbinst.exe during OS patching cycles
+- Enterprise application compatibility toolkits used by IT administrators to deploy shims for legacy software
+- Group Policy-based shim deployments managed by domain administrators for application compatibility purposes
 level: high

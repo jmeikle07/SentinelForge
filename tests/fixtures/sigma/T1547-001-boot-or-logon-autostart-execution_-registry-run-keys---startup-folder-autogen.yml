@@ -1,42 +1,53 @@
 title: Suspicious sdbinst.exe Silent Background Shim Database Installation with Registry Writes
 id: d54e55da-9600-4e18-92a2-25a442b3efab
 status: experimental
-description: Detects sdbinst.exe executing with silent background flags (-m -bg) combined with registry key creation or modification under AppCompatFlags SdbUpdates, indicative of shim database persistence installation. This pattern matches T1547.001 where attackers install shim databases to redirect legitimate application execution to attacker-controlled code.
-author: 1xLoZec
+description: |
+  Detects sdbinst.exe executing with silent background flags (-m -bg) combined with registry key creation or modification under AppCompatFlags SdbUpdates, indicative of shim database persistence installation. This pattern matches T1547.001 where attackers install shim databases to redirect legitimate application execution to attacker-controlled code.
+
+  Defender notes:
+  - Hardening control: Monitor Run keys and Startup folders, restrict write access, and remove unauthorised software.
+  - IR step: Record and remove the autostart entry, identify the referenced binary, and hunt for the same entry on other hosts.
+  - Risk treatment: Mitigate: write restrictions and monitoring; accept residual risk for user-installed software, with review.
+author: Jahsean Meikle
 date: 2026/05/10
 references:
-    - https://attack.mitre.org/techniques/T1547/001/
-    - https://www.geoffchappell.com/studies/windows/win32/apphelp/sdb/index.htm
+- https://attack.mitre.org/techniques/T1547/001/
+- https://www.geoffchappell.com/studies/windows/win32/apphelp/sdb/index.htm
 tags:
-    - attack.persistence
-    - attack.t1547.001
+- attack.persistence
+- attack.t1547.001
+- cert.secplus.2.4
+- cert.secplus.4.1
+- cert.secplus.4.4
+- cert.isc2cc.d5
+- nist.800-53.cm-6
+- nist.800-53.cm-7
+- nist.800-53.si-7
+- cis.v8.2.3
+- cis.v8.4.1
+- cis.v8.8.5
 logsource:
-    category: registry_event
-    product: windows
+  category: registry_event
+  product: windows
 detection:
-    selection_registry:
-        event.code: '13'
-        registry.key|contains:
-            - 'SOFTWARE\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\SdbUpdates'
-            - 'SOFTWARE\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\Custom'
-    selection_process:
-        process.name: 'sdbinst.exe'
-        process.command_line|contains|all:
-            - '-m'
-            - '-bg'
-    filter_legitimate_parent:
-        process.parent.name:
-            - 'TrustedInstaller.exe'
-            - 'MsiExec.exe'
-            - 'msiexec.exe'
-    condition: selection_registry and selection_process and not filter_legitimate_parent
+  selection_registry:
+    event.code: '13'
+    registry.key|contains:
+    - SOFTWARE\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\SdbUpdates
+    - SOFTWARE\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\Custom
+  selection_process:
+    process.name: sdbinst.exe
+    process.command_line|contains|all:
+    - -m
+    - -bg
+  filter_legitimate_parent:
+    process.parent.name:
+    - TrustedInstaller.exe
+    - MsiExec.exe
+    - msiexec.exe
+  condition: selection_registry and selection_process and not filter_legitimate_parent
 falsepositives:
-    - Legitimate Windows Update or patch management processes using sdbinst.exe in background mode during OS servicing
-    - Enterprise software deployment tools that install application compatibility shims silently
-    - Microsoft compatibility update mechanisms running during scheduled maintenance windows
+- Legitimate Windows Update or patch management processes using sdbinst.exe in background mode during OS servicing
+- Enterprise software deployment tools that install application compatibility shims silently
+- Microsoft compatibility update mechanisms running during scheduled maintenance windows
 level: high
-
-
-
-
-

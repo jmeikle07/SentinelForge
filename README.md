@@ -1,209 +1,215 @@
-![Lab Topology](topology.svg)
-*Network topology: VLAN-segmented home lab feeding a cloud SIEM through a WireGuard tunnel.*
+![SentinelForge lab topology](topology.svg)
 
-# 1xLoZec Detection Lab
+# SentinelForge
 
-**Tall Kitchen detection lab. Built from scratch, documented in real time.**
+**A detection-as-code lab: Sigma rules mapped to MITRE ATT&CK, CompTIA Security+ and ISC2 CC objectives, NIST 800-53 and CIS v8 controls, with an AI-assisted rule generation and review pipeline.**
 
-[![CI/CD](https://img.shields.io/github/actions/workflow/status/1xLoZec/detection-lab/deploy-detections.yml?label=CI%2FCD&style=flat-square)](https://github.com/1xLoZec/detection-lab/actions)
-[![Detection as Code](https://img.shields.io/badge/Detection-as--Code-success?style=flat-square)](https://github.com/1xLoZec/detection-lab/tree/main/detections/sigma)
-[![Self-Healing CI/CD](https://img.shields.io/badge/CI%2FCD-Self--Healing-orange?style=flat-square)](#tallkitchen_water)
-[![T-Pot Integrated](https://img.shields.io/badge/T--Pot-Integrated-red?style=flat-square)](#t-pot-integration)
-[![SIEM](https://img.shields.io/badge/SIEM-Elastic%208.19-005571?style=flat-square&logo=elastic)](https://www.elastic.co/)
-[![License](https://img.shields.io/badge/License-MIT-blue?style=flat-square)](LICENSE)
+Author: Jahsean Meikle. License: MIT (see [LICENSE](LICENSE)).
 
-**[🖥️ Live Dashboard](https://demo.1xlozec.com) · [🗺️ ATT&CK Coverage Heatmap](https://mitre-attack.github.io/attack-navigator/#layerURL=https://raw.githubusercontent.com/1xLoZec/detection-lab/main/docs/coverage_layer.json)**
+## What this is
 
----
+SentinelForge is a personal detection engineering project. It keeps detection logic in version control as Sigma rules, converts them to Elastic queries with pySigma, and deploys them to Kibana's detection engine through a gated pipeline. Each rule carries machine-readable tags that tie it to ATT&CK techniques, to Security+ SY0-701 and ISC2 CC exam objectives, and to NIST SP 800-53 and CIS Controls v8, along with short defender notes covering hardening, incident response and risk treatment.
 
-**Professionally I make artisan sandwiches.** On my own time I build detection engineering labs from scratch because apparently that is what I do for fun. 
-This lab is where I go deeper on the infrastructure side of detection engineering. I'm building everything from the ground up so I actually understand what's happening under the hood, not just on the screen. Every piece is documented as I build it including the parts that break, the walls I hit, and how I got through them. This is not a finished product. It is a live build.
+It is a lab and portfolio project, not a product. The rules are marked `status: experimental`. Nothing here claims to be deployed to any particular environment.
 
-**How this is built.** I leaned on and learned from a stack of AI platforms for this one. Claude was my main collaborator for code and architecture. Cursor was my editor. Gemini and Ollama sit inside Water as two of the three validators that grade every rule before it goes live. The design, the decisions, and the way everything fits together is mine. The typing speed is theirs.
-*(And yes — I'm actually a cyber security engineer. The sandwich gig is a long-running joke my friends refuse to let die.)*
+## Architecture
 
-## Lab Access
+Full description: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). Setup: [docs/SETUP.md](docs/SETUP.md).
 
-**Live dashboard:** [demo.1xlozec.com](https://demo.1xlozec.com)
-**Username:** `demo`
-**Password:** `DemoUser2026!`
+```
+ Sysmon / Windows telemetry --> Elastic Agent --> Elasticsearch
+                                                      |
+        +---------------------------------------------+
+        |                       |                     |
+   generate_rule.py        sf_hunt.py            rule_efficacy.py
+   (autonomous rule        (IOC enrichment,      (alerts per rule)
+    engine, review gate)    verdict, pivots)           |
+        |                       |                      v
+        v                       v               state/rule_efficacy.json
+ detections/pending/       sf_web.py (FastAPI) <------+
+        |                  dashboards + approve/reject
+ approve.py / web approve
+        |
+        v
+ detections/sigma/*.yml --> CI (GitHub Actions) --> validate_rule.py --> deploy_rule.py --> Kibana
+        ^                                                                       |
+ tools/tag_compliance.py                                                  alerts index
+ docs/compliance/mapping.yml                                                    |
+                                                                          ElastAlert 2 --> email
+```
 
-Read-only viewer account. Dark mode is on by default. Time range is locked to the last 3 months. Anyone can view the lab without VPN.
+| Component | Role |
+|---|---|
+| `lab/` | Shared package: config from env (`lab.config`), HTTP session with timeouts, retries and TLS on by default (`lab.http`), the single ECS field-mapping pipeline (`lab.ecs`), atomic state files (`lab.state`), paged Elasticsearch search (`lab.es`), Kibana rule payload builder (`lab.kibana_rule`). |
+| `detections/sigma/` | The rule set, one Sigma file per detection. |
+| `tools/tag_compliance.py` | Deterministic tagger. Reads `docs/compliance/mapping.yml`, writes certification, NIST and CIS tags plus a "Defender notes" block into each rule, and regenerates [docs/compliance/COVERAGE.md](docs/compliance/COVERAGE.md). `--check` fails CI on drift. |
+| `generate_rule.py` | Autonomous rule engine. Reads recent events from Elasticsearch, asks an LLM to propose a Sigma rule, and (with `WATER_REVIEW_GATE=true`) holds it for human approval. |
+| `validate_rule.py` | YAML lint, Sigma to Lucene conversion, a 7-day backtest against Elasticsearch, a three-model vote (Claude, Gemini, Ollama) run concurrently, and a bounded self-heal loop. |
+| `approve.py` and the web approve routes | Human review gate. Approving deploys; rejecting discards. |
+| `deploy_rule.py` | Converts a rule and creates or updates it in Kibana (409 triggers a `PUT` with the `rule_id`). |
+| `sf_hunt.py` | Analyst IOC enrichment CLI: local cache, several threat-intel sources queried in parallel, deterministic weighted verdict, suggested pivots. |
+| `sf_web.py` | FastAPI app serving the dashboards in `web/` and the JSON API. |
+| `rule_efficacy.py` | One aggregation query that reports how many alerts each deployed rule has produced. |
+| `elastalert/` | ElastAlert 2 templates for email alerts on Kibana alerts. Rendered with `envsubst` by `elastalert/run.sh`. |
+| `.github/workflows/` | `test.yml` (offline tests and tag check on GitHub-hosted runners) and `deploy-detections.yml` (validate, then deploy on push). |
 
-## The Stack
+## Quick start
 
-**Live components:**
+Requires Python 3.11 or newer. Commands shown for a POSIX shell; on Windows use `venv\Scripts\python`.
 
-| Component | Technology | Status |
+```bash
+python -m venv venv
+venv/bin/python -m pip install -r requirements-dev.txt
+cp .env.example .env            # then fill in values; never commit .env
+
+venv/bin/python -m pytest                          # offline test suite
+venv/bin/python tools/tag_compliance.py --check    # exit 0 if tags and COVERAGE.md are current
+venv/bin/python tools/readme_tables.py --check     # exit 0 if the tables below are current
+```
+
+The test suite makes no network calls. Running the engine, validator, deployer or hunt tool for real needs a reachable Elastic stack and API keys; see [docs/SETUP.md](docs/SETUP.md).
+
+## Detections by ATT&CK tactic
+
+Generated by `tools/readme_tables.py` from `detections/sigma/` and `docs/compliance/mapping.yml`. The per-rule view with every tag is in [docs/compliance/COVERAGE.md](docs/compliance/COVERAGE.md).
+
+<!-- BEGIN GENERATED: detections-table -->
+39 Sigma rules covering 37 ATT&CK techniques and sub-techniques across 9 tactics (counted from `detections/sigma/`). Each row is one technique; the defender columns come from `docs/compliance/mapping.yml`.
+
+| Tactic | Technique | Rules | Hardening | Incident response | Risk |
+|---|---|---|---|---|---|
+| Execution | T1059.001 | 2 | Enable PowerShell script block and module logging, apply Constrained Language Mode, and allowlist approved scripts. | Collect script block logs, identify the download source and parent process, and quarantine any written files. | Mitigate: logging and language constraints; accept residual risk for administrators who need full PowerShell. |
+| Execution | T1059.003 | 1 | Allowlist approved scripts, restrict cmd.exe and batch execution from user-writable paths, and log command lines. | Retrieve the batch file, review its contents, and trace its origin (download, email or share) before deletion. | Mitigate: script allowlisting; accept residual risk from legitimate admin automation. |
+| Execution | T1105 | 1 | Filter outbound web access with a URL allowlist or proxy and block direct PowerShell downloads from untrusted hosts. | Retrieve and hash the downloaded file, block the source URL, and scan for execution of the payload. | Mitigate: egress filtering; accept residual risk for approved software update paths. |
+| Execution | T1569.002 | 1 | Disable unnecessary services, restrict service creation to administrators, and baseline svchost service groups. | Inspect the new or modified service binary and parameters, preserve it, and remove persistence once scoped. | Mitigate: service allowlisting and least privilege; accept residual risk from legitimate administrative tooling. |
+| Persistence | T1053.005 | 1 | Restrict scheduled task creation to administrators and alert on logon or startup triggered tasks created from user context. | Export the task definition, identify the action it runs, delete it once preserved, and hunt for the same task name elsewhere. | Mitigate: least privilege on task creation; accept the residual risk for approved software installers. |
+| Persistence | T1546.011 | 3 | Disable application compatibility shim installation for standard users and audit AppCompatFlags registry changes. | Export the shim database and registry keys, remove the registration, and check the shimmed application for tampering. | Mitigate: configuration control; accept residual risk for legitimate compatibility fixes with change approval. |
+| Persistence | T1547.001 | 1 | Monitor Run keys and Startup folders, restrict write access, and remove unauthorised software. | Record and remove the autostart entry, identify the referenced binary, and hunt for the same entry on other hosts. | Mitigate: write restrictions and monitoring; accept residual risk for user-installed software, with review. |
+| Persistence | T1574.010 | 1 | Audit service binary and folder permissions, remove write access for non-admins, and apply least privilege. | Identify the weak service permission abused, restore ACLs, and replace or verify the service binary. | Mitigate: ACL hardening and periodic permission audits; accept residual risk on legacy services pending replacement. |
+| Defense Evasion | T1036.005 | 1 | Enforce application allowlisting so system utilities only run from their expected paths, and alert on path mismatches. | Hash and preserve the masquerading binary, compare it to the legitimate file, and hunt for the same hash across hosts. | Mitigate: allowlisting; accept residual risk where admins run copies of tools from non-standard paths. |
+| Defense Evasion | T1055 | 1 | Enable anti-exploitation features and behaviour-based EDR, and constrain PowerShell with Constrained Language Mode and script block logging. | Isolate the host, capture memory of the injected process, and identify the payload source URL for blocking. | Mitigate: EDR and PowerShell constraints; residual risk accepted for unmanaged developer machines with compensating monitoring. |
+| Defense Evasion | T1112 | 1 | Enforce secure configuration baselines through Group Policy and restrict reg.exe for standard users. | Record the key and value changed, revert it to baseline, and determine what process and user made the change. | Mitigate: configuration management; accept low-impact cosmetic changes with monitoring. |
+| Defense Evasion | T1204.002 | 2 | Block macros from internet-sourced Office files, filter risky attachment types, and run phishing awareness training. | Isolate the host, retrieve the document and macro, identify the delivery email, and purge it from other mailboxes. | Mitigate: macro blocking and training; transfer part of the risk with email security services. |
+| Defense Evasion | T1216 | 1 | Use application control to restrict signed proxy-execution binaries and scripts to approved uses. | Identify the proxied payload, preserve the MSI or script, and scope its install or execution footprint. | Mitigate: application control; accept residual risk for legitimate software deployment tools. |
+| Defense Evasion | T1218.007 | 2 | Restrict msiexec to administrators or software distribution, block installs from user-writable paths, and apply application control. | Retrieve the MSI package, inspect its custom actions, and uninstall and remove artefacts after scoping. | Mitigate: application control; accept residual risk for approved silent deployments. |
+| Defense Evasion | T1218.011 | 2 | Block or restrict rundll32 and sdbinst for standard users with application control and audit their command lines. | Identify the DLL or shim database loaded, preserve it, and remove the registration once scoped. | Mitigate: application control; accept residual risk where legacy applications need compatibility shims. |
+| Defense Evasion | T1564.001 | 1 | Enforce Explorer settings (show file extensions) through Group Policy and restrict reg.exe for standard users. | Revert the value, look for files using double extensions, and trace the delivery of those files. | Mitigate: configuration management; the change itself is low-impact, so accept with monitoring. |
+| Credential Access | T1003.002 | 1 | Remove standing local admin rights, randomise local admin passwords with LAPS, and alert on reg save of the SAM, SYSTEM and SECURITY hives. | Isolate the host, treat local and cached credentials as compromised and reset them, and preserve the saved hive files as evidence. | Mitigate: LAPS and least privilege reduce the value of dumped hashes; accept residual risk for documented backup tooling via the filter. |
+| Credential Access | T1110.001 | 1 | Enforce account lockout, require MFA, ban weak passwords, and restrict net use to administrators. | Identify the targeted accounts and share, reset any account that may have succeeded, and block the source. | Mitigate: lockout and MFA; accept residual risk for legacy systems that cannot enforce MFA, with compensating monitoring. |
+| Credential Access | T1555.004 | 1 | Restrict cmdkey use, enable Credential Guard, and prefer MFA over stored RDP credentials. | Identify the stored credentials and targets, reset affected accounts, and review RDP connections that followed. | Mitigate: Credential Guard and MFA; accept residual risk for legitimate stored administrator sessions. |
+| Discovery | T1012 | 1 | Collect process-creation events with full command lines and baseline legitimate registry query tooling per host role. | Review the parent process chain and the same user's session for follow-on discovery or credential access. | Accept: low-impact discovery on its own; monitor and escalate when combined with other discovery or execution alerts. |
+| Discovery | T1016 | 2 | Log DNS queries centrally and baseline which processes legitimately contact connectivity-check domains. | Identify the querying process and its parent, then check for proxy or C2 behaviour from the same host. | Accept: network configuration discovery is common noise; tune thresholds and keep the alert as a correlation signal. |
+| Discovery | T1016.001 | 1 | Log command lines for cmd.exe children and restrict network utilities that standard users do not need. | Determine what launched cmd.exe, review commands run in the same session, and check outbound connections afterwards. | Accept with monitoring: connectivity checks are frequently benign; escalate only with other attacker behaviour. |
+| Discovery | T1018 | 1 | Segment workstations from server networks and log net.exe usage with command lines. | Identify the account and host, review which systems were enumerated, and look for follow-on lateral movement. | Mitigate: segmentation limits what enumeration reveals; accept the residual discovery noise. |
+| Discovery | T1033 | 2 | Collect command-line audit logs and restrict scripting engines to users who need them. | Check what spawned the scripting engine and whether it ran with user or elevated rights, then widen to the host timeline. | Accept: owner discovery is low-impact; the alert is valuable mostly as correlation context. |
+| Discovery | T1046 | 1 | Deploy network intrusion detection, collect flow logs, and keep externally exposed services to the minimum. | Block or rate-limit the scanning source, confirm which services responded, and prioritise patching of exposed ones. | Accept: internet scanning is constant background noise; mitigate by reducing exposed attack surface. |
+| Discovery | T1049 | 1 | Log command lines for chained cmd.exe commands and restrict netstat-style tooling for standard users where practical. | Review the chained commands and parent process, then check for connections to unusual hosts from the same machine. | Accept: connection discovery is common; use as a correlation signal. |
+| Discovery | T1057 | 1 | Collect command-line audit logs and restrict scripting engines for users who do not need them. | Check the scripting engine's parent and the rest of its session for credential or lateral movement activity. | Accept: process discovery is low-impact; escalate only with other attacker behaviour. |
+| Discovery | T1069.002 | 1 | Review privileged group membership regularly, apply role-based access control, and log net.exe group enumeration. | Identify the account and host, review which groups were enumerated, and watch that account for privilege escalation. | Mitigate: tidy privileged groups to reduce what enumeration reveals; accept discovery noise. |
+| Discovery | T1082 | 1 | Collect command-line audit logs and baseline legitimate inventory tooling. | Check the parent process and subsequent commands in the session; treat as reconnaissance and widen the hunt. | Accept: system discovery is low-impact and common; use for correlation. |
+| Discovery | T1083 | 1 | Apply least-privilege file ACLs so recursive enumeration yields little, and log command lines. | Identify the directories enumerated, check for staging or archive activity next, and review the account's recent file access. | Accept with monitoring: file discovery is normal user behaviour; escalate when followed by archiving or exfiltration. |
+| Discovery | T1087.001 | 1 | Maintain an account inventory, disable dormant local accounts, and log whoami and account enumeration commands. | Check the scripting parent and the rest of the session, and confirm the account used is legitimate. | Accept: local account discovery is low-impact; escalate in combination with credential access. |
+| Discovery | T1482 | 1 | Restrict directory trust enumeration to administrative accounts and log net.exe command chains. | Identify the account and host, review the trusts enumerated, and watch for cross-domain lateral movement. | Accept with monitoring: trust discovery is rare for standard users and valuable as a high-signal indicator. |
+| Discovery | T1614.001 | 1 | Collect command-line audit logs and baseline legitimate regional and language queries. | Check the process chain for malware that tailors its behaviour to locale, and hunt for follow-on execution. | Accept: language discovery is low-impact alone; treat as a correlation signal. |
+| Lateral Movement | T1021.001 | 2 | Restrict RDP to a jump host or VPN, require MFA for remote access, and enable Network Level Authentication. | Contain the source and destination hosts, disable the used account, and review the RDP session logs for actions taken. | Mitigate: MFA and network restrictions on RDP; transfer residual risk for third-party access via contract controls. |
+| Lateral Movement | T1021.002 | 1 | Block SMB between workstations with host firewalls, disable SMBv1, and require SMB signing and encryption. | Isolate the source host, identify mapped shares and files accessed, and reset credentials used for the mapping. | Mitigate: host firewall and signing controls; accept the residual risk on file servers that must expose SMB. |
+| Collection | T1560.001 | 1 | Restrict archive utilities on sensitive systems, apply DLP, and monitor staging directories. | Locate and preserve the archive, identify what data it contains, and check for exfiltration from the same host. | Mitigate: DLP; accept noise from legitimate compression, escalating when paired with outbound transfer. |
+| Exfiltration | T1048.003 | 1 | Use egress filtering with an allowlist, inspect outbound HTTP at the proxy, and deploy data loss prevention for sensitive stores. | Contain the host, identify the destination and data volume sent, and start breach assessment and notification decisions. | Mitigate: egress control and DLP; for confirmed loss, treat as a reportable incident and involve legal. |
+<!-- END GENERATED: detections-table -->
+
+## Certification alignment
+
+Rules are tagged with objectives from the **CompTIA Security+ (SY0-701)** and **ISC2 Certified in Cybersecurity (CC)** exam outlines. The author holds both credentials. These mappings are the author's own interpretation of how each detection relates to the objective language; they are **not official mappings** from CompTIA, ISC2, NIST, CIS or MITRE, and nobody at those organisations has reviewed them. Objective titles are copied from the published outlines recorded in [docs/compliance/objectives.yml](docs/compliance/objectives.yml), which also records the source and retrieval date, and `tests/test_compliance.py` checks every tagged ID against that file.
+
+### Security+ SY0-701 and ISC2 CC coverage
+
+Counts below are the number of rules carrying each tag. Most objectives appear because a detection is itself an indicator-analysis or monitoring exercise (SY0-701 2.4, 4.4; CC domain 5), not because the rule implements the objective.
+
+<!-- BEGIN GENERATED: cert-table -->
+| Security+ SY0-701 objective | Title | Rules |
 |---|---|---|
-| SIEM | Elastic Stack 8.19 | ✅ Live |
-| Endpoint | Windows 11 Pro 25H2 · Sysmon (SwiftOnSecurity config) | ✅ Live |
-| Log Collection | Elastic Agent 8.19 + Fleet | ✅ Live |
-| Hypervisor | Proxmox VE 9.1 | ✅ Live |
-| Network | UniFi · VLANs (Default/Home/Mgmt/Lab/RedLab) | ✅ Live |
-| VPN | WireGuard with split DNS | ✅ Live |
-| Threat Simulation | Atomic Red Team (on-demand) | ✅ Live |
-| Honeypot | T-Pot Hive · 30+ honeypots · WireGuard tunnel to main ELK | ✅ Live |
-| Detection Pipeline | tallkitchen_water (Claude + Gemini + Ollama) | ✅ Live |
-| Detection Rules | Sigma → pySigma → Elastic DSL | ✅ Live |
-| CI/CD | GitHub Actions on self-hosted Mac Mini runner · 3-AI validation gate · self-healing | ✅ Live |
-| Real-time Alerting | ElastAlert2 (HTML email on rule firings) | ✅ Live |
-| Public Dashboard | Kibana behind NGINX reverse proxy · SSL · rate-limited | ✅ Live |
-| Threat Intelligence | MISP | 🔜 Planned |
+| 2.2 | Explain common threat vectors and attack surfaces. | 6 |
+| 2.4 | Given a scenario, analyze indicators of malicious activity. | 34 |
+| 3.2 | Given a scenario, apply security principles to secure enterprise infrastructure. | 3 |
+| 3.3 | Compare and contrast concepts and strategies to protect data. | 2 |
+| 4.1 | Given a scenario, apply common security techniques to computing resources. | 16 |
+| 4.4 | Explain security alerting and monitoring concepts and tools. | 29 |
+| 4.5 | Given a scenario, modify enterprise capabilities to enhance security. | 4 |
+| 4.6 | Given a scenario, implement and maintain identity and access management. | 6 |
+| 5.6 | Given a scenario, implement security awareness practices. | 2 |
 
-**Planned:** see [Roadmap](#roadmap).
+| ISC2 CC domain | Title | Rules |
+|---|---|---|
+| D2 | Security Governance | 2 |
+| D3 | Identity and Access Management (IAM) Concepts | 8 |
+| D4 | Networking and Cloud Security Concepts | 12 |
+| D5 | Security Operations and Incident Response | 37 |
+<!-- END GENERATED: cert-table -->
 
-## tallkitchen_water
+### NIST 800-53 and CIS v8 tags
 
-The center of the lab is a custom autonomous detection engineering pipeline I wrote called **tallkitchen_water**. It runs continuously, because detection engineering never stops.
+- `nist.800-53.<control>` is a NIST SP 800-53 Rev 5 control identifier in lowercase, for example `si-4` (system monitoring), `au-6` (audit review and analysis), `cm-7` (least functionality), `sc-7` (boundary protection), `ac-6` (least privilege).
+- `cis.v8.<safeguard>` is a CIS Controls v8 safeguard number, for example `8.5` (collect detailed audit logs), `8.8` (collect command-line audit logs), `13.4` (traffic filtering between network segments).
+- Both indicate the control a defender would use to prevent, limit or observe the behaviour the rule detects. They are not a claim that the lab implements those controls or would pass an audit against them.
 
-One command runs the entire workflow:
+### How the detections demonstrate hardening, incident response and risk management
+
+Each rule description ends with a "Defender notes" block that has three lines: the **hardening control** that reduces exposure, the **incident response step** to take on a hit, and the **risk treatment** (mitigate, accept, transfer). Three examples taken verbatim from the rules:
+
+**1. SAM Registry Hive Dumping via Reg Save Command** (T1003.002, credential access, `detections/sigma/T1003-002-...`). The rule matches `reg save` against `HKLM\SAM`, `SYSTEM` or `SECURITY`, excluding the Windows backup engine (`wbengine.exe`) as a parent. Tagged Security+ 2.4, 4.4, 4.6; CC D3, D5; NIST AC-6, AU-6, IA-5, SI-4.
+- Hardening: remove standing local admin rights and randomise local admin passwords with LAPS.
+- Incident response: isolate the host, treat local and cached credentials as compromised, preserve the saved hive files as evidence.
+- Risk: mitigate with LAPS and least privilege; accept residual risk for documented backup tooling through the filter.
+
+**2. Cmdkey Credential Store Followed by MSTSC RDP Lateral Movement** (T1021.001, lateral movement). Matches `cmdkey /generic:TERMSRV/... /pass:` and `mstsc /v:` launched from `cmd.exe` or `powershell.exe`. Tagged Security+ 2.2, 3.2, 4.6; CC D3, D4; NIST AC-17, IA-2, SC-7. This one is the network-hardening example.
+- Hardening: restrict RDP to a jump host or VPN, require MFA, enable Network Level Authentication.
+- Incident response: contain source and destination hosts, disable the account used, review RDP session logs.
+- Risk: mitigate with MFA and network restrictions; transfer residual third-party access risk through contract controls.
+
+**3. PowerShell HTTP POST Exfiltration via Invoke-WebRequest** (T1048.003, exfiltration). Matches PowerShell command lines using `Invoke-WebRequest` or `Invoke-RestMethod` with `POST` and a `Body`. Tagged Security+ 3.3, 4.4, 4.5; CC D4, D5; NIST AC-4, SC-7, SI-4.
+- Hardening: egress filtering with an allowlist, outbound HTTP inspection at the proxy, DLP on sensitive stores.
+- Incident response: contain the host, identify the destination and data volume, start breach assessment and notification decisions.
+- Risk: mitigate with egress control and DLP; treat confirmed loss as a reportable incident and involve legal.
+
+## Security model
+
+- **Admin actions are token-gated.** The state-changing web routes (`/api/approve`, `/api/reject`) require the `LAB_ADMIN_TOKEN` value in an `X-Admin-Token` header, compared in constant time. If `LAB_ADMIN_TOKEN` is not set, those routes are disabled rather than open.
+- **Input validation.** `rule_id` path parameters must be UUIDs; anything else returns 400, which blocks path traversal into the filesystem or subprocess calls. `/api/hunt` is rate limited per client.
+- **TLS verification is on by default.** `lab.http.session()` verifies certificates unless `LAB_INSECURE_TLS=1` is set, which logs a warning and is intended only for a lab with self-signed certificates. `tests/test_branding.py` fails if `verify=False` appears anywhere else in tracked Python.
+- **Secrets come from the environment.** `.env` is git-ignored; `.env.example` lists the variables with empty values. ElastAlert configuration is rendered from templates by `envsubst`, so no key lives in a tracked file. An Elastic API key was committed to this repository's earlier history and must be treated as compromised and rotated; see [docs/SETUP.md](docs/SETUP.md).
+- **Nothing deploys itself.** With `WATER_REVIEW_GATE=true` generated rules are held until a person approves them. CI deploys only after validation succeeds.
+- **Timeouts and retries** are applied to every outbound HTTP call through one session factory.
+
+## Testing and what is not verified
+
+The pytest suite runs fully offline: HTTP is mocked with `responses`, and no test contacts Elasticsearch, Kibana, Anthropic, Gemini, Ollama or a threat-intel API. It covers the `lab/` package, the Sigma rule files (required fields, unique IDs, valid logsource categories, conversion to Lucene, technique/filename agreement), the compliance tagger and its idempotence, the pipeline scripts, the hunt and web modules, workflow YAML structure and branding hygiene.
+
+What is **not verified**:
+
+- Nothing has been verified against a live Elastic or Kibana stack in this version. Payload shapes, the `.alerts-security.alerts-default` alias, the update-rule `PUT` behaviour and the efficacy aggregation are tested against fixtures and documented API shapes. A first run against a real stack may need adjustment.
+- The LLM stages (rule generation, three-model voting, self-heal) are exercised only with stubbed responses. Rule quality from real model output is not measured.
+- Rule detection quality is not measured: there are no true-positive or false-positive rates, and the rules have not been replayed against recorded attack telemetry in this repository.
+- The ElastAlert templates and the GitHub Actions workflows are checked structurally by tests; they have not been run end to end.
+- The launchd scheduler files and shell scripts are macOS-oriented and untested on other platforms.
+- Threat-intel enrichment depends on third-party APIs and keys that are not part of the tests.
+- The mappings to certification objectives, NIST and CIS are the author's judgement and have not been independently reviewed.
+
+## Repository layout
 
 ```
-tallkitchen_water
+lab/                 shared package
+detections/sigma/    Sigma rules (tagged by tools/tag_compliance.py)
+detections/pending/  rules awaiting human review (git-ignored contents)
+docs/                ARCHITECTURE.md, SETUP.md, compliance/
+elastalert/          ElastAlert 2 templates and launcher
+scheduler/           launchd job templates (see docs/SETUP.md)
+scripts/             sfhunt, sfengine convenience wrappers
+state/               runtime state (JSON); see docs/SETUP.md
+tests/               offline pytest suite
+tools/               tag_compliance.py, readme_tables.py
+web/                 dashboards served by sf_web.py
 ```
-<img width="790" height="530" alt="image" src="https://github.com/user-attachments/assets/12746ddf-05a9-4f47-aeef-de38329edc75" />
-
-What happens next, without any human input:
-
-1. Queries Elasticsearch for Sysmon events across the configured lookback window
-2. Preprocesses and extracts behavioural indicators across process, network, file, registry, and DNS categories
-3. Claude identifies the ATT&CK technique, severity, confidence, false positive risk, and writes a plain-English summary
-4. Claude generates a production-ready Sigma rule with ECS field names
-5. Rule is pushed to GitHub, triggering the self-hosted CI/CD runner
-6. **YAML lint** catches malformed rules before any API calls
-7. **Backtest** runs the converted query against live Elasticsearch to confirm it matches real data
-8. **Three-AI validation gate** — Claude, Gemini, and Ollama each independently score the rule. Pass requires 2/3 approval and average score ≥ 6
-9. **Self-healing:** if validation fails, Claude rewrites the rule using each validator's specific feedback and retries — up to three attempts
-10. **Circuit breaker:** if a rule still fails after three rewrites, the pipeline stops and emails me. Nothing broken makes it to Kibana
-11. pySigma converts the validated Sigma YAML to Elasticsearch DSL
-12. `deploy_rule.py` pushes the rule to Kibana via the detection engine API
-13. A formatted HTML email lands in my inbox with technique stats, strongest signals, and the recommended next simulation
-14. Heatmap and state files update automatically and push back to GitHub
-
-The only point a human enters the loop is when the circuit breaker fires.
-
-## T-Pot Integration
-
-As of May 14 2026, the T-Pot honeypot ships every event it captures to the main ELK over a WireGuard tunnel.
-
-- **Source:** 30+ honeypots on the T-Pot droplet
-- **Transport:** Logstash on T-Pot writes to both its local Elasticsearch (preserving T-Pot's own UI) and to ELK at `10.0.0.1:9200` over the encrypted tunnel
-- **Authentication:** Dedicated `tpot_writer` user with role scoped to `tpot-*` indices only — least privilege
-- **Volume:** Roughly one attack event every 0.5 seconds during a typical hour
-
-The honeypot data feeds the lab's detection coverage from a complementary angle. Endpoint Sysmon shows what attackers do once they're in; T-Pot shows what they're trying everywhere on the internet right now. Real credentials being brute-forced, real CVEs being scanned for, real malware being delivered.
-
-## ATT&CK Coverage
-
-Live, auto-generated from the deployed rule set.
-
-### [🗺️ View Live ATT&CK Coverage Heatmap →](https://mitre-attack.github.io/attack-navigator/#layerURL=https://raw.githubusercontent.com/1xLoZec/detection-lab/main/docs/coverage_layer.json)
-
-## Progress
-
-**May 26 — Human review gate + analyst-friendly approval page**
-- Water now holds every rule it generates for human approval before anything goes live. Nothing reaches the SIEM without a person signing off.
-- The new review page shows each waiting rule in plain language. A new analyst sees what the rule catches and why it matters, written in simple terms, with the real technical detail one click away. Approving a rule takes a deliberate confirmation, so nothing deploys by accident.
-- Each rule also gets a short AI-written note about what was actually seen, clearly marked as AI and never used as the final word. The plain-English explanation a person reads is human-written and fixed, so it is always correct. The AI only adds context. The human always makes the call.
-- Also fixed a second instance of the field-mapping bug, this time in the rule validator, which had been quietly failing good rules.
-
-<img width="1107" height="735" alt="image" src="https://github.com/user-attachments/assets/90baba53-93fb-4129-915f-db3967e511a7" />
-
-
-**May 26 — Tall Kitchen progress**
-- Built Hunt and Water web pages (plain-English), committed and polished.
-- Fixed Hunt scoring so confirmed-malicious results scale past 85 instead of flatlining; rewrote verdicts to lead with a clear action.
-- Built a rule efficacy counter that measures which deployed rules actually fire on real alerts.
-- Found the big one: 30 rules were silently dead. Traced it to a schema mismatch (the Sigma converter emitted raw Sysmon fields like `EventID` against ECS data). Fixed all 30 live rules, fixed the root cause in the deploy converter, and verified rules firing with live attacks.
-- Added an efficacy visual to the Water page, auto-refreshing every 15 minutes.
-- Built a human review gate: Water now holds every generated rule for approval (CLI + email) instead of auto-deploying, unified across both rule paths.
-- Put it all on a schedule: efficacy every 15 min, Water twice daily (generates and holds, never auto-deploys).
-  
-<img width="1107" height="811" alt="image" src="https://github.com/user-attachments/assets/af3ae7b2-8d33-4913-a155-bff287a577e0" />
-<img width="1107" height="473" alt="image" src="https://github.com/user-attachments/assets/6f5941fd-733c-48b8-a41d-c9a14bd07215" />
-
-
-
-- **May 14 2026 (later that day)**
-  Cleaned up Elasticsearch. T-Pot now on a 30-day ILM policy, replicas dropped to 0, best_compression on. Real disk hog was Elastic Agent metrics from the Windows VM, 16M perfmon docs and 1.6M process snapshots that nothing was reading. Turned those off, kept Sysmon and the Windows Security logs. Stack Monitoring rules now watching disk and JVM.
-
-  <img width="891" height="124" alt="Elasticsearch disk usage cleanup after ILM policy change" src="https://github.com/user-attachments/assets/4b8d2867-4b99-44f9-8a8e-8ff465f74ddf" />
-
-- **May 14 2026**
-  T-Pot integration complete. WireGuard tunnel up between ELK and T-Pot — both directions, low latency, persistent across reboots. Created a dedicated `tpot_writer` Elasticsearch user scoped to `tpot-*` indices only — least privilege. Patched T-Pot's Logstash config to dual-output: it still writes to its own local ES (so T-Pot's UI keeps working) and now also ships every event to main ELK over the encrypted tunnel. Wall hit: Logstash 8 fully removed the old `ssl_certificate_verification` and `ssl` settings — they're not deprecated, they're obsolete and crash the pipeline on load. Had to use the modern `ssl_enabled` / `ssl_verification_mode` names. Another fun one: container healthcheck reported "healthy" while Logstash was actually in a pipeline crash loop, because the healthcheck only verifies the API port responds. 1974 attack events landed in ELK in the first ten minutes. tallkitchen_water can now learn from real attackers.
-
-- **May 13 2026**
-  T-Pot is live. Dedicated cloud droplet running 30+ honeypots. Cowrie was logging real Telnet brute force attempts from Colombia within minutes of the install finishing. Management is locked down behind ELK, honeypot ports wide open. The build wasn't clean — port conflict put it in a restart loop on the first reboot, took some journal log digging to sort out. Next: pipe the data into the main ELK so tallkitchen_water can learn from real attackers, not just simulations.
-
-  <img width="1145" height="661" alt="T-Pot honeypot dashboard showing real attack events from Colombia" src="https://github.com/user-attachments/assets/061c7d4e-b2ef-445c-b292-91ea071a9636" />
-
-- **May 12 2026**
-  Cleaned up the public demo. Fixed Kibana permissions so the demo user can actually see alert data on the dashboard — the role's Security feature privilege needed to be set via the Kibana role API, not the ES role API. Wrong tool for the job. Locked the time range to last 3 months, turned on dark mode, made the dashboard the default landing page. Rewrote the markdown header in plain language. Demo is ready to show.
-
-- **May 11 2026**
-  Two big things today.
-  First, `demo.1xlozec.com` is live. Public read-only Kibana dashboard with SSL, rate limiting, and a dedicated viewer account. Anyone can see the lab without VPN. Built a Security Overview dashboard with nine live panels covering total alerts, severity distribution, most active rules, ATT&CK coverage, and a live alerts table.
-
-  Second, the CI/CD pipeline is now self-healing. Every Sigma rule runs through four automated stages before it touches Kibana:
-
-  1. YAML lint — catches malformed rules before wasting API calls
-  2. Conversion — pySigma translates Sigma to Elastic DSL
-  3. Backtest — query runs against live Elasticsearch to confirm it matches real data
-  4. Three-AI gate — Claude, Gemini, and Ollama each score the rule independently
-
-  If it fails, Claude rewrites it using each validator's feedback and tries again. Three attempts max. If it still fails, a circuit breaker emails me and stops. Nothing broken makes it to Kibana. 31 custom detection rules deployed to Kibana and firing live alerts. Full pipeline confirmed end to end: simulation → telemetry → AI analysis → rule generation → CI/CD validation → deployment → alert. Three high severity alerts generated from T1059.001, T1082, and T1016 simulations.
-
-- **May 10 2026**
-  Built the full tallkitchen_water automation pipeline. One command triggers the entire detection engineering workflow: query Elasticsearch, extract ATT&CK technique with Claude AI, generate a Sigma rule, push to GitHub, validate with three AI models (Claude + Gemini + Ollama), convert to Elastic DSL with pySigma, deploy to Kibana, send a formatted HTML alert to my inbox. 31 rules deployed. 57% ATT&CK tactic coverage. Runs 24/7 with adaptive lookback, weekly digest, and a kill switch. The pipeline is fully operational.
-
-  <img width="862" height="754" alt="tallkitchen_water email report showing technique analysis and deployment summary" src="https://github.com/user-attachments/assets/4e82b198-a59d-4191-aa6a-6a5759ae9c79" />
-
-- **May 10 2026**
-  Full Detection-as-Code pipeline is live. Push a Sigma rule to GitHub and it automatically gets validated by three AI models, converted to Elastic query language, and deployed to Kibana. No manual steps. First rule deployed successfully — PowerShell Spawning Reconnaissance Commands. Running every 5 minutes.
-
-  <img width="510" height="74" alt="GitHub Actions workflow run for first detection rule deployment" src="https://github.com/user-attachments/assets/2951a146-6d4c-4349-99db-834555e4c09e" />
-  <img width="752" height="140" alt="First detection rule live in Kibana with enabled status" src="https://github.com/user-attachments/assets/dc67a15d-2a6e-44c8-9300-38d44620ef04" />
-
-- **May 8 2026**
-  First Atomic Red Team simulation ran today. T1003 credential dumping. Completely isolated, nowhere to go. Telemetry showed up in Kibana immediately. Sysmon caught everything — process creation, registry modifications, logon events. The whole pipeline worked exactly as designed. Writing the first detection rule next.
-
-  <img width="558" height="269" alt="Atomic Red Team T1003 credential dumping simulation executing on Windows VM" src="https://github.com/user-attachments/assets/2a654b1a-2d26-4604-ae85-a65a5f95fb2a" />
-  <img width="558" height="269" alt="T1003 simulation telemetry captured by Sysmon and ingested into Kibana" src="https://github.com/user-attachments/assets/c20186bc-723b-47cb-aef3-f4cd0dee7068" />
-
-- **May 8 2026**
-  The endpoint pipeline is live. Windows VM telemetry flowing into Kibana. Sysmon operational. Windows event logs, PowerShell logs, and security events all showing up from the VM. Took some work to get here but it's running clean now.
-
-- **May 7 2026**
-  Long sessions. Got Proxmox running on the dedicated lab machine and the Windows VM stood up inside it. Built a jump host for secure access to the lab environment. SSH from my PC to the jump host is working with full clipboard support. Still working through network segmentation. Getting closer.
-
-- **April 28 2026**
-  Decided to do it right. Replaced the ISP router and mesh WiFi with enterprise-grade gear. Bought a dedicated machine for Proxmox. Proper network segmentation is in place. Attack environment is locked down. Waiting on hardware to finish the build.
-
-- **April 25 2026**
-  Hit a wall with VMware. Dug into it, found out Broadcom is shipping incomplete installers. Not a config issue — the files are literally missing. Fixed a DNS issue while I was in there and kept moving.
-
-- **April 24 2026**
-  Full ELK stack deployed and secured on DigitalOcean. Ubuntu server patched, firewall configured, SSL via NGINX. Elasticsearch 8.19 running on cluster `1xlozec-lab`, node `elk-node-01` verified responding. Kibana live at https://1xlozec.com. Fleet Server running and healthy. Elastic Agent enrolled and shipping live telemetry. 1,616 Elastic prebuilt detection rules installed with zero gaps. WireGuard VPN configured with split DNS — Kibana accessible only through the encrypted tunnel, blocked on the public internet. First Windows 11 ARM VM stood up in VMware Fusion, Sysmon installed with SwiftOnSecurity config, Elastic Agent enrolled and healthy, telemetry flowing. 704 documents ingested in the first hour.
-
-  <img width="1076" height="873" alt="Elasticsearch cluster 1xlozec-lab verified responding via Kibana Dev Tools" src="https://github.com/user-attachments/assets/65e011c9-47b2-4088-a3f0-cd9c70e389b1" />
-  <img width="1076" height="873" alt="First live telemetry documents flowing into Kibana Discover from Elastic Agent" src="https://github.com/user-attachments/assets/4f297393-48c5-4416-97bf-e804358a2aaa" />
-
-
-## Roadmap
-
-- [ ] Active Directory domain controller in Proxmox VLAN 40 — unlocks Kerberoasting, Pass-the-Hash, LDAP enumeration detection
-- [ ] Dedicated Kali Linux attack platform in Proxmox VLAN 40
-- [x] ~~T-Pot honeypot on a dedicated DigitalOcean droplet — real internet attackers~~ *(complete May 14 2026)*
-- [ ] MISP threat intelligence integration — real IOCs feeding tallkitchen_water
-- [ ] False positive feedback loop — thumbs up/down in the weekly digest feeds back to the pipeline
-- [ ] Incident response playbooks per technique
-- [ ] Documentation site at `docs.1xlozec.com`
 
 ## License
 
-MIT — see [LICENSE](LICENSE). Fork it, learn from it, build your own. If you ship something based on this, I'd love to hear about it.
-
----
-
-*Built by 1xLoZec. Work in progress. Check back often.*
+MIT. See [LICENSE](LICENSE).

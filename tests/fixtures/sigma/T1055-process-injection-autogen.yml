@@ -1,37 +1,57 @@
 title: PowerShell Process Injection via Invoke-MalDoc and Raw GitHub Payload Fetch
 id: c17705f9-58e7-4834-a3fb-8eba1da3b0b0
 status: experimental
-description: Detects PowerShell spawning with command lines referencing Invoke-MalDoc and fetching T1055 injection payloads from raw.githubusercontent.com, indicative of Atomic Red Team process injection tests or real T1055 activity delivered via Office macro triggers.
-author: 1xLoZec
+description: |
+  Detects PowerShell spawning with command lines referencing Invoke-MalDoc and fetching T1055 injection payloads from raw.githubusercontent.com, indicative of Atomic Red Team process injection tests or real T1055 activity delivered via Office macro triggers.
+
+  Defender notes:
+  - Hardening control: Enable anti-exploitation features and behaviour-based EDR, and constrain PowerShell with Constrained Language Mode and script block logging.
+  - IR step: Isolate the host, capture memory of the injected process, and identify the payload source URL for blocking.
+  - Risk treatment: Mitigate: EDR and PowerShell constraints; residual risk accepted for unmanaged developer machines with compensating monitoring.
+author: Jahsean Meikle
 date: 2026/05/10
 references:
-    - https://attack.mitre.org/techniques/T1055/
-    - https://github.com/redcanaryco/atomic-red-team/blob/master/atomics/T1055/T1055.md
+- https://attack.mitre.org/techniques/T1055/
+- https://github.com/redcanaryco/atomic-red-team/blob/master/atomics/T1055/T1055.md
 tags:
-    - attack.defense_evasion
-    - attack.t1055
-    - attack.t1204.002
+- attack.defense_evasion
+- attack.t1055
+- attack.t1204.002
+- cert.secplus.2.2
+- cert.secplus.2.4
+- cert.secplus.4.1
+- cert.secplus.4.5
+- cert.secplus.5.6
+- cert.isc2cc.d2
+- cert.isc2cc.d5
+- nist.800-53.at-2
+- nist.800-53.au-6
+- nist.800-53.si-16
+- nist.800-53.si-3
+- nist.800-53.si-4
+- cis.v8.8.8
+- cis.v8.8.11
+- cis.v8.9.6
+- cis.v8.10.1
+- cis.v8.10.5
+- cis.v8.10.7
+- cis.v8.14.2
 logsource:
-    category: process_creation
-    product: windows
+  category: process_creation
+  product: windows
 detection:
-    selection_process:
-        event.code: '1'
-        process.name: 'powershell.exe'
-    selection_commandline:
-        process.command_line|contains|all:
-            - 'Invoke-MalDoc'
-            - 'T1055'
-            - 'raw.githubusercontent.com'
-    selection_integrity:
-        winlog.event_data.IntegrityLevel: 'High'
-    condition: selection_process and selection_commandline and selection_integrity
+  selection_process:
+    event.code: '1'
+    process.name: powershell.exe
+  selection_commandline:
+    process.command_line|contains|all:
+    - Invoke-MalDoc
+    - T1055
+    - raw.githubusercontent.com
+  selection_integrity:
+    winlog.event_data.IntegrityLevel: High
+  condition: selection_process and selection_commandline and selection_integrity
 falsepositives:
-    - Authorized red team or penetration testing exercises using Atomic Red Team framework
-    - Security researchers executing T1055 simulations in lab environments
+- Authorized red team or penetration testing exercises using Atomic Red Team framework
+- Security researchers executing T1055 simulations in lab environments
 level: high
-
-
-
-
-

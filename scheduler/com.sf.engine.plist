@@ -1,22 +1,29 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- __SF_LAB_DIR__ is replaced with the absolute project path at install time.
+     See docs/SETUP.md ("Scheduling with launchd"). -->
 <plist version="1.0">
 <dict>
   <key>Label</key>
-  <string>com.tallkitchen.water</string>
+  <string>com.sf.engine</string>
   <key>ProgramArguments</key>
   <array>
     <string>/bin/bash</string>
-    <string>/Users/albundy/detection-lab/run_water.sh</string>
+    <string>__SF_LAB_DIR__/run_engine.sh</string>
   </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>SF_LAB_DIR</key>
+    <string>__SF_LAB_DIR__</string>
+  </dict>
   <key>StartCalendarInterval</key>
   <array>
     <dict><key>Hour</key><integer>8</integer><key>Minute</key><integer>0</integer></dict>
     <dict><key>Hour</key><integer>20</integer><key>Minute</key><integer>0</integer></dict>
   </array>
   <key>StandardOutPath</key>
-  <string>/tmp/tk_water_launchd.log</string>
+  <string>__SF_LAB_DIR__/logs/sf_engine_launchd.log</string>
   <key>StandardErrorPath</key>
-  <string>/tmp/tk_water_launchd.log</string>
+  <string>__SF_LAB_DIR__/logs/sf_engine_launchd.log</string>
 </dict>
 </plist>

@@ -4,14 +4,12 @@ __pycache__/
 *.pyc
 elastalert/smtp_auth.yaml
 elastalert/elastalert.log
-elastalert/elastalert.log
-state/tallkitchen/*.db
-state/tallkitchen/*.db-journal
-state/tallkitchen/spamhaus_drop.txt
-state/tallkitchen/spamhaus_drop.txt
+state/sf/*.db
+state/sf/*.db-journal
+state/sf/spamhaus_drop.txt
 detections/sigma/hunt-triggered/
-elastalert/elastalert.log
 nohup.out
+logs/
 
 # test/tooling artifacts
 .pytest_cache/
