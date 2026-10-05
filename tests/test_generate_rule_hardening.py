@@ -162,3 +162,71 @@ def test_main_push_failure_is_surfaced_not_recursive(monkeypatch, tmp_path):
         raise gr.GitError("rejected")
     monkeypatch.setattr(gr, "_git", bad)
     gr.main()  # GitError swallowed with a loud log; no RecursionError
+
+
+# ---------------------------------------------------------------- invalid generation never publishes
+def _git_adds(w):
+    return [c for c in w.git if c and c[0] == "add"]
+
+
+def test_gate_off_invalid_generation_never_reaches_git_add_or_push(monkeypatch, tmp_path):
+    bad = dump(level="URGENT")  # fails validation both times
+    w = World(monkeypatch, tmp_path, [json.dumps(ANALYSIS), bad])
+    gr.main()
+    assert not (tmp_path / "detections").exists()  # nothing written, not even a directory
+    assert not any("detections" in str(a) for a in _git_adds(w))
+    assert not any(c[0] == "commit" and "auto-generate" in c[1] for c in w.git)
+    # only the state publish ran (git add state/)
+    assert [a for a in _git_adds(w)] == [("add", "state/")]
+    failed = json.loads((gr.STATE_DIR / "failed_rules.json").read_text())
+    assert len(failed) == 1 and failed[0]["stage"] == "generation" and "level" in failed[0]["error"]
+    assert w.state("hunt_log.json")[-1]["result"] == "generation_failed"
+    assert "seen_techniques.json" not in {p.name for p in gr.STATE_DIR.glob("*")} or \
+        not w.state("seen_techniques.json")  # not recorded as covered
+    assert len(w.client.calls) == 3  # analysis + generation + exactly one retry
+
+
+def test_gate_on_invalid_generation_is_not_queued_for_review(monkeypatch, tmp_path):
+    monkeypatch.setenv("WATER_REVIEW_GATE", "true")
+    w = World(monkeypatch, tmp_path, [json.dumps(ANALYSIS), dump(tags=["attack.execution"])])
+    gr.main()
+    assert not (tmp_path / "detections").exists()
+    assert not (gr.STATE_DIR / "pending_rules.json").exists()
+    assert not w.emails or "[Review needed]" not in w.emails[0][0]
+
+
+def test_main_published_rule_is_engine_redump_with_engine_fields(monkeypatch, tmp_path):
+    World(monkeypatch, tmp_path, [json.dumps(ANALYSIS), dump(author="evil", date="1999/01/01")])
+    gr.main()
+    files = list((tmp_path / "detections" / "sigma").glob("*.yml"))
+    assert [f.name for f in files] == ["T1059-001-powershell-autogen.yml"]
+    rule = yaml.safe_load(files[0].read_text())
+    assert rule["author"] == "Tester" and rule["date"] != "1999/01/01"
+    assert rule["id"] != GOOD_SIGMA["id"] and rule["status"] == "experimental"
+
+
+# ---------------------------------------------------------------- normalize_sigma_fields
+def test_normalize_rewrites_eventid_keys_only():
+    src = ("detection:\n  selection:\n    EventID: 1\n    EventId|contains: x\n"
+           "    Event_ID: 3\n    process.name: EventID\n  condition: selection\n")
+    out = gr.normalize_sigma_fields(src)
+    assert "    event.code: 1\n" in out
+    assert "    event.code|contains: x\n" in out
+    assert "    event.code: 3\n" in out
+    assert "process.name: EventID" in out  # values are never rewritten
+
+
+def test_normalize_leaves_top_level_and_clean_rules_alone_and_is_idempotent():
+    clean = "title: EventID: not a field\ndetection:\n  selection:\n    event.code: 1\n"
+    assert gr.normalize_sigma_fields(clean) == clean
+    once = gr.normalize_sigma_fields("a:\n  EventID: 1\n")
+    assert gr.normalize_sigma_fields(once) == once
+
+
+# ---------------------------------------------------------------- file naming
+def test_save_and_push_filename_convention_and_relative_return(monkeypatch, tmp_path):
+    World(monkeypatch, tmp_path, ["x"])
+    path = gr.save_and_push("title: x\n", dict(ANALYSIS, technique_name="Security Account Manager: SAM (hive)"),
+                            "11111111-2222-4333-8444-555555555555")
+    assert path.replace("\\", "/") == "detections/sigma/T1059-001-security-account-manager-sam-hive-autogen.yml"
+    assert (tmp_path / path).is_file()
