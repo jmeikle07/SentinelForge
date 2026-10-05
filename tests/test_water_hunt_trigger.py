@@ -355,3 +355,91 @@ def test_detection_focus_follows_technique(harness):
 def test_detection_focus_has_generic_fallback_for_unlisted_technique():
     text = wht.detection_focus_for("T9999", "Something New", "8.8.4.4")
     assert "8.8.4.4" in text and "Something New" in text and "T9999" in text
+
+
+# ── W18: who pays for a failed generation, and failures are logged once ──────
+
+class RuleValidationError(ValueError):
+    """Stand-in with the real class name: the model answered and its output was rejected."""
+
+
+class LLMResponseError(RuntimeError):
+    """Stand-in with the real class name."""
+
+
+def _run_with(harness, monkeypatch, gen, records, log):
+    monkeypatch.setattr(wht, "fetch_recent_hunt_verdicts", lambda *a, **k: records)
+    return wht.process_hunt_triggered_verdicts(gen, lambda *a: None, log)
+
+
+def _failures(log):
+    return [e for e in log if "failed" in e.get("result", "")]
+
+
+def test_failure_before_the_llm_call_refunds_the_slot(harness, monkeypatch):
+    def gen(iocs, analysis):
+        raise KeyError("detection_focus")  # prompt-building bug: no model call happened
+
+    log = []
+    assert _run_with(harness, monkeypatch, gen, [_good()], log) == 0
+    assert harness.lim.used == 0
+    assert len(_failures(log)) == 1 and _failures(log)[0]["stage"] == "generation"
+
+
+@pytest.mark.parametrize("exc", [RuleValidationError("bad rule"), LLMResponseError("empty reply")])
+def test_failure_after_the_llm_answered_keeps_the_slot(harness, monkeypatch, exc):
+    def gen(iocs, analysis):
+        raise exc
+
+    log = []
+    assert _run_with(harness, monkeypatch, gen, [_good()], log) == 0
+    assert harness.lim.used == 1  # the model call was paid for
+    assert len(_failures(log)) == 1
+
+
+def test_post_llm_failure_is_not_retried_or_relogged_on_the_next_pass(harness, monkeypatch):
+    calls = []
+
+    def gen(iocs, analysis):
+        calls.append(1)
+        raise RuleValidationError("bad rule")
+
+    log = []
+    for _ in range(3):
+        _run_with(harness, monkeypatch, gen, [_good()], log)
+    assert len(calls) == 1 and harness.lim.used == 1 and len(_failures(log)) == 1
+
+
+def test_pre_llm_failure_is_logged_once_across_passes(harness, monkeypatch):
+    def gen(iocs, analysis):
+        raise TypeError("Object of type set is not JSON serializable")
+
+    log = []
+    for _ in range(3):
+        _run_with(harness, monkeypatch, gen, [_good()], log)
+    assert len(_failures(log)) == 1
+    assert harness.lim.used == 0  # never burns budget, however often it is retried
+
+
+def test_write_failure_is_logged_once_and_refunded(harness, monkeypatch):
+    def flaky(self, *a, **k):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(Path, "write_text", flaky)
+    log = []
+    for _ in range(2):
+        _run_with(harness, monkeypatch, lambda i, a: ("title: x", "rid"), [_good()], log)
+    f = _failures(log)
+    assert len(f) == 1 and f[0]["stage"] == "write" and harness.lim.used == 0
+
+
+def test_different_stage_for_same_hunt_is_a_separate_entry(harness, monkeypatch):
+    log = []
+    _run_with(harness, monkeypatch, lambda i, a: (_ for _ in ()).throw(KeyError("x")), [_good()], log)
+
+    def flaky(self, *a, **k):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(Path, "write_text", flaky)
+    _run_with(harness, monkeypatch, lambda i, a: ("title: x", "rid"), [_good()], log)
+    assert sorted(e["stage"] for e in _failures(log)) == ["generation", "write"]

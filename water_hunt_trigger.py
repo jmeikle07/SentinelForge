@@ -156,6 +156,57 @@ def _es_search(es_url: str, api_key: str, index: str, query: dict) -> dict:
         return {}
 
 
+# ── Failure accounting (W18) ─────────────────────────────────────────────────
+# Who pays for a failed generation:
+#   * failed BEFORE the model answered (prompt-building bug, client/config error,
+#     API/network error, file-write failure): no model output was produced, the
+#     rate slot is REFUNDED and the failure does not count against the budget;
+#   * failed AFTER the model answered (its output was rejected: RuleValidationError /
+#     LLMResponseError): the call was paid for, the slot STAYS spent, and the same
+#     hunt is not retried on later passes (that would burn the budget every run).
+# generate_rule is not imported here (it imports this module), so the post-LLM
+# exceptions are recognised by class name anywhere in the exception's MRO.
+_POST_LLM_ERROR_NAMES = frozenset({"RuleValidationError", "LLMResponseError"})
+
+STAGE_GENERATION = "generation"
+STAGE_WRITE = "write"
+_FAILURE_RESULT = {
+    STAGE_GENERATION: "hunt_triggered_generation_failed",
+    STAGE_WRITE: "hunt_triggered_write_failed",
+}
+
+
+def _llm_cost_incurred(exc: BaseException) -> bool:
+    return any(c.__name__ in _POST_LLM_ERROR_NAMES for c in type(exc).__mro__)
+
+
+def _failure_entry(log: list, hunt_id, stage: str):
+    """The logged failure for (hunt_id, stage), if any. Legacy entries (no `stage`) are
+    matched through their result name."""
+    for e in log:
+        if not isinstance(e, dict) or e.get("triggered_by_hunt_id") != hunt_id:
+            continue
+        if e.get("stage") == stage or e.get("result") == _FAILURE_RESULT[stage]:
+            return e
+    return None
+
+
+def _log_failure_once(log: list, hunt_id, stage: str, ioc: str, exc: BaseException, cost_incurred: bool) -> bool:
+    """Append the failure entry unless (hunt_id, stage) is already logged. Returns True if appended."""
+    if _failure_entry(log, hunt_id, stage) is not None:
+        return False
+    log.append({
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "result": _FAILURE_RESULT[stage],
+        "stage": stage,
+        "ioc": ioc,
+        "triggered_by_hunt_id": hunt_id,
+        "cost_incurred": cost_incurred,
+        "error": sanitize_text(exc, 200),
+    })
+    return True
+
+
 def fetch_recent_hunt_verdicts(es_url: str, api_key: str, hours: int = None) -> list:
     """
     Pull Hunt verdicts from sf-hunt-logs in the last N hours. Default matches
@@ -390,6 +441,15 @@ def process_hunt_triggered_verdicts(generate_fn, save_and_push_fn, log: list, _c
                  if _con else f"  · skip {ioc}: no honeypot hits map to known ATT&CK techniques")
             return "skip"
 
+        # A generation that failed AFTER the model answered was already paid for: do not
+        # spend another slot retrying the same hunt on every pass (W18).
+        prior = _failure_entry(log, record.get("hunt_id"), STAGE_GENERATION)
+        if prior is not None and prior.get("cost_incurred"):
+            skipped_by_gate += 1
+            _say(f"  [dim]· skip {ioc}: generation already failed for this hunt (model output was rejected)[/]"
+                 if _con else f"  · skip {ioc}: generation already failed for this hunt (model output was rejected)")
+            return "skip"
+
         # Step 5: consume rate budget atomically before generating
         if not limiter.consume():
             _say(f"  [yellow]· daily rate limit hit during processing — stopping[/]"
@@ -452,18 +512,12 @@ def process_hunt_triggered_verdicts(generate_fn, save_and_push_fn, log: list, _c
         except Exception as e:  # noqa: BLE001 - LLM/network boundary: any failure must not stop the pass
             logger.exception("rule generation failed for %s", ioc)
             _say(f"  [red]× generation failed: {e}[/]" if _con else f"  × generation failed: {e}")
-            # Refund the rate budget on failure — this slot wasn't actually used
-            # for a successful rule. Decrement carefully via consuming a negative...
-            # actually, the limiter is consume-only. Accept the cost as a circuit
-            # breaker: repeated failures will exhaust the budget and pause Water.
-            log.append({
-                "timestamp": datetime.now(timezone.utc).isoformat(),
-                "result": "hunt_triggered_generation_failed",
-                "ioc": ioc,
-                "triggered_by_hunt_id": record.get("hunt_id"),
-                "error": sanitize_text(e, 200),
-            })
-            slot_held[0] = False  # generation failure keeps the slot spent (circuit breaker)
+            cost = _llm_cost_incurred(e)
+            if not cost:
+                limiter.release()  # no model output was produced: give the slot back
+            slot_held[0] = False   # settled either way (refunded, or spent on a paid-for call)
+            if not _log_failure_once(log, record.get("hunt_id"), STAGE_GENERATION, ioc, e, cost):
+                logger.warning("generation failed again for hunt %s (already logged once)", record.get("hunt_id"))
             return "failed"
 
         # Step 8: route to hunt-triggered output dir, status pending_review.
@@ -496,13 +550,7 @@ def process_hunt_triggered_verdicts(generate_fn, save_and_push_fn, log: list, _c
                  if _con else f"  x could not write rule file: {sanitize_text(e, 120)}")
             limiter.release()  # nothing was produced: give the slot back
             slot_held[0] = False
-            log.append({
-                "timestamp": datetime.now(timezone.utc).isoformat(),
-                "result": "hunt_triggered_write_failed",
-                "ioc": ioc,
-                "triggered_by_hunt_id": hunt_id,
-                "error": sanitize_text(e, 200),
-            })
+            _log_failure_once(log, hunt_id, STAGE_WRITE, ioc, e, False)
             return "failed"
         slot_held[0] = False
         # Also place into the unified review queue (approve.py) so both paths funnel to one place
