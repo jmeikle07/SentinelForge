@@ -1,8 +1,8 @@
-title: PowerShell SMB Mapping via QUIC Transport with Certificate Check Disabled
+title: PowerShell SMB Mapping over QUIC with Certificate Check Disabled and a File Copy
 id: a4a0b85e-6503-452f-8506-f9c30505ce72
 status: experimental
 description: |
-  Detects PowerShell processes invoking New-SmbMapping with TransportType QUIC and SkipCertificateCheck, potentially followed by file copy operations to the mapped drive. This technique abuses SMB over QUIC (port 443) to evade traditional SMB detection on port 445 and may indicate lateral movement or exfiltration staging.
+  Detects powershell.exe whose command line contains New-SmbMapping with -TransportType QUIC and -SkipCertificateCheck and also a copy command (copy, Copy-Item or "cp "), i.e. a file share mapped over SMB over QUIC (port 443) with server certificate validation switched off and files then moved to it. This can hide SMB lateral movement or exfiltration from controls watching port 445, and maps to T1021.002 SMB/Windows Admin Shares because the technique covers using valid accounts to interact with remote shares over SMB. It does not check for an administrative share: the share name (C$, ADMIN$, IPC$ or an ordinary share) is not inspected, so it fires on any QUIC mapping that matches. Level medium because administrators piloting SMB over QUIC with self-signed certificates do the same.
 
   Defender notes:
   - Hardening control: Block SMB between workstations with host firewalls, disable SMBv1, and require SMB signing and encryption.
@@ -10,6 +10,7 @@ description: |
   - Risk treatment: Mitigate: host firewall and signing controls; accept the residual risk on file servers that must expose SMB.
 author: Jahsean Meikle
 date: 2026/05/10
+modified: 2026/10/05
 references:
 - https://attack.mitre.org/techniques/T1021/002/
 - https://learn.microsoft.com/en-us/windows-server/storage/file-server/smb-over-quic
@@ -47,4 +48,4 @@ detection:
 falsepositives:
 - Legitimate administrators testing or configuring SMB over QUIC in lab or pilot environments
 - Automated provisioning scripts that map SMB shares using QUIC transport with self-signed certificates
-level: high
+level: medium

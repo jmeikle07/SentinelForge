@@ -61,5 +61,11 @@ def test_merge_uses_state_metadata_only_when_present_and_never_invents_it(tmp_pa
 def test_live_rules_cover_expected_shape():
     from pathlib import Path
     cov = coverage.covered(Path(__file__).resolve().parent.parent / "detections" / "sigma", {})
-    assert len(cov) >= 30
+    # 34 before the rule-quality review; retagging rules to what they detect
+    # (and deprecating duplicates) removed techniques the rules never covered.
+    assert len(cov) >= 29
+    for tech in ("T1497.001", "T1595", "T1033", "T1018", "T1021.001"):
+        assert tech in cov, tech
+    for gone in ("T1057", "T1087.001", "T1482", "T1216", "T1555.004", "T1046", "T1614.001"):
+        assert gone not in cov, f"{gone} is only claimed by rules that do not detect it"
     assert all(t["tactics"] for t in cov.values()), "every shipped technique needs a tactic tag"

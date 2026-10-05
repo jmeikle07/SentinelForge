@@ -1,0 +1,32 @@
+id: 446e7f75-e0c5-48f7-a701-807d8b0a481c
+positive:
+- name: whoami from powershell.exe
+  event: &ev
+    event.code: "1"
+    process.name: whoami.exe
+    process.executable: C:\Windows\System32\whoami.exe
+    process.command_line: whoami
+    process.parent.name: powershell.exe
+- name: HOSTNAME.EXE from cmd.exe
+  event:
+    <<: *ev
+    process.name: HOSTNAME.EXE
+    process.parent.name: cmd.exe
+- name: whoami from wscript.exe
+  event:
+    <<: *ev
+    process.parent.name: wscript.exe
+negative:
+- name: whoami from Explorer
+  event:
+    <<: *ev
+    process.parent.name: explorer.exe
+- name: tasklist (real process discovery) is not matched by this selection
+  event:
+    <<: *ev
+    process.name: tasklist.exe
+    process.command_line: tasklist
+- name: whoami from cscript.exe (only the active T1033 rule covers it)
+  event:
+    <<: *ev
+    process.parent.name: cscript.exe

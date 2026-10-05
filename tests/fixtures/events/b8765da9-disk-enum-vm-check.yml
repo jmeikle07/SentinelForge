@@ -1,0 +1,33 @@
+id: b8765da9-bc02-4c22-8b48-01096420d98a
+positive:
+- name: chained systeminfo and reg query of Disk\Enum in one cmd.exe line
+  event: &ev
+    event.code: "1"
+    process.name: cmd.exe
+    process.executable: C:\Windows\System32\cmd.exe
+    process.command_line: cmd.exe /c "systeminfo & reg query HKLM\SYSTEM\CurrentControlSet\Services\Disk\Enum"
+    process.parent.name: powershell.exe
+- name: reg.exe queries Disk\Enum under cmd.exe
+  event:
+    <<: *ev
+    process.name: reg.exe
+    process.executable: C:\Windows\System32\reg.exe
+    process.command_line: reg query HKLM\SYSTEM\CurrentControlSet\Services\Disk\Enum
+    process.parent.name: cmd.exe
+negative:
+- name: reg.exe queries an unrelated key
+  event:
+    <<: *ev
+    process.name: reg.exe
+    process.command_line: reg query HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion
+    process.parent.name: cmd.exe
+- name: reg.exe Disk\Enum query but parent is not cmd.exe
+  event:
+    <<: *ev
+    process.name: reg.exe
+    process.command_line: reg query HKLM\SYSTEM\CurrentControlSet\Services\Disk\Enum
+    process.parent.name: powershell.exe
+- name: cmd.exe running systeminfo only
+  event:
+    <<: *ev
+    process.command_line: cmd.exe /c systeminfo

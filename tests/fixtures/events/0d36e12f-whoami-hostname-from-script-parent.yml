@@ -1,0 +1,52 @@
+id: 0d36e12f-4b63-4cf0-8483-8552b1d57090
+positive:
+- name: whoami from powershell.exe
+  event: &ev
+    event.code: "1"
+    process.name: whoami.exe
+    process.executable: C:\Windows\System32\whoami.exe
+    process.command_line: whoami /all
+    process.parent.name: powershell.exe
+    process.parent.executable: C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe
+- name: HOSTNAME.EXE (on-disk upper-case name) from cmd.exe
+  event:
+    <<: *ev
+    process.name: HOSTNAME.EXE
+    process.executable: C:\Windows\System32\HOSTNAME.EXE
+    process.command_line: hostname
+    process.parent.name: cmd.exe
+- name: whoami from PowerShell 7 (pwsh.exe, merged in from the T1087.001 duplicate)
+  event:
+    <<: *ev
+    process.parent.name: pwsh.exe
+- name: whoami from mshta.exe
+  event:
+    <<: *ev
+    process.parent.name: mshta.exe
+- name: whoami from python.exe
+  event:
+    <<: *ev
+    process.parent.name: python.exe
+- name: lower-case hostname.exe from wscript.exe
+  event:
+    <<: *ev
+    process.name: hostname.exe
+    process.parent.name: wscript.exe
+negative:
+- name: whoami started by Explorer (interactive double-click or Run dialog)
+  event:
+    <<: *ev
+    process.parent.name: explorer.exe
+- name: other discovery binary from powershell.exe
+  event:
+    <<: *ev
+    process.name: ipconfig.exe
+    process.command_line: ipconfig /all
+- name: whoami started by a service
+  event:
+    <<: *ev
+    process.parent.name: services.exe
+- name: whoami started by notepad.exe
+  event:
+    <<: *ev
+    process.parent.name: notepad.exe

@@ -1,20 +1,26 @@
-title: Process Discovery via Scripting Interpreter - whoami and hostname Execution
+title: Whoami and Hostname Execution from a Scripting Parent (Superseded, Was Tagged Process Discovery)
 id: 446e7f75-e0c5-48f7-a701-807d8b0a481c
-status: experimental
+status: deprecated
+related:
+- id: 0d36e12f-4b63-4cf0-8483-8552b1d57090
+  type: similar
+- id: 1457a8cc-0e8f-4a18-ae3c-1ee41e4bb8c6
+  type: similar
 description: |
-  Detects whoami.exe or HOSTNAME.EXE spawned by scripting interpreters such as powershell.exe or cmd.exe, indicating potential post-exploitation process discovery consistent with ATT&CK T1057.
+  Deprecated: strict subset of 0d36e12f-4b63-4cf0-8483-8552b1d57090, which has the same child binaries and a longer parent list. Detects whoami.exe or HOSTNAME.EXE started by powershell.exe, cmd.exe or wscript.exe. It was tagged T1057 Process Discovery, but neither binary lists processes, so the tag is corrected to T1033 System Owner/User Discovery. The explorer.exe exclusion never changed the result: a parent name cannot contain both a script interpreter and explorer.exe.
 
   Defender notes:
-  - Hardening control: Collect command-line audit logs and restrict scripting engines for users who do not need them.
-  - IR step: Check the scripting engine's parent and the rest of its session for credential or lateral movement activity.
-  - Risk treatment: Accept: process discovery is low-impact; escalate only with other attacker behaviour.
+  - Hardening control: Collect command-line audit logs and restrict scripting engines to users who need them.
+  - IR step: Check what spawned the scripting engine and whether it ran with user or elevated rights, then widen to the host timeline.
+  - Risk treatment: Accept: owner discovery is low-impact; the alert is valuable mostly as correlation context.
 author: Jahsean Meikle
 date: 2026/05/10
+modified: 2026/10/05
 references:
 - https://attack.mitre.org/techniques/T1057/
 tags:
 - attack.discovery
-- attack.t1057
+- attack.t1033
 - cert.secplus.2.4
 - cert.secplus.4.4
 - cert.isc2cc.d5

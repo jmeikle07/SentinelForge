@@ -1,0 +1,28 @@
+id: 61399e8c-6e6d-46d7-8257-ada4b2f3ea76
+positive:
+- name: net view /domain from cmd.exe
+  event: &ev
+    event.code: "1"
+    process.name: net.exe
+    process.executable: C:\Windows\System32\net.exe
+    process.command_line: net view /domain
+    process.parent.name: cmd.exe
+- name: net view /domain:CORP from powershell.exe
+  event:
+    <<: *ev
+    process.parent.name: powershell.exe
+    process.command_line: net view /domain:CORP
+negative:
+- name: net view of one host, no /domain
+  event:
+    <<: *ev
+    process.command_line: net view \\fileserver01
+- name: net view /domain from Explorer
+  event:
+    <<: *ev
+    process.parent.name: explorer.exe
+- name: nltest /domain_trusts (the real trust enumeration) is a different binary
+  event:
+    <<: *ev
+    process.name: nltest.exe
+    process.command_line: nltest /domain_trusts

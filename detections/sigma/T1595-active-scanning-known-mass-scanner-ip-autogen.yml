@@ -1,0 +1,51 @@
+title: Inbound Connection from Known Mass-Scanner IP 77.83.240.70 (Lab-Validated Simulation Signature)
+id: 3f9a6b93-3242-4661-b8bc-e6871b802615
+status: experimental
+description: |
+  Detects Sysmon Event ID 3 network connections whose source address is 77.83.240.70 (ASN 49870, Alsycon B.V.), a single internet mass scanner that hit several of the lab honeypots with over 1 million events in 24 hours; connections to ports 80 and 443 are excluded. External scanning of someone else's address space is Reconnaissance (T1595 Active Scanning), not the Discovery technique T1046 (which is scanning from inside a network), so the technique tag was corrected. This is a lab-validated simulation signature: one hard-coded /32 that has to be maintained by hand, useful to prove the pipeline end to end and not a general scanner detector. Limitations: Sysmon logs only connections that were actually established or accepted, so probes to closed or filtered ports (the bulk of a port scan) never produce an event; and internet-facing hosts see this kind of traffic constantly, which is why the level is low and the risk treatment is Accept.
+
+  Defender notes:
+  - Hardening control: Keep externally exposed services to the minimum, block known scanning sources at the perimeter and collect connection logs centrally.
+  - IR step: Confirm the source in threat intelligence, check which ports it reached and whether any connection succeeded, and block it if unwanted.
+  - Risk treatment: Accept: internet scanning is constant background noise; mitigate by reducing the exposed attack surface.
+author: Jahsean Meikle
+date: 2026/05/27
+modified: 2026/10/05
+references:
+- https://attack.mitre.org/techniques/T1595/
+tags:
+- attack.reconnaissance
+- attack.t1595
+- cert.secplus.2.2
+- cert.secplus.4.4
+- cert.isc2cc.d4
+- cert.isc2cc.d5
+- nist.800-53.ca-7
+- nist.800-53.sc-7
+- nist.800-53.si-4
+- cis.v8.12.2
+- cis.v8.13.3
+- cis.v8.13.6
+logsource:
+  category: network_connection
+  product: windows
+detection:
+  selection_source_ip:
+    source.ip|cidr:
+    - 77.83.240.70/32
+  filter_legitimate_services:
+    destination.port:
+    - 80
+    - 443
+  condition: selection_source_ip and not filter_legitimate_services
+fields:
+- source.ip
+- destination.ip
+- destination.port
+- process.name
+- process.executable
+falsepositives:
+- Legitimate security scanners or vulnerability assessment tools from shared infrastructure
+- CDN or proxy services sharing IP address space
+- Penetration testing engagements from third-party vendors
+level: low

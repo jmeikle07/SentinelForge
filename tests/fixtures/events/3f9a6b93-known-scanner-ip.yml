@@ -1,0 +1,34 @@
+id: 3f9a6b93-3242-4661-b8bc-e6871b802615
+positive:
+- name: inbound connection from the listed scanner to SMB
+  event: &ev
+    event.code: "3"
+    process.name: System
+    process.executable: System
+    source.ip: 77.83.240.70
+    source.port: 51514
+    destination.ip: 10.0.0.20
+    destination.port: 445
+    network.transport: tcp
+    network.direction: ingress
+- name: inbound connection from the listed scanner to RDP
+  event:
+    <<: *ev
+    destination.port: 3389
+negative:
+- name: scanner hitting HTTPS (excluded)
+  event:
+    <<: *ev
+    destination.port: 443
+- name: scanner hitting HTTP (excluded)
+  event:
+    <<: *ev
+    destination.port: 80
+- name: other source address
+  event:
+    <<: *ev
+    source.ip: 77.83.240.71
+- name: not a network connection event
+  event:
+    event.code: "1"
+    process.name: nmap.exe

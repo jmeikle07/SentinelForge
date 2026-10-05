@@ -195,9 +195,9 @@
     "deployed_at": "2026-05-11T09:35:56.759390+00:00",
     "confidence": "high"
   },
-  "T1614.001": {
-    "technique_name": "System Location Discovery: System Language Discovery",
-    "tactic": "discovery",
+  "T1497.001": {
+    "technique_name": "Virtualization/Sandbox Evasion: System Checks",
+    "tactic": "defense-evasion",
     "rule_id": "b8765da9-bc02-4c22-8b48-01096420d98a",
     "deployed_at": "2026-05-11T18:19:28.396993+00:00",
     "confidence": "medium"
@@ -230,9 +230,9 @@
     "deployed_at": "2026-05-15T23:50:03.456294+00:00",
     "confidence": "high"
   },
-  "T1046": {
-    "technique_name": "Network Service Scanning",
-    "tactic": "discovery",
+  "T1595": {
+    "technique_name": "Active Scanning",
+    "tactic": "reconnaissance",
     "rule_id": "3f9a6b93-3242-4661-b8bc-e6871b802615",
     "deployed_at": "2026-06-19T15:01:22.444641+00:00",
     "confidence": "high"

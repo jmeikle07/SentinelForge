@@ -1,8 +1,13 @@
-title: System Owner/User Discovery via Scripting Engine Parent Process
+title: System Owner/User Discovery via whoami or hostname Started by a Script or Command Interpreter
 id: 0d36e12f-4b63-4cf0-8483-8552b1d57090
 status: experimental
+related:
+- id: 446e7f75-e0c5-48f7-a701-807d8b0a481c
+  type: similar
+- id: 1457a8cc-0e8f-4a18-ae3c-1ee41e4bb8c6
+  type: similar
 description: |
-  Detects whoami.exe or HOSTNAME.EXE spawned by common scripting engines such as powershell.exe, wscript.exe, cscript.exe, or cmd.exe, indicative of system owner and user discovery activity.
+  Detects whoami.exe, or hostname.exe / HOSTNAME.EXE, started by a script or command interpreter (powershell.exe, pwsh.exe, wscript.exe, cscript.exe, mshta.exe, python.exe, cmd.exe), usually the first reconnaissance commands after code execution. whoami reveals the current user, domain and (with /all or /priv) groups and privileges, which is System Owner/User Discovery (T1033). hostname only prints the computer name and is closer to System Information Discovery (T1082); it is kept because the two are normally run together. This rule absorbed the parent list of two duplicates that matched the same binaries under other technique ids: 446e7f75-e0c5-48f7-a701-807d8b0a481c (tagged T1057 Process Discovery) and 1457a8cc-0e8f-4a18-ae3c-1ee41e4bb8c6 (tagged T1087.001 Local Account Discovery). Neither whoami nor hostname lists processes or accounts, so both tags were wrong and both rules are now deprecated. Parent names are substring matches and literals are case-sensitive in the converted query, so both casings of hostname are listed. Level low because the listed false positives are frequent.
 
   Defender notes:
   - Hardening control: Collect command-line audit logs and restrict scripting engines to users who need them.
@@ -10,6 +15,7 @@ description: |
   - Risk treatment: Accept: owner discovery is low-impact; the alert is valuable mostly as correlation context.
 author: Jahsean Meikle
 date: 2026/05/11
+modified: 2026/10/05
 references:
 - https://attack.mitre.org/techniques/T1033/
 tags:
@@ -30,15 +36,19 @@ detection:
     process.name|contains:
     - whoami.exe
     - HOSTNAME.EXE
+    - hostname.exe
   selection_parent:
     process.parent.name|contains:
     - powershell.exe
     - wscript.exe
     - cscript.exe
     - cmd.exe
+    - pwsh.exe
+    - mshta.exe
+    - python.exe
   condition: selection_image and selection_parent
 falsepositives:
 - Legitimate administrative scripts that enumerate user or host identity as part of logging or inventory routines
 - IT automation frameworks such as Ansible or SCCM that invoke whoami.exe or hostname.exe through PowerShell wrappers
 - Developer tooling or CI/CD pipeline agents running diagnostics via scripting engines
-level: medium
+level: low

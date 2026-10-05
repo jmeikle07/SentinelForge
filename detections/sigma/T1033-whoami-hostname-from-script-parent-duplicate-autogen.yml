@@ -1,0 +1,54 @@
+title: Whoami and Hostname Execution from a Scripting Parent (Duplicate, Was Tagged Local Account Discovery)
+id: 1457a8cc-0e8f-4a18-ae3c-1ee41e4bb8c6
+status: deprecated
+related:
+- id: 0d36e12f-4b63-4cf0-8483-8552b1d57090
+  type: similar
+- id: 446e7f75-e0c5-48f7-a701-807d8b0a481c
+  type: similar
+description: |
+  Deprecated: its parent list (pwsh.exe, mshta.exe, python.exe in addition to the usual interpreters) and the lower-case hostname.exe literal were merged into 0d36e12f-4b63-4cf0-8483-8552b1d57090, which now covers every event this rule matched. Detects whoami.exe or hostname.exe started by a scripting engine. It was tagged T1087.001 Local Account Discovery, but whoami only reports the current user and hostname only the computer name; neither enumerates local accounts (net user or net localgroup would), so the tag is corrected to T1033.
+
+  Defender notes:
+  - Hardening control: Collect command-line audit logs and restrict scripting engines to users who need them.
+  - IR step: Check what spawned the scripting engine and whether it ran with user or elevated rights, then widen to the host timeline.
+  - Risk treatment: Accept: owner discovery is low-impact; the alert is valuable mostly as correlation context.
+author: Jahsean Meikle
+date: 2026/05/10
+modified: 2026/10/05
+references:
+- https://attack.mitre.org/techniques/T1033/
+tags:
+- attack.discovery
+- attack.t1033
+- cert.secplus.2.4
+- cert.secplus.4.4
+- cert.isc2cc.d5
+- nist.800-53.au-12
+- nist.800-53.si-4
+- cis.v8.8.5
+- cis.v8.8.8
+logsource:
+  category: process_creation
+  product: windows
+detection:
+  selection:
+    process.name|contains:
+    - whoami.exe
+    - hostname.exe
+    process.parent.name|contains:
+    - powershell.exe
+    - wscript.exe
+    - cscript.exe
+    - mshta.exe
+    - python.exe
+    - pwsh.exe
+  condition: selection
+falsepositives:
+- Legitimate administrative scripts or IT automation tools that invoke whoami or hostname for inventory or diagnostic purposes
+- Software deployment frameworks or monitoring agents running under interactive user sessions
+level: medium
+fields:
+- process.name
+- process.parent.name
+- process.command_line

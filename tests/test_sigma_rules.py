@@ -53,6 +53,15 @@ DUPLICATE_GROUPS = {
         "0acbfe83-9428-4eda-8c9c-6482e4d60c0a",
         "57053051-8d37-43fc-b572-c3c2c320da81",
     ],
+    "whoami-hostname": [
+        "0d36e12f-4b63-4cf0-8483-8552b1d57090",
+        "446e7f75-e0c5-48f7-a701-807d8b0a481c",
+        "1457a8cc-0e8f-4a18-ae3c-1ee41e4bb8c6",
+    ],
+    "net-view": [
+        "e82c8c54-344a-4bf5-92dd-ad324a5e1f98",
+        "61399e8c-6e6d-46d7-8257-ada4b2f3ea76",
+    ],
     "msiexec": [
         "b8ee8991-c2af-4d5e-9dd8-4702f01a2e14",
         "c1ced7af-9d77-402a-aebd-b93426ebec3a",
@@ -161,8 +170,12 @@ def test_related_references_resolve_to_existing_rules():
             assert rel["id"] in BY_ID, f"{name} relates to unknown {rel['id']}"
 
 
-def test_t1046_uses_maintainable_cidr_list():
-    rule = next(r for r in RULES.values() if "t1046" in _technique_tags(r))
+def test_scanner_ip_rule_uses_cidr_list_and_is_a_labelled_signature():
+    # 3f9a6b93: was T1046, retagged T1595 (inbound external scanning is Reconnaissance).
+    rule = BY_ID["3f9a6b93-3242-4661-b8bc-e6871b802615"]
+    assert "t1595" in _technique_tags(rule) and "t1046" not in _technique_tags(rule)
+    assert rule["level"] in {"low", "informational"}
+    assert "lab-validated simulation signature" in rule["description"].lower()
     sel = rule["detection"]["selection_source_ip"]
     assert "source.ip|cidr" in sel and isinstance(sel["source.ip|cidr"], list)
     assert all("/" in c for c in sel["source.ip|cidr"])

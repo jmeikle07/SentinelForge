@@ -1,12 +1,12 @@
 {
-  "name": "SentinelForge Detection Lab \u2014 34 Techniques Covered",
+  "name": "SentinelForge Detection Lab \u2014 29 Techniques Covered",
   "versions": {
     "attack": "16",
     "navigator": "4.9",
     "layer": "4.5"
   },
   "domain": "enterprise-attack",
-  "description": "Auto-generated from the SentinelForge autonomous rule engine. 34 techniques covered as of 2026-10-05. Green = HIGH confidence, Orange = MEDIUM, Blue = LOW, Grey = not assessed.",
+  "description": "Auto-generated from the SentinelForge autonomous rule engine. 29 techniques covered as of 2026-10-05. Green = HIGH confidence, Orange = MEDIUM, Blue = LOW, Grey = not assessed.",
   "filters": {
     "platforms": [
       "Windows",
@@ -76,7 +76,7 @@
     {
       "techniqueID": "T1021.001",
       "color": "#4caf50",
-      "comment": "Deployed: 2026-05-10 | Confidence: HIGH | Tactic: Credential Access, Lateral Movement | Rules: 2",
+      "comment": "Deployed: 2026-05-10 | Confidence: HIGH | Tactic: Lateral Movement | Rules: 2",
       "enabled": true,
       "score": 1,
       "metadata": []
@@ -109,14 +109,6 @@
       "techniqueID": "T1036.005",
       "color": "#ff9800",
       "comment": "Deployed: 2026-05-10 | Confidence: MEDIUM | Tactic: Defense Evasion | Rules: 1",
-      "enabled": true,
-      "score": 1,
-      "metadata": []
-    },
-    {
-      "techniqueID": "T1046",
-      "color": "#4caf50",
-      "comment": "Deployed: 2026-06-19 | Confidence: HIGH | Tactic: Discovery | Rules: 1",
       "enabled": true,
       "score": 1,
       "metadata": []
@@ -157,14 +149,6 @@
       "techniqueID": "T1204.002",
       "color": "#4caf50",
       "comment": "Deployed: 2026-05-10 | Confidence: HIGH | Tactic: Execution, Defense Evasion | Rules: 2",
-      "enabled": true,
-      "score": 1,
-      "metadata": []
-    },
-    {
-      "techniqueID": "T1057",
-      "color": "#ff9800",
-      "comment": "Deployed: 2026-05-10 | Confidence: MEDIUM | Tactic: Discovery | Rules: 1",
       "enabled": true,
       "score": 1,
       "metadata": []
@@ -218,14 +202,6 @@
       "metadata": []
     },
     {
-      "techniqueID": "T1087.001",
-      "color": "#4caf50",
-      "comment": "Deployed: 2026-05-10 | Confidence: HIGH | Tactic: Discovery | Rules: 1",
-      "enabled": true,
-      "score": 1,
-      "metadata": []
-    },
-    {
       "techniqueID": "T1110.001",
       "color": "#4caf50",
       "comment": "Deployed: 2026-05-15 | Confidence: HIGH | Tactic: Credential Access | Rules: 1",
@@ -242,25 +218,17 @@
       "metadata": []
     },
     {
-      "techniqueID": "T1216",
-      "color": "#ff9800",
-      "comment": "Deployed: 2026-05-10 | Confidence: MEDIUM | Tactic: Defense Evasion | Rules: 1",
-      "enabled": true,
-      "score": 1,
-      "metadata": []
-    },
-    {
       "techniqueID": "T1218.007",
       "color": "#4caf50",
-      "comment": "Deployed: 2026-05-10 | Confidence: HIGH | Tactic: Defense Evasion | Rules: 2",
+      "comment": "Deployed: 2026-05-10 | Confidence: HIGH | Tactic: Defense Evasion | Rules: 1",
       "enabled": true,
       "score": 1,
       "metadata": []
     },
     {
-      "techniqueID": "T1482",
-      "color": "#4caf50",
-      "comment": "Deployed: 2026-05-10 | Confidence: HIGH | Tactic: Discovery | Rules: 1",
+      "techniqueID": "T1497.001",
+      "color": "#ff9800",
+      "comment": "Deployed: 2026-05-11 | Confidence: MEDIUM | Tactic: Defense Evasion, Discovery | Rules: 1",
       "enabled": true,
       "score": 1,
       "metadata": []
@@ -269,14 +237,6 @@
       "techniqueID": "T1546.011",
       "color": "#ff9800",
       "comment": "Deployed: 2026-05-11 | Confidence: MEDIUM | Tactic: Persistence, Privilege Escalation | Rules: 4",
-      "enabled": true,
-      "score": 1,
-      "metadata": []
-    },
-    {
-      "techniqueID": "T1555.004",
-      "color": "#4caf50",
-      "comment": "Deployed: 2026-05-10 | Confidence: HIGH | Tactic: Credential Access, Lateral Movement | Rules: 1",
       "enabled": true,
       "score": 1,
       "metadata": []
@@ -298,9 +258,9 @@
       "metadata": []
     },
     {
-      "techniqueID": "T1614.001",
-      "color": "#ff9800",
-      "comment": "Deployed: 2026-05-11 | Confidence: MEDIUM | Tactic: Discovery | Rules: 1",
+      "techniqueID": "T1595",
+      "color": "#4caf50",
+      "comment": "Deployed: 2026-06-19 | Confidence: HIGH | Tactic: Reconnaissance | Rules: 1",
       "enabled": true,
       "score": 1,
       "metadata": []

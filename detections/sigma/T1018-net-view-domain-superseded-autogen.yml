@@ -1,0 +1,55 @@
+title: Net View /domain from cmd.exe or powershell.exe (Superseded, Was Tagged Domain Trust Discovery)
+id: 61399e8c-6e6d-46d7-8257-ada4b2f3ea76
+status: deprecated
+related:
+- id: e82c8c54-344a-4bf5-92dd-ad324a5e1f98
+  type: similar
+description: |
+  Deprecated: subset of e82c8c54-344a-4bf5-92dd-ad324a5e1f98 (same net.exe view selection and the same cmd.exe / powershell.exe parents; that rule additionally skips System integrity). Detects net.exe with "view" and "/domain" in the command line. net view /domain lists domains and, with a domain name, the computers in it; it does not enumerate trust relationships, so the former T1482 Domain Trust Discovery tag was wrong and is corrected to T1018 Remote System Discovery. Real trust enumeration uses nltest /domain_trusts, dsquery or the AD PowerShell trust cmdlets and is not covered by any rule in this set.
+
+  Defender notes:
+  - Hardening control: Segment workstations from server networks and log net.exe usage with command lines.
+  - IR step: Identify the account and host, review which systems were enumerated, and look for follow-on lateral movement.
+  - Risk treatment: Mitigate: segmentation limits what enumeration reveals; accept the residual discovery noise.
+author: Jahsean Meikle
+date: 2026/05/10
+modified: 2026/10/05
+references:
+- https://attack.mitre.org/techniques/T1018/
+tags:
+- attack.discovery
+- attack.t1018
+- cert.secplus.2.4
+- cert.secplus.4.4
+- cert.isc2cc.d4
+- cert.isc2cc.d5
+- nist.800-53.ca-7
+- nist.800-53.si-4
+- cis.v8.8.5
+- cis.v8.13.1
+logsource:
+  category: process_creation
+  product: windows
+detection:
+  selection_parent:
+    process.parent.name|contains:
+    - cmd.exe
+    - powershell.exe
+  selection_process:
+    process.name: net.exe
+  selection_cmdline:
+    process.command_line|contains|all:
+    - view
+    - /domain
+  condition: selection_parent and selection_process and selection_cmdline
+falsepositives:
+- Legitimate IT administrative scripts enumerating domain resources using net view
+- Automated inventory or asset management tools querying domain shares
+level: medium
+fields:
+- process.name
+- process.executable
+- process.command_line
+- process.parent.name
+- process.parent.executable
+- winlog.event_data.IntegrityLevel

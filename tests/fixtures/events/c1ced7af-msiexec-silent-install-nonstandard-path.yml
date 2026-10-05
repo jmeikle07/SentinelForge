@@ -1,0 +1,35 @@
+id: c1ced7af-9d77-402a-aebd-b93426ebec3a
+positive:
+- name: cmd.exe starts a silent install from C:\Users\Public
+  event: &ev
+    event.code: "1"
+    process.name: msiexec.exe
+    process.executable: C:\Windows\System32\msiexec.exe
+    process.command_line: msiexec.exe /q /i C:\Users\Public\payload.msi
+    process.parent.name: cmd.exe
+- name: powershell.exe parent (merged in from the T1216 duplicate)
+  event:
+    <<: *ev
+    process.parent.name: powershell.exe
+- name: pwsh.exe parent with a UNC package
+  event:
+    <<: *ev
+    process.parent.name: pwsh.exe
+    process.command_line: msiexec.exe /qn /i \\10.0.0.9\share\setup.msi
+negative:
+- name: install of a package under Program Files
+  event:
+    <<: *ev
+    process.command_line: msiexec.exe /q /i "C:\Program Files\Vendor\agent.msi"
+- name: interactive install (no /q)
+  event:
+    <<: *ev
+    process.command_line: msiexec.exe /i C:\Users\Public\payload.msi
+- name: parent is Explorer
+  event:
+    <<: *ev
+    process.parent.name: explorer.exe
+- name: SCCM cache install
+  event:
+    <<: *ev
+    process.command_line: msiexec.exe /q /i C:\Windows\ccmcache\4\app.msi

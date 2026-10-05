@@ -1,0 +1,32 @@
+id: 1457a8cc-0e8f-4a18-ae3c-1ee41e4bb8c6
+positive:
+- name: whoami from pwsh.exe
+  event: &ev
+    event.code: "1"
+    process.name: whoami.exe
+    process.executable: C:\Windows\System32\whoami.exe
+    process.command_line: whoami /groups
+    process.parent.name: pwsh.exe
+- name: lower-case hostname.exe from mshta.exe
+  event:
+    <<: *ev
+    process.name: hostname.exe
+    process.parent.name: mshta.exe
+- name: whoami from python.exe
+  event:
+    <<: *ev
+    process.parent.name: python.exe
+negative:
+- name: upper-case HOSTNAME.EXE is not matched by the lower-case literal of this rule
+  event:
+    <<: *ev
+    process.name: HOSTNAME.EXE
+- name: net user (actual local account discovery) is not what this selection detects
+  event:
+    <<: *ev
+    process.name: net.exe
+    process.command_line: net user
+- name: whoami from cmd.exe
+  event:
+    <<: *ev
+    process.parent.name: cmd.exe

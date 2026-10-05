@@ -1,0 +1,52 @@
+title: Virtualization/Sandbox Evasion via systeminfo with a Disk\Enum Registry Query
+id: b8765da9-bc02-4c22-8b48-01096420d98a
+status: experimental
+description: |
+  Detects cmd.exe running systeminfo chained with a registry query of HKLM\SYSTEM\CurrentControlSet\Services\Disk\Enum, or reg.exe querying that key under cmd.exe. The Disk\Enum key lists the disk devices Windows has enumerated, including model strings that virtual machines commonly expose, so reading it is a known way for malware to check whether it runs in a VM or sandbox (T1497.001 System Checks); systeminfo output carries similar hardware hints. The rule was previously tagged T1614.001 System Language Discovery, but nothing here queries a language or locale setting. Hardware inventory scripts read the same key, so treat it as a correlation signal.
+
+  Defender notes:
+  - Hardening control: Collect command-line audit logs and baseline which inventory scripts legitimately read hardware and virtualization registry keys such as the Disk Enum service key.
+  - IR step: Identify the parent process and what ran next; malware that checks for a VM or sandbox usually exits or changes behaviour when it finds one, so look for that follow-up.
+  - Risk treatment: Accept: hardware inventory scripts read the same keys; use as a correlation signal.
+author: Jahsean Meikle
+date: 2026/05/11
+modified: 2026/10/05
+references:
+- https://attack.mitre.org/techniques/T1497/001/
+tags:
+- attack.defense_evasion
+- attack.discovery
+- attack.t1497.001
+- cert.secplus.2.4
+- cert.secplus.4.4
+- cert.isc2cc.d5
+- nist.800-53.au-12
+- nist.800-53.au-6
+- nist.800-53.si-4
+- cis.v8.8.5
+- cis.v8.8.8
+- cis.v8.8.11
+logsource:
+  category: process_creation
+  product: windows
+detection:
+  selection_cmd_chained:
+    event.code: '1'
+    process.name: cmd.exe
+    process.command_line|contains|all:
+    - systeminfo
+    - reg
+    - Disk\Enum
+  selection_reg_direct:
+    event.code: '1'
+    process.name: reg.exe
+    process.command_line|contains|all:
+    - HKLM
+    - Disk\Enum
+    process.parent.name: cmd.exe
+  condition: selection_cmd_chained or selection_reg_direct
+falsepositives:
+- Legitimate system administrators running hardware inventory or diagnostic scripts
+- Automated asset management tools that query disk device enumeration
+- IT operations scripts combining system information gathering utilities
+level: medium

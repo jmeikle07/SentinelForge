@@ -534,15 +534,16 @@ REVIEWED_IDS = {
     "1020dcc4-0817-41c0-ba1e-7d3034e816c6",  # T1016 NCSI DNS
     "28a2bef3-af7f-4b3a-8e7f-08616e25b694",  # T1059.001 download
     "827b2dd7-e596-4d2a-a16b-6fcdbc1f7aed",  # new: T1059.001 DNS half (split from 28a2bef3)
-    "0d36e12f-4b63-4cf0-8483-8552b1d57090",  # T1033
+    "0d36e12f-4b63-4cf0-8483-8552b1d57090",  # T1033 (absorbs the two duplicates below)
+    "e82c8c54-344a-4bf5-92dd-ad324a5e1f98",  # T1018 net view (dead selection removed)
     "446e7f75-e0c5-48f7-a701-807d8b0a481c",  # was T1057; deprecated
     "1457a8cc-0e8f-4a18-ae3c-1ee41e4bb8c6",  # was T1087.001; deprecated
-    "61399e8c-6e6d-46d7-8257-ada4b2f3ea76",  # was T1482; deprecated
-    "b8ee8991-c2af-4d5e-9dd8-4702f01a2e14",  # was T1216
+    "61399e8c-6e6d-46d7-8257-ada4b2f3ea76",  # was T1482; deprecated (subset of T1018 e82c8c54)
+    "b8ee8991-c2af-4d5e-9dd8-4702f01a2e14",  # was T1216; deprecated
     "c1ced7af-9d77-402a-aebd-b93426ebec3a",  # T1218.007
-    "b8765da9-bc02-4c22-8b48-01096420d98a",  # was T1614.001
-    "831565f9-d936-4dcc-abaf-0112e0cb5bb4",  # was T1555.004
-    "3f9a6b93-3242-4661-b8bc-e6871b802615",  # was T1046
+    "b8765da9-bc02-4c22-8b48-01096420d98a",  # was T1614.001; now T1497.001
+    "831565f9-d936-4dcc-abaf-0112e0cb5bb4",  # was T1555.004; now T1021.001
+    "3f9a6b93-3242-4661-b8bc-e6871b802615",  # was T1046; now T1595
     "a4a0b85e-6503-452f-8506-f9c30505ce72",  # T1021.002
     "6d060b71-5faf-425c-bf21-bb7751cc0e83",  # T1035/T1569.002
     "723b2878-ced4-4052-ab1c-05629a5f4127",  # T1048.003

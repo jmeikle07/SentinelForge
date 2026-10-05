@@ -1,11 +1,11 @@
-title: Msiexec Silent Install from Non-Standard Path via CMD
+title: Msiexec Silent Install from Non-Standard Path via CMD or PowerShell
 id: c1ced7af-9d77-402a-aebd-b93426ebec3a
 status: experimental
 related:
 - id: b8ee8991-c2af-4d5e-9dd8-4702f01a2e14
   type: similar
 description: |
-  Detects msiexec.exe invoked with silent install flags (/q /i) targeting an MSI file outside standard software deployment directories, launched from cmd.exe. This behavior is consistent with T1218.007 abuse where a signed Windows binary is used to proxy execution of a malicious MSI payload.
+  Detects msiexec.exe started by cmd.exe, powershell.exe or pwsh.exe with silent (/q) install (/i) flags whose command line does not contain a standard software-deployment location (Program Files, ccmcache, ccmsetup, Installer, Start Menu), i.e. a package run from a user-writable or remote path. A signed Windows binary then proxies execution of the MSI payload (T1218.007). The PowerShell parents were merged in from the T1216-tagged duplicate b8ee8991-c2af-4d5e-9dd8-4702f01a2e14, which is now deprecated. The standard-path exclusion is a substring match on the whole command line, so a command line that merely mentions one of those paths elsewhere is also excluded. Level medium: deployment and RMM tooling regularly run msiexec silently from staging folders.
 
   Defender notes:
   - Hardening control: Restrict msiexec to administrators or software distribution, block installs from user-writable paths, and apply application control.
@@ -13,6 +13,7 @@ description: |
   - Risk treatment: Mitigate: application control; accept residual risk for approved silent deployments.
 author: Jahsean Meikle
 date: 2026/05/10
+modified: 2026/10/05
 references:
 - https://attack.mitre.org/techniques/T1218/007/
 - https://github.com/redcanaryco/atomic-red-team/blob/master/atomics/T1218.007/T1218.007.md
@@ -39,7 +40,10 @@ detection:
   selection_process:
     event.code: '1'
     process.name|endswith: msiexec.exe
-    process.parent.name|endswith: cmd.exe
+    process.parent.name|endswith:
+    - cmd.exe
+    - powershell.exe
+    - pwsh.exe
   selection_cmdline:
     process.command_line|contains|all:
     - /q
@@ -57,4 +61,4 @@ falsepositives:
 - Legitimate software deployments using custom or non-standard installation directories
 - Administrative scripts invoking msiexec silently from non-default paths during provisioning or imaging
 - Third-party patch management or RMM tools that stage MSI files outside standard directories
-level: high
+level: medium

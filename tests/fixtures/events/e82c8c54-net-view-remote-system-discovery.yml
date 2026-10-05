@@ -1,0 +1,32 @@
+id: e82c8c54-344a-4bf5-92dd-ad324a5e1f98
+positive:
+- name: net view from cmd.exe
+  event: &ev
+    event.code: "1"
+    process.name: net.exe
+    process.executable: C:\Windows\System32\net.exe
+    process.command_line: net view
+    process.parent.name: cmd.exe
+    winlog.event_data.IntegrityLevel: Medium
+- name: net view /domain from powershell.exe
+  event:
+    <<: *ev
+    process.command_line: net view /domain
+    process.parent.name: powershell.exe
+- name: net view of a named host
+  event:
+    <<: *ev
+    process.command_line: net view \\fileserver01 /all
+negative:
+- name: run by SYSTEM
+  event:
+    <<: *ev
+    winlog.event_data.IntegrityLevel: System
+- name: net user is not net view
+  event:
+    <<: *ev
+    process.command_line: net user
+- name: net view started by Explorer
+  event:
+    <<: *ev
+    process.parent.name: explorer.exe

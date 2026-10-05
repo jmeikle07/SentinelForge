@@ -1,0 +1,27 @@
+id: b8ee8991-c2af-4d5e-9dd8-4702f01a2e14
+positive:
+- name: cmd.exe starts msiexec /q from C:\Users\Public
+  event: &ev
+    event.code: "1"
+    process.name: msiexec.exe
+    process.executable: C:\Windows\System32\msiexec.exe
+    process.command_line: msiexec.exe /q /i C:\Users\Public\payload.msi
+    process.parent.name: cmd.exe
+- name: powershell.exe parent, ProgramData package
+  event:
+    <<: *ev
+    process.parent.name: powershell.exe
+    process.command_line: msiexec /qn /package C:\ProgramData\x\a.msi
+negative:
+- name: package in Program Files (no suspicious path)
+  event:
+    <<: *ev
+    process.command_line: msiexec.exe /q /i "C:\Program Files\Vendor\agent.msi"
+- name: interactive install from Temp (no /q)
+  event:
+    <<: *ev
+    process.command_line: msiexec.exe /i C:\Users\bob\AppData\Local\Temp\x.msi
+- name: other binary
+  event:
+    <<: *ev
+    process.name: setup.exe

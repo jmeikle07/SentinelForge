@@ -376,3 +376,26 @@ techniques:
     hardening: "Collect command-line audit logs and baseline legitimate regional and language queries."
     ir: "Check the process chain for malware that tailors its behaviour to locale, and hunt for follow-on execution."
     risk: "Accept: language discovery is low-impact alone; treat as a correlation signal."
+  t1497.001:
+    secplus: ["2.4", "4.4"]
+    isc2cc: [5]
+    nist: [si-4, au-12]
+    cis: ["8.5", "8.8"]
+    hardening: "Collect command-line audit logs and baseline which inventory scripts legitimately read hardware and virtualization registry keys such as the Disk Enum service key."
+    ir: "Identify the parent process and what ran next; malware that checks for a VM or sandbox usually exits or changes behaviour when it finds one, so look for that follow-up."
+    risk: "Accept: hardware inventory scripts read the same keys; use as a correlation signal."
+  t1595:
+    secplus: ["2.2", "4.4"]
+    isc2cc: [4, 5]
+    nist: [si-4, sc-7, ca-7]
+    cis: ["13.3", "13.6", "12.2"]
+    hardening: "Keep externally exposed services to the minimum, block known scanning sources at the perimeter and collect connection logs centrally."
+    ir: "Confirm the source in threat intelligence, check which ports it reached and whether any connection succeeded, and block it if unwanted."
+    risk: "Accept: internet scanning is constant background noise; mitigate by reducing the exposed attack surface."
+
+# Per-rule overrides keyed by Sigma rule id (see tools/tag_compliance.py).
+rules:
+  831565f9-d936-4dcc-abaf-0112e0cb5bb4:  # cmdkey storing credentials for RDP (was tagged T1555.004)
+    hardening: "Restrict cmdkey.exe for users who do not need it, enable Credential Guard, and prefer MFA over stored RDP credentials."
+    ir: "Identify the stored target and account, remove the entry (cmdkey /delete), reset the affected account, and review RDP connections that followed."
+    risk: "Mitigate: Credential Guard and MFA; accept residual risk for legitimate stored administrator sessions."

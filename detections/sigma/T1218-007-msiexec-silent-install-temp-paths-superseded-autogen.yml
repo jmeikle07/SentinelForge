@@ -1,24 +1,23 @@
-title: Silent MSI Execution via CMD or PowerShell Proxy
+title: Silent MSI Execution from Public, Temp or ProgramData Paths (Superseded, Was Tagged T1216)
 id: b8ee8991-c2af-4d5e-9dd8-4702f01a2e14
-status: experimental
+status: deprecated
 related:
 - id: c1ced7af-9d77-402a-aebd-b93426ebec3a
   type: similar
 description: |
-  Detects cmd.exe or powershell.exe spawning msiexec.exe with silent installation flags targeting suspicious paths, consistent with T1218.007 proxy execution abuse via system scripting.
+  Deprecated: superseded by c1ced7af-9d77-402a-aebd-b93426ebec3a, which now has the same cmd.exe / powershell.exe parents and flags every silent msiexec install outside the standard deployment paths, a superset of the Users\Public, AppData\Local\Temp, ProgramData and Windows\Temp paths listed here. Detects msiexec.exe /q started by cmd.exe or powershell.exe with such a path on the command line. It was tagged T1216 System Script Proxy Execution (which covers signed scripts such as pubprn.vbs), but it detects msiexec only, i.e. T1218.007; the T1216 tag is removed and no rule in this set detects T1216 any more.
 
   Defender notes:
-  - Hardening control: Use application control to restrict signed proxy-execution binaries and scripts to approved uses.
-  - IR step: Identify the proxied payload, preserve the MSI or script, and scope its install or execution footprint.
-  - Risk treatment: Mitigate: application control; accept residual risk for legitimate software deployment tools.
+  - Hardening control: Restrict msiexec to administrators or software distribution, block installs from user-writable paths, and apply application control.
+  - IR step: Retrieve the MSI package, inspect its custom actions, and uninstall and remove artefacts after scoping.
+  - Risk treatment: Mitigate: application control; accept residual risk for approved silent deployments.
 author: Jahsean Meikle
 date: 2026/05/10
+modified: 2026/10/05
 references:
-- https://attack.mitre.org/techniques/T1216/
 - https://attack.mitre.org/techniques/T1218/007/
 tags:
 - attack.defense_evasion
-- attack.t1216
 - attack.t1218.007
 - cert.secplus.2.4
 - cert.secplus.4.1
@@ -31,7 +30,6 @@ tags:
 - nist.800-53.si-4
 - cis.v8.2.3
 - cis.v8.2.5
-- cis.v8.2.7
 - cis.v8.8.8
 - cis.v8.8.11
 logsource:
@@ -55,7 +53,7 @@ detection:
 falsepositives:
 - Legitimate software deployment tools such as SCCM or PDQ Deploy that invoke msiexec via cmd.exe with silent flags for enterprise application installations
 - Administrative scripts performing silent MSI installs from sanctioned directories via cmd.exe during patch management cycles
-level: high
+level: medium
 fields:
 - process.name
 - process.executable

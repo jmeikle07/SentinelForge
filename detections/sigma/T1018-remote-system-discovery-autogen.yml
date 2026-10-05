@@ -1,8 +1,11 @@
-title: Remote System Discovery via Net View with Domain Enumeration
+title: Remote System Discovery via net.exe view
 id: e82c8c54-344a-4bf5-92dd-ad324a5e1f98
 status: experimental
+related:
+- id: 61399e8c-6e6d-46d7-8257-ada4b2f3ea76
+  type: similar
 description: |
-  Detects net.exe invocations with 'view' arguments including the '/domain' flag, especially when spawned from cmd.exe or powershell.exe under a standard user account. This pattern is consistent with T1018 Remote System Discovery used to enumerate domain-joined hosts and visible network shares for lateral movement planning.
+  Detects net.exe whose command line contains "view" (net view, optionally with /domain or a host name) started by cmd.exe or powershell.exe, excluding System integrity level. net view lists the domains, the computers visible on the network and their shares, i.e. Remote System Discovery (T1018). The /domain flag is not required: an earlier selection for it was defined but never used in the condition, so the rule has always matched any net view; the title and description no longer claim otherwise. The narrower "net view /domain" rule 61399e8c-6e6d-46d7-8257-ada4b2f3ea76 (tagged T1482 Domain Trust Discovery, which net view does not perform) is deprecated as a subset of this one.
 
   Defender notes:
   - Hardening control: Segment workstations from server networks and log net.exe usage with command lines.
@@ -10,6 +13,7 @@ description: |
   - Risk treatment: Mitigate: segmentation limits what enumeration reveals; accept the residual discovery noise.
 author: Jahsean Meikle
 date: 2026/05/10
+modified: 2026/10/05
 references:
 - https://attack.mitre.org/techniques/T1018/
 tags:
@@ -32,9 +36,6 @@ detection:
     process.name: net.exe
     process.command_line|contains:
     - view
-  selection_domain_flag:
-    process.command_line|contains:
-    - /domain
   selection_parent:
     process.parent.name:
     - cmd.exe
