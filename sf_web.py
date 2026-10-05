@@ -87,36 +87,31 @@ def _require_rule_id(rule_id: str) -> str:
 
 
 def _run_hunt(ioc: str) -> dict:
-    ioc = (ioc or "").strip()
-    if not ioc:
-        raise HTTPException(status_code=400, detail="empty IOC")
-    ioc_type = tk.detect_ioc_type(ioc)
-    if ioc_type not in ("ipv4", "md5", "sha1", "sha256", "domain"):
-        return {"ioc": ioc, "ioc_type": ioc_type, "supported": False,
-                "message": f"Unsupported IOC type: {ioc_type}. Supported: IPv4, file hash, domain."}
+    ioc, ioc_type, reason = tk.normalize_ioc(ioc)
+    if reason:
+        # Rejected before any cache or third-party call: private/internal names are never sent out.
+        raise HTTPException(status_code=400, detail=reason)
 
-    conn = tk.memory_init()
-    try:
-        is_hash = ioc_type in ("md5", "sha1", "sha256")
-        is_domain = ioc_type == "domain"
-        if is_hash:
-            external = tk.bucket_external_hash(conn, ioc, ioc_type)
-        elif is_domain:
-            external = tk.bucket_external_domain(conn, ioc)
-        else:
-            # External IP sources only (no internal SIEM/T-Pot on this route); a failure here
-            # leaves external empty, which yields an INSUFFICIENT DATA verdict, never a benign one.
-            try:
-                external = tk.bucket_external_ip(conn, ioc)
-            except Exception as e:  # noqa: BLE001 - degrade gracefully, but never silently
-                log.warning("external IP enrichment for %s failed: %r", ioc, e)
-                external = {}
-        # No T-Pot data on the web route: bucket_verdict renormalises over the sources that
-        # actually answered, so the same inputs give the same verdict as the CLI (which passes
-        # real observed data; an empty/errored one carries no weight).
-        verdict = tk.bucket_verdict({}, external, ioc_type)
-    finally:
-        conn.close()
+    # In-memory cache only: what visitors look up is never written to disk (see index.html).
+    conn = tk.memory_init_ephemeral()
+    is_hash = ioc_type in ("md5", "sha1", "sha256")
+    is_domain = ioc_type == "domain"
+    if is_hash:
+        external = tk.bucket_external_hash(conn, ioc, ioc_type)
+    elif is_domain:
+        external = tk.bucket_external_domain(conn, ioc)
+    else:
+        # External IP sources only (no internal SIEM/T-Pot on this route); a failure here
+        # leaves external empty, which yields an INSUFFICIENT DATA verdict, never a benign one.
+        try:
+            external = tk.bucket_external_ip(conn, ioc)
+        except Exception as e:  # noqa: BLE001 - degrade gracefully, but never silently
+            log.warning("external IP enrichment failed: %r", e)   # the IOC itself is not logged
+            external = {}
+    # No T-Pot data on the web route: bucket_verdict renormalises over the sources that
+    # actually answered, so the same inputs give the same verdict as the CLI (which passes
+    # real observed data; an empty/errored one carries no weight).
+    verdict = tk.bucket_verdict({}, external, ioc_type)
 
     return {"ioc": ioc, "ioc_type": ioc_type, "supported": True,
             "verdict": verdict, "external": external}

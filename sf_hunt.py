@@ -6,7 +6,7 @@ Loads credentials from .env automatically.
 
 Usage:
     python sf_hunt.py <ioc>              # hunt an IOC (check memory first)
-    python sf_hunt.py <ioc> --fresh      # skip memory, re-enrich
+    python sf_hunt.py <ioc> --fresh      # ignore memory and cached enrichment, re-query every source
     python sf_hunt.py --history          # show recent hunts
     python sf_hunt.py --history <ioc>    # show past hunts for one IOC
 
@@ -35,14 +35,17 @@ import sqlite3
 import argparse
 import logging
 import threading
+import time
+import tempfile
 import ipaddress
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import requests
 from dotenv import load_dotenv
 from rich.console import Console
+from rich.markup import escape as _rich_escape
 from rich.table import Table
 from rich.text import Text
 
@@ -97,34 +100,85 @@ CACHE_TTL_SECONDS = {
 # ── Console ───────────────────────────────────────────────────────────────────
 console = Console()
 
+
+def _esc(value) -> str:
+    """Escape anything that did not come from this file before it goes through Rich markup.
+    API-derived names (pulse titles, malware families, tags), exception text and file-derived
+    titles can contain '[...]' which Rich would parse as tags: '[/oops]' raises MarkupError and
+    '[link=...]' injects hyperlinks."""
+    return _rich_escape(str(value))
+
 # ── IOC type detection ────────────────────────────────────────────────────────
-IPV4_RE = re.compile(
-    r"^(?:(?:25[0-5]|2[0-4]\d|[01]?\d?\d)\.){3}"
-    r"(?:25[0-5]|2[0-4]\d|[01]?\d?\d)$"
-)
-SHA256_RE = re.compile(r"^[a-fA-F0-9]{64}$")
-MD5_RE    = re.compile(r"^[a-fA-F0-9]{32}$")
-SHA1_RE   = re.compile(r"^[a-fA-F0-9]{40}$")
-DOMAIN_RE = re.compile(
-    r"^(?!-)[A-Za-z0-9-]{1,63}(?<!-)"
-    r"(?:\.(?!-)[A-Za-z0-9-]{1,63}(?<!-))*"
-    r"\.[A-Za-z]{2,}$"
-)
+# ASCII-only on purpose: str.isdigit() and \d accept Unicode digits ("١.٢.٣.٤"), and fullmatch
+# (not match + $) so a trailing newline cannot ride along.
+IPV4_RE = re.compile(r"[0-9]{1,3}(?:\.[0-9]{1,3}){3}", re.ASCII)
+SHA256_RE = re.compile(r"[a-fA-F0-9]{64}", re.ASCII)
+MD5_RE    = re.compile(r"[a-fA-F0-9]{32}", re.ASCII)
+SHA1_RE   = re.compile(r"[a-fA-F0-9]{40}", re.ASCII)
+_LABEL = r"(?!-)[A-Za-z0-9-]{1,63}(?<!-)"
+DOMAIN_RE = re.compile(_LABEL + r"(?:\." + _LABEL + r")*\.[A-Za-z]{2,63}", re.ASCII)
+SINGLE_LABEL_RE = re.compile(_LABEL, re.ASCII)
+# Suffixes that only resolve inside a private network (or never): never sent to third parties.
+INTERNAL_TLDS = frozenset({
+    "local", "localhost", "localdomain", "internal", "intranet", "lan", "home", "corp", "private",
+    "test", "example", "invalid", "arpa", "onion", "workgroup", "domain", "ad",
+})
 
 
 def detect_ioc_type(ioc: str) -> str:
-    """Return 'ipv4', 'sha256', 'md5', 'sha1', 'domain', or 'unknown'."""
-    if IPV4_RE.match(ioc):
-        return "ipv4"
-    if SHA256_RE.match(ioc):
+    """Return 'ipv4', 'sha256', 'sha1', 'md5', 'domain', 'non_public' or 'unknown'.
+
+    'non_public' = syntactically fine but a private/loopback/link-local/reserved IPv4, an internal
+    TLD, or a single-label hostname. Those are rejected before any third-party lookup (they would
+    leak internal names/addresses and burn quota). Non-ASCII digits, leading zeros and anything
+    not already canonical is 'unknown' (leading zeros are ambiguous (octal) and would create
+    duplicate cache keys for one address)."""
+    if not isinstance(ioc, str):
+        return "unknown"
+    if IPV4_RE.fullmatch(ioc):
+        if any(len(o) > 1 and o[0] == "0" for o in ioc.split(".")):
+            return "unknown"
+        try:
+            addr = ipaddress.IPv4Address(ioc)
+        except ValueError:          # octet > 255
+            return "unknown"
+        return "ipv4" if (addr.is_global and not addr.is_multicast) else "non_public"
+    if SHA256_RE.fullmatch(ioc):
         return "sha256"
-    if SHA1_RE.match(ioc):
+    if SHA1_RE.fullmatch(ioc):
         return "sha1"
-    if MD5_RE.match(ioc):
+    if MD5_RE.fullmatch(ioc):
         return "md5"
-    if DOMAIN_RE.match(ioc):
+    if DOMAIN_RE.fullmatch(ioc):
+        labels = ioc.lower().split(".")
+        if labels[-1] in INTERNAL_TLDS:
+            return "non_public"
         return "domain"
+    if SINGLE_LABEL_RE.fullmatch(ioc):
+        return "non_public"          # dc01, localhost: cannot be a public indicator
     return "unknown"
+
+
+def normalize_ioc(raw) -> tuple:
+    """Validate and canonicalise an IOC. Returns (ioc, ioc_type, rejection_reason).
+
+    rejection_reason is None for a usable IOC; otherwise a human-readable sentence and ioc_type is
+    'unknown' or 'non_public'. Canonical form (lower-case hash/domain, stripped) is what is used as
+    the cache key, so 'EXAMPLE.com' and 'example.com' share one entry."""
+    ioc = raw.strip() if isinstance(raw, str) else ""
+    if not ioc:
+        return ioc, "unknown", "empty IOC"
+    ioc_type = detect_ioc_type(ioc)
+    if ioc_type == "non_public":
+        return ioc, ioc_type, ("non-public address or internal hostname: not sent to third-party "
+                               "services (private, loopback, link-local, reserved or single-label "
+                               "names cannot be looked up publicly)")
+    if ioc_type == "unknown":
+        return ioc, ioc_type, ("not a valid IOC: expected a public IPv4 address (no leading zeros), "
+                               "an MD5/SHA-1/SHA-256 hash, or a fully-qualified domain name")
+    if ioc_type in ("md5", "sha1", "sha256", "domain"):
+        ioc = ioc.lower()
+    return ioc, ioc_type, None
 
 
 # ── HTTP / ELK helpers ────────────────────────────────────────────────────────
@@ -215,16 +269,61 @@ CREATE INDEX IF NOT EXISTS idx_cache_timestamp ON enrichment_cache(timestamp_utc
 _DB_LOCK = threading.RLock()
 
 
-def memory_init() -> sqlite3.Connection:
+class _HuntConnection(sqlite3.Connection):
+    """sqlite3 connection that carries the per-hunt cache policy (a plain Connection cannot take
+    attributes). bypass_cache_reads=True is `--fresh`: cache_get() then never reads, so every source
+    is re-queried, while cache_put() still refreshes the stored entry."""
+    bypass_cache_reads = False
+
+
+def memory_init(bypass_cache_reads: bool = False) -> sqlite3.Connection:
     """Create memory directory and DB if they don't exist, return open connection."""
     MEMORY_DIR.mkdir(parents=True, exist_ok=True)
     # check_same_thread=False: source lookups run in a thread pool; every cache access is
     # serialised through _DB_LOCK, so sharing one connection is safe.
-    conn = sqlite3.connect(MEMORY_DB, check_same_thread=False)
+    conn = sqlite3.connect(MEMORY_DB, check_same_thread=False, factory=_HuntConnection)
+    conn.bypass_cache_reads = bypass_cache_reads
     conn.row_factory = sqlite3.Row
     conn.executescript(MEMORY_SCHEMA)
     conn.commit()
     return conn
+
+
+# The web route must not write what visitors type to disk. It shares one in-memory cache instead:
+# it saves third-party quota (VT free tier is 4 requests/min) and disappears on restart.
+EPHEMERAL_CACHE_MAX_ROWS = 2000
+_EPHEMERAL_CONN = None
+_EPHEMERAL_LOCK = threading.Lock()
+
+
+def memory_init_ephemeral() -> sqlite3.Connection:
+    """Shared in-memory cache connection (no file, no hunt history). Do not close it. Expired and
+    surplus rows are pruned on every call, so memory use is bounded."""
+    global _EPHEMERAL_CONN
+    with _EPHEMERAL_LOCK:
+        if _EPHEMERAL_CONN is None:
+            conn = sqlite3.connect(":memory:", check_same_thread=False, factory=_HuntConnection)
+            conn.row_factory = sqlite3.Row
+            conn.executescript(MEMORY_SCHEMA)
+            conn.commit()
+            _EPHEMERAL_CONN = conn
+        conn = _EPHEMERAL_CONN
+    cache_prune(conn)
+    return conn
+
+
+def cache_prune(conn: sqlite3.Connection) -> None:
+    """Drop cache rows older than the longest TTL, then keep only the newest
+    EPHEMERAL_CACHE_MAX_ROWS."""
+    cutoff = (datetime.now(timezone.utc)
+              - timedelta(seconds=max(CACHE_TTL_SECONDS.values()))).isoformat()
+    with _DB_LOCK:
+        conn.execute("DELETE FROM enrichment_cache WHERE timestamp_utc < ?", (cutoff,))
+        conn.execute(
+            "DELETE FROM enrichment_cache WHERE rowid NOT IN ("
+            "SELECT rowid FROM enrichment_cache ORDER BY timestamp_utc DESC, rowid DESC LIMIT ?)",
+            (EPHEMERAL_CACHE_MAX_ROWS,))
+        conn.commit()
 
 
 def memory_lookup_ioc(conn: sqlite3.Connection, ioc: str) -> list:
@@ -291,7 +390,10 @@ def memory_recent_hunts(conn: sqlite3.Connection, limit: int = 50) -> list:
 
 # ── Enrichment cache ──────────────────────────────────────────────────────────
 def cache_get(conn: sqlite3.Connection, ioc: str, source_name: str) -> dict:
-    """Return cached enrichment if present and within TTL. Returns None if miss/stale."""
+    """Return cached enrichment if present and within TTL. Returns None if miss/stale.
+    Always None on a `--fresh` connection (bypass_cache_reads)."""
+    if getattr(conn, "bypass_cache_reads", False):
+        return None
     ttl = CACHE_TTL_SECONDS.get(source_name, 24 * 3600)
     with _DB_LOCK:
         row = conn.execute(
@@ -700,70 +802,142 @@ SPAMHAUS_DROP_URL    = "https://www.spamhaus.org/drop/drop.txt"
 SPAMHAUS_DROP_CACHE  = MEMORY_DIR / "spamhaus_drop.txt"
 SPAMHAUS_DROP_MAX_AGE_SECONDS = 24 * 3600  # Spamhaus asks: don't fetch more than 1x per day
 
-# In-memory parsed copy, populated on first use, refreshed when file is reloaded
+# A line of the real list: "1.10.16.0/20 ; SBL256894". Everything else must be a comment or blank.
+_DROP_LINE_RE = re.compile(r"([0-9]{1,3}(?:\.[0-9]{1,3}){3}/[0-9]{1,2})[ \t]*;[ \t]*(SBL[0-9]+)", re.ASCII)
+SPAMHAUS_DROP_MIN_RANGES = 10                  # the real list has ~1000; fewer is a broken download
+SPAMHAUS_DROP_MIN_KEEP_RATIO = 0.5             # a refresh shrinking the list by >50% is treated as truncated
+SPAMHAUS_DROP_MAX_STALE_SECONDS = 7 * 24 * 3600  # past this a never-refreshed list is no longer trusted
+SPAMHAUS_DROP_RETRY_SECONDS = 15 * 60          # after a failed download, don't hit Spamhaus again for this long
+
+# Guards the in-memory parsed copy and the download. The web server is multi-threaded: without it two
+# requests race to download/replace the file and publish half-updated globals.
+_DROP_LOCK = threading.RLock()
 _spamhaus_parsed_ranges = None  # list of (ipaddress.IPv4Network, "SBL12345") tuples
-_spamhaus_loaded_from = None    # filepath we parsed, for cache-bust detection
+_spamhaus_loaded_from = None    # (path, mtime_ns, size) we parsed, for cache-bust detection
+_spamhaus_next_attempt = 0.0    # time.monotonic() before which no new download is attempted
+
+
+def parse_drop_list(text: str):
+    """Parse a DROP list body into [(IPv4Network, "SBLnnn"), ...], or return None when the body does
+    not look like a complete DROP list: empty, an HTML error page, any unrecognised line, an
+    impossible prefix, or implausibly few ranges. Never raises, never returns a partial list."""
+    if not isinstance(text, str):
+        return None
+    ranges = []
+    for line in text.splitlines():
+        line = line.strip()
+        if not line or line.startswith(";") or line.startswith("#"):
+            continue
+        m = _DROP_LINE_RE.fullmatch(line)
+        if not m:
+            return None
+        try:
+            net = ipaddress.IPv4Network(m.group(1), strict=False)
+        except ValueError:
+            return None
+        ranges.append((net, m.group(2)))
+    return ranges if len(ranges) >= SPAMHAUS_DROP_MIN_RANGES else None
+
+
+def _atomic_write_text(path: Path, text: str) -> None:
+    """Write via a temp file in the same directory + os.replace, so readers (and a crash) only ever
+    see the old complete file or the new complete file."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=str(path.parent), prefix=path.name + ".", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="") as fh:
+            fh.write(text)
+            fh.flush()
+            os.fsync(fh.fileno())
+        os.replace(tmp, path)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
+
+
+def _spamhaus_drop_age():
+    """Seconds since the local list was written, or None if there is no file."""
+    try:
+        return datetime.now(timezone.utc).timestamp() - SPAMHAUS_DROP_CACHE.stat().st_mtime
+    except OSError:
+        return None
+
+
+def _spamhaus_drop_ensure() -> str:
+    """Make sure a usable local list exists. Returns 'fresh' (younger than 24h or just downloaded),
+    'stale' (download failed, an older complete list is used) or 'missing' (nothing trustworthy).
+
+    A downloaded body replaces the file only if it is a complete-looking DROP list that has not shrunk
+    drastically against the list it replaces; the replacement is atomic."""
+    global _spamhaus_next_attempt
+    with _DROP_LOCK:
+        age = _spamhaus_drop_age()
+        if age is not None and age < SPAMHAUS_DROP_MAX_AGE_SECONDS and _spamhaus_drop_load():
+            return "fresh"          # (a recent but cut-off/garbled file does not count: re-download it)
+        if time.monotonic() >= _spamhaus_next_attempt:
+            try:
+                _spamhaus_drop_download()
+                return "fresh"
+            except (requests.RequestException, OSError, ValueError) as e:
+                log.warning("could not refresh Spamhaus DROP list: %s", e)
+                _spamhaus_next_attempt = time.monotonic() + SPAMHAUS_DROP_RETRY_SECONDS
+        age = _spamhaus_drop_age()
+        if age is not None and age < SPAMHAUS_DROP_MAX_STALE_SECONDS and _spamhaus_drop_load():
+            return "stale"
+        return "missing"
+
+
+def _spamhaus_drop_download() -> None:
+    """Fetch, validate and atomically install the list. Raises ValueError for a body that must not
+    be installed (the old file is left untouched)."""
+    r = _http().get(SPAMHAUS_DROP_URL, timeout=15)
+    if r.status_code != 200:
+        raise ValueError(f"HTTP {r.status_code}")
+    declared = r.headers.get("Content-Length")
+    if declared and not r.headers.get("Content-Encoding") and declared.isdigit() \
+            and int(declared) != len(r.content):
+        raise ValueError(f"truncated download ({len(r.content)} of {declared} bytes)")
+    ranges = parse_drop_list(r.text)
+    if ranges is None:
+        raise ValueError("body is not a complete Spamhaus DROP list")
+    current = _spamhaus_drop_load()
+    if current and len(ranges) < SPAMHAUS_DROP_MIN_KEEP_RATIO * len(current):
+        raise ValueError(f"new list has {len(ranges)} ranges vs {len(current)} before: treated as truncated")
+    _atomic_write_text(SPAMHAUS_DROP_CACHE, r.text)
 
 
 def _spamhaus_drop_refresh_if_stale() -> bool:
-    """
-    Ensure the local DROP cache file is present and fresh.
-    Returns True if a usable file exists after this call, False if not.
-    """
-    try:
-        if SPAMHAUS_DROP_CACHE.exists():
-            age = (datetime.now(timezone.utc).timestamp()
-                   - SPAMHAUS_DROP_CACHE.stat().st_mtime)
-            if age < SPAMHAUS_DROP_MAX_AGE_SECONDS:
-                return True
-        # File is missing or stale — fetch
-        r = _http().get(SPAMHAUS_DROP_URL, timeout=15)
-        if r.status_code == 200 and r.text:
-            SPAMHAUS_DROP_CACHE.parent.mkdir(parents=True, exist_ok=True)
-            SPAMHAUS_DROP_CACHE.write_text(r.text, encoding="utf-8")
-            return True
-    except (requests.RequestException, OSError) as e:
-        log.warning("could not refresh Spamhaus DROP list: %s", e)
-    # If a stale file exists, use it rather than nothing
-    return SPAMHAUS_DROP_CACHE.exists()
+    """Ensure the local DROP cache file is present and fresh enough.
+    Returns True if a usable list exists after this call, False if not."""
+    return _spamhaus_drop_ensure() != "missing"
 
 
 def _spamhaus_drop_load() -> list:
-    """
-    Parse the local DROP file into a list of (IPv4Network, sbl_id) tuples.
-    Cached in-process; reparses only if the file path or mtime changes.
-    """
+    """The parsed local list as [(IPv4Network, sbl_id)], or [] if the file is missing or is not a
+    complete DROP list (e.g. cut short by a crash). Cached in-process, keyed on path+mtime+size."""
     global _spamhaus_parsed_ranges, _spamhaus_loaded_from
-    if not SPAMHAUS_DROP_CACHE.exists():
-        return []
-    file_marker = (str(SPAMHAUS_DROP_CACHE), SPAMHAUS_DROP_CACHE.stat().st_mtime)
-    if _spamhaus_loaded_from == file_marker and _spamhaus_parsed_ranges is not None:
-        return _spamhaus_parsed_ranges
-
-    parsed = []
-    try:
-        for line in SPAMHAUS_DROP_CACHE.read_text(encoding="utf-8").splitlines():
-            line = line.strip()
-            if not line or line.startswith(";") or line.startswith("#"):
-                continue
-            # Format: "1.10.16.0/20 ; SBL256894"
-            parts = line.split(";", 1)
-            cidr = parts[0].strip()
-            sbl  = parts[1].strip() if len(parts) > 1 else ""
-            try:
-                net = ipaddress.ip_network(cidr, strict=False)
-                if isinstance(net, ipaddress.IPv4Network):
-                    parsed.append((net, sbl))
-            except ValueError as e:
-                log.warning("skipping unparseable DROP line %r: %s", line, e)
-                continue
-    except (OSError, UnicodeDecodeError) as e:
-        log.warning("cannot read DROP list %s: %s", SPAMHAUS_DROP_CACHE, e)
-        return []
-
-    _spamhaus_parsed_ranges = parsed
-    _spamhaus_loaded_from   = file_marker
-    return parsed
+    with _DROP_LOCK:
+        try:
+            st = SPAMHAUS_DROP_CACHE.stat()
+        except OSError:
+            return []
+        marker = (str(SPAMHAUS_DROP_CACHE), st.st_mtime_ns, st.st_size)
+        if _spamhaus_loaded_from == marker and _spamhaus_parsed_ranges is not None:
+            return _spamhaus_parsed_ranges
+        try:
+            text = SPAMHAUS_DROP_CACHE.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError) as e:
+            log.warning("cannot read DROP list %s: %s", SPAMHAUS_DROP_CACHE, e)
+            return []
+        parsed = parse_drop_list(text)
+        if parsed is None:
+            log.warning("DROP list %s is incomplete or malformed; ignoring it", SPAMHAUS_DROP_CACHE)
+            return []
+        _spamhaus_parsed_ranges, _spamhaus_loaded_from = parsed, marker
+        return parsed
 
 
 def spamhaus_drop_check_ip(conn: sqlite3.Connection, ip: str) -> dict:
@@ -779,7 +953,8 @@ def spamhaus_drop_check_ip(conn: sqlite3.Connection, ip: str) -> dict:
         cached["_cached"] = True
         return cached
 
-    if not _spamhaus_drop_refresh_if_stale():
+    status = _spamhaus_drop_ensure()
+    if status == "missing":
         return {"available": False, "reason": "DROP list not reachable and no local cache"}
 
     ranges = _spamhaus_drop_load()
@@ -828,7 +1003,10 @@ def spamhaus_drop_check_ip(conn: sqlite3.Connection, ip: str) -> dict:
             "message":    f"Not in any of {len(ranges)} DROP ranges",
             "_cached":    False,
         }
-    cache_put(conn, ip, "spamhaus_drop", normalized)
+    # A hit is always true. A MISS is only as good as the list behind it: when the refresh failed and
+    # an older list answered, do not pin "not in DROP" for 24h; ask again next time.
+    if match or status == "fresh":
+        cache_put(conn, ip, "spamhaus_drop", normalized)
     return normalized
 
 
@@ -1942,7 +2120,7 @@ def bucket_observed_ip(ip: str) -> dict:
 def render_header(ioc: str, ioc_type: str) -> None:
     console.print()
     console.print(f"[bold cyan]sentinelforge hunt[/]  ·  [dim]SentinelForge[/]")
-    console.print(f"[bold]> {ioc}[/]  [dim]({ioc_type})[/]")
+    console.print(f"[bold]> {_esc(ioc)}[/]  [dim]({_esc(ioc_type)})[/]")
     console.print()
 
 
@@ -1954,8 +2132,8 @@ def render_verdict(verdict: dict) -> None:
     if not verdict:
         return
 
-    label = (verdict.get("verdict") or "unknown").upper()
-    action = verdict.get("action") or "MONITOR"
+    label = _esc((verdict.get("verdict") or "unknown").upper())
+    action = _esc(verdict.get("action") or "MONITOR")
     score = verdict.get("score", 0)
 
     # Color by verdict severity
@@ -1986,24 +2164,24 @@ def render_verdict(verdict: dict) -> None:
             for name, contribution in nonzero[:5]:
                 if contribution > 0:
                     bar = "█" * min(20, int(abs(contribution)))
-                    console.print(f"    [bold]{name:<14}[/] [red]{bar}[/] [bold]+{contribution:.1f}[/]")
+                    console.print(f"    [bold]{_esc(name):<14}[/] [red]{bar}[/] [bold]+{contribution:.1f}[/]")
                 else:
                     bar = "█" * min(20, int(abs(contribution)))
-                    console.print(f"    [bold]{name:<14}[/] [green]{bar}[/] [bold]{contribution:.1f}[/] [dim](anti-signal)[/]")
+                    console.print(f"    [bold]{_esc(name):<14}[/] [green]{bar}[/] [bold]{contribution:.1f}[/] [dim](anti-signal)[/]")
 
     # Floors applied (override rules that adjusted the score)
     floors = verdict.get("floors_applied", []) or []
     if floors:
         console.print("  [dim]Overrides applied:[/]")
         for f in floors:
-            console.print(f"    [dim]·[/] {f}")
+            console.print(f"    [dim]·[/] {_esc(f)}")
 
     # Cross-source conflicts (Layer 8 defense)
     conflicts = verdict.get("conflicts", []) or []
     if conflicts:
         console.print("  [bold yellow]⚠ Cross-source disagreement:[/]")
         for c in conflicts:
-            console.print(f"    [yellow]·[/] {c}")
+            console.print(f"    [yellow]·[/] {_esc(c)}")
 
     if verdict.get("safety_brake"):
         console.print("  [dim](safety brake applied — verdict capped due to high-confidence anti-signal)[/]")
@@ -2015,11 +2193,11 @@ def render_identity(identity: dict) -> None:
     table = Table.grid(padding=(0, 2))
     table.add_column(style="bold")
     table.add_column()
-    table.add_row("IP",         identity.get("ip") or "—")
-    table.add_row("ASN",        str(identity.get("asn") or "—"))
-    table.add_row("ASN Org",    identity.get("asn_org") or "—")
-    table.add_row("Country",    identity.get("country") or "—")
-    table.add_row("City",       identity.get("city") or "—")
+    table.add_row("IP",         _esc(identity.get("ip") or "—"))
+    table.add_row("ASN",        _esc(identity.get("asn") or "—"))
+    table.add_row("ASN Org",    _esc(identity.get("asn_org") or "—"))
+    table.add_row("Country",    _esc(identity.get("country") or "—"))
+    table.add_row("City",       _esc(identity.get("city") or "—"))
     console.print("[bold yellow]IDENTITY[/]")
     console.print(table)
     console.print()
@@ -2028,7 +2206,7 @@ def render_identity(identity: dict) -> None:
 def render_observed(observed: dict) -> None:
     if observed.get("error"):
         console.print("[bold yellow]OBSERVED[/]")
-        console.print(f"  [red]Error querying T-Pot:[/] {observed['error']}")
+        console.print(f"  [red]Error querying T-Pot:[/] {_esc(observed['error'])}")
         console.print()
         return
 
@@ -2042,14 +2220,14 @@ def render_observed(observed: dict) -> None:
     table = Table.grid(padding=(0, 2))
     table.add_column(style="bold")
     table.add_column()
-    table.add_row("Events", str(count))
+    table.add_row("Events", _esc(count))
     if observed.get("honeypots"):
         breakdown = ", ".join(f"{h['name']} ({h['count']})" for h in observed["honeypots"])
-        table.add_row("Honeypots", breakdown)
+        table.add_row("Honeypots", _esc(breakdown))
     if observed.get("first_seen"):
-        table.add_row("First seen", observed["first_seen"])
+        table.add_row("First seen", _esc(observed["first_seen"]))
     if observed.get("last_seen"):
-        table.add_row("Last seen",  observed["last_seen"])
+        table.add_row("Last seen",  _esc(observed["last_seen"]))
     console.print(table)
     console.print()
 
@@ -2072,14 +2250,14 @@ def render_external(external: dict, ioc: str) -> None:
         uh = external.get("urlhaus") or {}
         uh_link = f"https://urlhaus.abuse.ch/host/{ioc}/"
         if not uh.get("available"):
-            reason = uh.get("reason") or "no data"
+            reason = _esc(uh.get("reason") or "no data")
             table.add_row("URLhaus", f"[dim]not available - {reason}[/]", f"[link={uh_link}]open[/]")
         elif not uh.get("listed"):
             table.add_row("URLhaus", "[dim]not listed[/]", f"[link={uh_link}]open[/]")
         else:
             n = uh.get("url_count") or 0
             online = uh.get("urls_online") or 0
-            threats = uh.get("threats") or []
+            threats = [_esc(t) for t in (uh.get("threats") or [])]
             summary = f"[bold red]{n} malware URLs[/]"
             if online:
                 summary += f"  [bold red]{online} online[/]"
@@ -2093,13 +2271,13 @@ def render_external(external: dict, ioc: str) -> None:
         mb = external.get("malwarebazaar") or {}
         mb_link = f"https://bazaar.abuse.ch/sample/{ioc}/"
         if not mb.get("available"):
-            reason = mb.get("reason") or "no data"
+            reason = _esc(mb.get("reason") or "no data")
             table.add_row("MalwareBazaar", f"[dim]not available - {reason}[/]", f"[link={mb_link}]open[/]")
         elif not mb.get("in_corpus"):
             table.add_row("MalwareBazaar", "[dim]not in corpus[/]", f"[link={mb_link}]open[/]")
         else:
-            sig = mb.get("signature") or "unknown family"
-            ftype = mb.get("file_type") or ""
+            sig = _esc(mb.get("signature") or "unknown family")
+            ftype = _esc(mb.get("file_type") or "")
             vc = mb.get("vendor_count") or 0
             summary = f"[bold red]{sig}[/]"
             if ftype:
@@ -2115,7 +2293,7 @@ def render_external(external: dict, ioc: str) -> None:
             ab = external.get("abuseipdb") or {}
             ab_link = f"https://www.abuseipdb.com/check/{ioc}"
             if not ab.get("available"):
-                reason = ab.get("reason") or "no data"
+                reason = _esc(ab.get("reason") or "no data")
                 table.add_row("AbuseIPDB", f"[dim]not available — {reason}[/]", f"[link={ab_link}]open ↗[/]")
             else:
                 score = ab.get("abuse_score", 0)
@@ -2138,11 +2316,12 @@ def render_external(external: dict, ioc: str) -> None:
         gn = external.get("greynoise") or {}
         gn_link = f"https://viz.greynoise.io/ip/{ioc}"
         if not gn.get("available"):
-            reason = gn.get("reason") or "no data"
+            reason = _esc(gn.get("reason") or "no data")
             table.add_row("GreyNoise", f"[dim]not available — {reason}[/]", f"[link={gn_link}]open ↗[/]")
         else:
             cls = gn.get("classification", "unknown")
-            name = gn.get("name")
+            name = _esc(gn.get("name")) if gn.get("name") else None
+            cls = _esc(cls)
             if cls == "malicious":
                 cls_str = "[bold red]malicious[/]"
             elif cls == "benign":
@@ -2165,7 +2344,7 @@ def render_external(external: dict, ioc: str) -> None:
     vt = external.get("virustotal") or {}
     vt_link = f"https://www.virustotal.com/gui/ip-address/{ioc}"
     if not vt.get("available"):
-        reason = vt.get("reason") or "no data"
+        reason = _esc(vt.get("reason") or "no data")
         table.add_row("VirusTotal", f"[dim]not available — {reason}[/]", f"[link={vt_link}]open ↗[/]")
     else:
         m = vt.get("malicious", 0)
@@ -2192,7 +2371,7 @@ def render_external(external: dict, ioc: str) -> None:
     otx = external.get("otx") or {}
     otx_link = f"https://otx.alienvault.com/indicator/ip/{ioc}"
     if not otx.get("available"):
-        reason = otx.get("reason") or "no data"
+        reason = _esc(otx.get("reason") or "no data")
         table.add_row("OTX", f"[dim]not available — {reason}[/]", f"[link={otx_link}]open ↗[/]")
     else:
         pc = otx.get("pulse_count", 0)
@@ -2204,7 +2383,7 @@ def render_external(external: dict, ioc: str) -> None:
             summary = f"[yellow]{pc} pulses[/]"
         top_pulses = otx.get("top_pulses") or []
         if top_pulses:
-            summary += f" — \"{top_pulses[0]}\""
+            summary += f" — \"{_esc(top_pulses[0])}\""
             if len(top_pulses) > 1:
                 summary += f" +{len(top_pulses)-1} more"
         if otx.get("_cached"):
@@ -2215,7 +2394,7 @@ def render_external(external: dict, ioc: str) -> None:
     tf = external.get("threatfox") or {}
     tf_link = f"https://threatfox.abuse.ch/browse.php?search=ioc%3A{ioc}"
     if not tf.get("available"):
-        reason = tf.get("reason") or "no data"
+        reason = _esc(tf.get("reason") or "no data")
         table.add_row("ThreatFox", f"[dim]not available — {reason}[/]", f"[link={tf_link}]open ↗[/]")
     else:
         mc = tf.get("match_count", 0)
@@ -2223,7 +2402,7 @@ def render_external(external: dict, ioc: str) -> None:
         if mc == 0:
             summary = "[dim]not in DB[/]"
         else:
-            families = list({m["malware"] for m in matches if m.get("malware")})
+            families = sorted({_esc(m["malware"]) for m in matches if isinstance(m, dict) and m.get("malware")})
             if families:
                 summary = f"[bold red]{mc} matches[/] — " + ", ".join(families[:3])
                 if len(families) > 3:
@@ -2239,7 +2418,7 @@ def render_external(external: dict, ioc: str) -> None:
         idb = external.get("internetdb") or {}
         idb_link = f"https://internetdb.shodan.io/{ioc}"
         if not idb.get("available"):
-            reason = idb.get("reason") or "no data"
+            reason = _esc(idb.get("reason") or "no data")
             table.add_row("InternetDB", f"[dim]not available — {reason}[/]", f"[link={idb_link}]open ↗[/]")
         else:
             ports = idb.get("ports", []) or []
@@ -2248,14 +2427,14 @@ def render_external(external: dict, ioc: str) -> None:
             if not ports:
                 summary = "[dim]no scan data[/]"
             else:
-                port_str = ", ".join(str(p) for p in ports[:8])
+                port_str = ", ".join(_esc(p) for p in ports[:8])
                 if len(ports) > 8:
                     port_str += f" +{len(ports)-8} more"
                 summary = f"{len(ports)} ports: {port_str}"
                 if vulns:
                     summary += f"  [red]{len(vulns)} CVEs[/]"
                 if tags:
-                    summary += f"  [yellow]tags: {', '.join(tags[:3])}[/]"
+                    summary += f"  [yellow]tags: {', '.join(_esc(t) for t in tags[:3])}[/]"
             if idb.get("_cached"):
                 summary += " [dim](cached)[/]"
             table.add_row("InternetDB", summary, f"[link={idb_link}]open ↗[/]")
@@ -2265,11 +2444,11 @@ def render_external(external: dict, ioc: str) -> None:
         sh = external.get("spamhaus_drop") or {}
         sh_link = "https://www.spamhaus.org/drop/"
         if not sh.get("available"):
-            reason = sh.get("reason") or "no data"
+            reason = _esc(sh.get("reason") or "no data")
             table.add_row("Spamhaus DROP", f"[dim]not available — {reason}[/]", f"[link={sh_link}]open ↗[/]")
         else:
             if sh.get("in_drop"):
-                summary = f"[bold red on yellow] IN DROP [/]  range {sh.get('range')}  ({sh.get('sbl')})"
+                summary = f"[bold red on yellow] IN DROP [/]  range {_esc(sh.get('range'))}  ({_esc(sh.get('sbl'))})"
             else:
                 summary = "[dim]not listed[/]"
             if sh.get("_cached"):
@@ -2297,7 +2476,7 @@ def render_rules(rules_data: dict) -> None:
         return
 
     console.print("[bold yellow]RULES[/] [dim](Water detection coverage)[/]")
-    tech_str = ", ".join(techniques[:3])
+    tech_str = _esc(", ".join(str(t) for t in techniques[:3]))
     console.print(f"  [dim]Attacker behavior suggests:[/] [bold]{tech_str}[/]")
 
     if not matches:
@@ -2314,23 +2493,23 @@ def render_rules(rules_data: dict) -> None:
         console.print(f"  [bold magenta]{len(pending)} pending review[/] "
                       f"[dim](hunt-triggered, awaiting analyst approval)[/]")
         for rule in pending[:5]:
-            title = (rule.get("title") or "?")[:70]
-            techs = ", ".join(rule.get("techniques") or [])
+            title = _esc((rule.get("title") or "?")[:70])
+            techs = _esc(", ".join(str(t) for t in (rule.get("techniques") or [])))
             console.print(f"    [magenta]·[/] {title}  [dim]({techs})[/]")
             if rule.get("triggered_by_ioc"):
-                triggered_ioc = rule["triggered_by_ioc"]
-                hunt_id = (rule.get("triggered_by_hunt_id") or "")[:8]
+                triggered_ioc = _esc(rule["triggered_by_ioc"])
+                hunt_id = _esc((rule.get("triggered_by_hunt_id") or "")[:8])
                 console.print(f"      [dim]triggered by hunt of[/] [bold]{triggered_ioc}[/] [dim]({hunt_id}…)[/]")
-            console.print(f"      [dim]{rule['path']}[/]")
+            console.print(f"      [dim]{_esc(rule['path'])}[/]")
 
     if production:
         console.print(f"  [bold green]{len(production)} in production[/]")
         for rule in production[:5]:
-            title = (rule.get("title") or "?")[:70]
-            techs = ", ".join(rule.get("techniques") or [])
-            level = rule.get("level", "?")
+            title = _esc((rule.get("title") or "?")[:70])
+            techs = _esc(", ".join(str(t) for t in (rule.get("techniques") or [])))
+            level = _esc(rule.get("level", "?"))
             console.print(f"    [green]·[/] {title}  [dim]({techs}, level={level})[/]")
-            console.print(f"      [dim]{rule['path']}[/]")
+            console.print(f"      [dim]{_esc(rule['path'])}[/]")
 
     console.print()
 
@@ -2345,7 +2524,7 @@ def render_pivots(pivots: list) -> None:
 
     console.print("[bold yellow]PIVOTS[/] [dim](suggested next hunts)[/]")
     for p in pivots:
-        question = p.get("question", "")
+        question = _esc(p.get("question", ""))
         count = p.get("distinct_count", 0)
         examples = p.get("top_examples", []) or []
         filtered_count = p.get("self_ips_filtered", 0)
@@ -2362,7 +2541,7 @@ def render_pivots(pivots: list) -> None:
         if examples:
             console.print(f"    [dim]{count_str} distinct IPs.[/] Top by activity:")
             for ex in examples[:5]:
-                console.print(f"      [dim]·[/] {ex['ip']:<18} [dim]{ex['events']} events[/]")
+                console.print(f"      [dim]·[/] {_esc(ex['ip']):<18} [dim]{_esc(ex['events'])} events[/]")
         else:
             # All top examples were self-IPs and got filtered
             console.print(f"    [dim]{count_str} distinct IPs (all top examples were filtered as self-IPs)[/]")
@@ -2370,7 +2549,7 @@ def render_pivots(pivots: list) -> None:
             console.print(f"    [dim]({filtered_count} self-IPs filtered out)[/]")
         qh = p.get("query_hint")
         if qh:
-            console.print(f"    [dim]Kibana KQL:[/] [dim italic]{qh}[/]")
+            console.print(f"    [dim]Kibana KQL:[/] [dim italic]{_esc(qh)}[/]")
         console.print()
 
 
@@ -2403,10 +2582,10 @@ def render_memory(past_hunts: list) -> None:
     table = Table.grid(padding=(0, 2))
     table.add_column(style="bold")
     table.add_column()
-    table.add_row("Last hunted", f"{elapsed}  [dim]({ts})[/]")
+    table.add_row("Last hunted", f"{elapsed}  [dim]({_esc(ts)})[/]")
     table.add_row("Total hunts", str(n))
     if most_recent.get("notes"):
-        table.add_row("Last note",  most_recent["notes"])
+        table.add_row("Last note",  _esc(most_recent["notes"]))
     console.print(table)
     console.print("[dim]  Tip: re-run with --fresh to re-enrich and ignore memory.[/]")
     console.print()
@@ -2436,7 +2615,7 @@ def render_honest_limits(ioc_type: str) -> None:
 
 def render_history_list(hunts: list, header: str = "RECENT HUNTS") -> None:
     """Render a list of past hunts (used by --history command)."""
-    console.print(f"[bold cyan]{header}[/]")
+    console.print(f"[bold cyan]{_esc(header)}[/]")
     if not hunts:
         console.print("  [dim]No hunts recorded yet.[/]")
         console.print()
@@ -2459,7 +2638,7 @@ def render_history_list(hunts: list, header: str = "RECENT HUNTS") -> None:
                 when = f"{delta.days}d ago"
         except ValueError:
             when = ts[:19]
-        table.add_row(when, h["ioc"], h["ioc_type"], h.get("notes") or "")
+        table.add_row(_esc(when), _esc(h["ioc"]), _esc(h["ioc_type"]), _esc(h.get("notes") or ""))
     console.print(table)
     console.print()
 
@@ -2467,16 +2646,17 @@ def render_history_list(hunts: list, header: str = "RECENT HUNTS") -> None:
 # ── Main ──────────────────────────────────────────────────────────────────────
 def hunt(ioc: str, fresh: bool = False) -> int:
     """Run a hunt against an IOC. Returns exit code."""
-    ioc_type = detect_ioc_type(ioc)
+    ioc, ioc_type, rejection = normalize_ioc(ioc)
     render_header(ioc, ioc_type)
 
-    if ioc_type not in ("ipv4", "md5", "sha1", "sha256", "domain"):
-        console.print(f"[bold red]Hunt does not yet support this IOC type.[/]")
-        console.print(f"[dim]Detected type: {ioc_type}. Supported: IPv4, file hashes, domains.[/]")
+    if rejection:
+        # Rejected BEFORE the memory DB, ES or any third party is touched.
+        console.print(f"[bold red]Hunt will not look this up:[/] {_esc(rejection)}")
+        console.print(f"[dim]Detected type: {ioc_type}. Supported: public IPv4, file hashes, domains.[/]")
         console.print()
         return 2
 
-    conn = memory_init()
+    conn = memory_init(bypass_cache_reads=fresh)
     is_hash = ioc_type in ("md5", "sha1", "sha256")
     is_domain = ioc_type == "domain"
     is_light = is_hash or is_domain
@@ -2486,7 +2666,7 @@ def hunt(ioc: str, fresh: bool = False) -> int:
     if past_hunts and not fresh:
         render_memory(past_hunts)
 
-    # Run fresh enrichment (always, for now — Phase 3 may add "show cached" mode)
+    # Enrichment: cached per source within its TTL, unless --fresh (then every source is re-queried)
     started = datetime.now(timezone.utc)
     if is_light:
         identity = {}
@@ -2511,6 +2691,18 @@ def hunt(ioc: str, fresh: bool = False) -> int:
         rules    = bucket_rules(observed, ioc)
     duration_ms = int((datetime.now(timezone.utc) - started).total_seconds() * 1000)
 
+    # Record this hunt (SQLite + ES) BEFORE rendering: a rendering bug must never lose the hunt.
+    result = {
+        "verdict":  verdict,
+        "identity": identity,
+        "observed": observed,
+        "external": external,
+        "pivots":   pivots,
+        "rules":    rules,
+    }
+    hunt_id = memory_record_hunt(conn, ioc, ioc_type, result, duration_ms)
+    conn.close()
+
     # VERDICT renders FIRST — analyst's primary question is "is this bad?"
     render_verdict(verdict)
     if not is_light:
@@ -2521,21 +2713,8 @@ def hunt(ioc: str, fresh: bool = False) -> int:
         render_rules(rules)
         render_pivots(pivots)
     render_honest_limits(ioc_type)
-
-    # Record this hunt to memory (SQLite + ES)
-    result = {
-        "verdict":  verdict,
-        "identity": identity,
-        "observed": observed,
-        "external": external,
-        "pivots":   pivots,
-        "rules":    rules,
-    }
-    hunt_id = memory_record_hunt(conn, ioc, ioc_type, result, duration_ms)
     console.print(f"[dim]hunt_id: {hunt_id}  ·  {duration_ms}ms[/]")
     console.print()
-
-    conn.close()
     return 0
 
 
@@ -2547,6 +2726,7 @@ def show_history(ioc: str = None, limit: int = 50) -> int:
     console.print()
 
     if ioc:
+        ioc = normalize_ioc(ioc)[0]       # same canonical form the hunts were stored under
         hunts = memory_lookup_ioc(conn, ioc)
         render_history_list(hunts, header=f"HUNTS FOR {ioc}")
     else:
@@ -2565,7 +2745,8 @@ def main() -> int:
     parser.add_argument("ioc", nargs="?",
                         help="The IOC to investigate (IPv4 only currently)")
     parser.add_argument("--fresh", action="store_true",
-                        help="Skip memory check, re-enrich from scratch")
+                        help="Ignore the MEMORY panel and every cached enrichment result: re-query all sources "
+                             "(the fresh answers refresh the cache)")
     parser.add_argument("--history", action="store_true",
                         help="Show recent hunts (or pass an IOC to filter)")
     args = parser.parse_args()

@@ -29,10 +29,14 @@ def mem(tmp_path, monkeypatch):
     conn.close()
 
 
-def _fake_all(monkeypatch, delay=0.0, fail=None):
+def _fake_all(monkeypatch, barrier=None, fail=None):
+    """Fake every IP source. With a barrier, each source blocks until ALL of them are running at the
+    same moment: that only happens if they run concurrently (a serial run times the barrier out and
+    the source is reported unavailable), so no wall-clock assertion is needed."""
     def make(name):
         def fake(conn, ip, *a):
-            time.sleep(delay)
+            if barrier is not None:
+                barrier.wait()
             if name == fail:
                 raise RuntimeError("boom " + name)
             return {"available": True, "src": name}
@@ -43,33 +47,32 @@ def _fake_all(monkeypatch, delay=0.0, fail=None):
 
 
 def test_bucket_external_ip_queries_sources_in_parallel(monkeypatch):
-    _fake_all(monkeypatch, delay=0.3)
-    start = time.monotonic()
-    out = sf_hunt.bucket_external_ip(None, "203.0.113.9")
-    elapsed = time.monotonic() - start
+    n = len(IP_SOURCES) + 1                                  # + threatfox
+    _fake_all(monkeypatch, barrier=threading.Barrier(n, timeout=10))
+    out = sf_hunt.bucket_external_ip(None, "8.8.8.8")
     assert set(out) == set(IP_SOURCES) | {"threatfox"}
-    assert elapsed < 0.3 * 7 * 0.6  # 7 sources, well under the serial sum (2.1s)
+    assert all(v["available"] is True for v in out.values()), out   # barrier broke => ran serially
 
 
 def test_bucket_external_hash_and_domain_run_in_parallel(monkeypatch):
-    def slow(name):
+    def gated(name, barrier):
         def f(conn, *a):
-            time.sleep(0.3)
+            barrier.wait()
             return {"available": True, "src": name}
         return f
+    barrier = threading.Barrier(4, timeout=10)
     for fn in ("malwarebazaar_check_hash", "virustotal_check_hash", "otx_check_hash"):
-        monkeypatch.setattr(sf_hunt, fn, slow(fn))
-    monkeypatch.setattr(sf_hunt, "threatfox_check_ioc", slow("tf"))
-    start = time.monotonic()
+        monkeypatch.setattr(sf_hunt, fn, gated(fn, barrier))
+    monkeypatch.setattr(sf_hunt, "threatfox_check_ioc", gated("tf", barrier))
     out = sf_hunt.bucket_external_hash(None, "a" * 64, "sha256")
-    assert time.monotonic() - start < 0.3 * 4 * 0.7
     assert set(out) == {"malwarebazaar", "virustotal", "otx", "threatfox"}
+    assert all(v["available"] is True for v in out.values()), out
 
 
 def test_source_failure_is_logged_and_scored_unknown_not_swallowed(monkeypatch, caplog):
     _fake_all(monkeypatch, fail="virustotal")
     with caplog.at_level(logging.WARNING, logger="sf_hunt"):
-        out = sf_hunt.bucket_external_ip(None, "203.0.113.9")
+        out = sf_hunt.bucket_external_ip(None, "8.8.8.8")
     assert out["virustotal"]["available"] is False
     assert "RuntimeError" in out["virustotal"]["reason"]
     assert out["abuseipdb"]["available"] is True  # isolated: the others still answered
@@ -78,8 +81,29 @@ def test_source_failure_is_logged_and_scored_unknown_not_swallowed(monkeypatch, 
     assert verdict["signals"]["virustotal"] == 0.0  # unknown contributes nothing
 
 
-def test_malwarebazaar_ttl_is_24h():
-    assert sf_hunt.CACHE_TTL_SECONDS["malwarebazaar"] == 24 * 3600
+def _put_aged(conn, ioc, source, hours_old):
+    from datetime import datetime, timedelta, timezone
+    ts = (datetime.now(timezone.utc) - timedelta(hours=hours_old)).isoformat()
+    conn.execute("INSERT OR REPLACE INTO enrichment_cache VALUES (?,?,?,?,200)",
+                 (ioc, source, ts, '{"available": true}'))
+    conn.commit()
+
+
+def test_malwarebazaar_entries_live_24h_not_longer(mem):
+    """Behaviour, not the constant: a 23h-old entry is served, a 25h-old one is a miss."""
+    _put_aged(mem, "h1", "malwarebazaar", 23)
+    _put_aged(mem, "h2", "malwarebazaar", 25)
+    assert sf_hunt.cache_get(mem, "h1", "malwarebazaar") == {"available": True}
+    assert sf_hunt.cache_get(mem, "h2", "malwarebazaar") is None
+
+
+def test_greynoise_ttl_is_shorter_than_malwarebazaar(mem):
+    _put_aged(mem, "ip", "greynoise", 5)
+    _put_aged(mem, "ip2", "greynoise", 7)
+    _put_aged(mem, "ip3", "malwarebazaar", 7)
+    assert sf_hunt.cache_get(mem, "ip", "greynoise") is not None
+    assert sf_hunt.cache_get(mem, "ip2", "greynoise") is None
+    assert sf_hunt.cache_get(mem, "ip3", "malwarebazaar") is not None
 
 
 def test_cache_roundtrip_is_thread_safe(mem):

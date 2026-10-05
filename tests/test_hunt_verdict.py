@@ -135,3 +135,78 @@ def test_numeric_string_score_is_coerced_not_a_typeerror():
 def test_non_dict_source_payloads_are_ignored():
     v = sf_hunt.bucket_verdict({}, {"virustotal": "oops", "otx": ["x"], "abuseipdb": 5}, "ipv4")
     assert v["insufficient_data"] is True
+
+
+# ── bands, floors and overrides (previously untested) ────────────────────────
+@pytest.mark.parametrize("score,expected", [
+    (100, "malicious"), (80, "malicious"), (79.9, "suspicious"), (60, "suspicious"),
+    (59.9, "unknown"), (40, "unknown"), (39.9, "benign"), (0, "benign"),
+])
+def test_band_boundaries(score, expected):
+    assert sf_hunt._band_for_score(score)[0] == expected
+
+
+def test_drop_plus_heavy_honeypot_floors_at_85():
+    v = sf_hunt.bucket_verdict({"event_count": 20000},
+                               {"spamhaus_drop": {"available": True, "in_drop": True}}, "ipv4")
+    assert v["score"] >= 85 and v["verdict"] == "malicious"
+    assert any("IN DROP + T-Pot" in f for f in v["floors_applied"])
+
+
+def test_heavy_honeypot_alone_applies_the_75_floor():
+    v = sf_hunt.bucket_verdict({"event_count": 20000},
+                               {"otx": {"available": True, "pulse_count": 0}}, "ipv4")
+    assert v["score"] >= 75 and v["verdict"] in ("suspicious", "malicious")
+    assert any("T-Pot" in f and "floor 75" in f for f in v["floors_applied"])
+
+
+def test_riot_safety_brake_caps_at_unknown_unless_in_drop():
+    ext = {"greynoise": {"available": True, "classification": "benign", "riot": True, "name": "Cloudflare"},
+           "virustotal": {"available": True, "malicious": 60, "suspicious": 0, "total_engines": 90}}
+    v = sf_hunt.bucket_verdict({"event_count": 20000}, ext, "ipv4")
+    assert v["safety_brake"] is True and v["verdict"] == "unknown" and v["score"] == 59.0
+    ext["spamhaus_drop"] = {"available": True, "in_drop": True}
+    assert sf_hunt.bucket_verdict({"event_count": 20000}, ext, "ipv4")["safety_brake"] is False
+
+
+def test_greynoise_benign_is_an_anti_signal_that_lowers_the_score():
+    base = {"abuseipdb": {"available": True, "abuse_score": 80},
+            "virustotal": {"available": True, "malicious": 60, "suspicious": 0, "total_engines": 90},
+            "threatfox": {"available": True, "match_count": 5}}
+    plain = sf_hunt.bucket_verdict({}, base, "ipv4")
+    benign = sf_hunt.bucket_verdict(
+        {}, dict(base, greynoise={"available": True, "classification": "benign"}), "ipv4")
+    assert benign["contributions"]["greynoise"] < 0
+    assert benign["raw_score"] < plain["raw_score"]
+
+
+def test_hash_floors_malwarebazaar_signature_and_vt_consensus():
+    mb = sf_hunt.bucket_verdict({}, {"malwarebazaar": {"available": True, "in_corpus": True,
+                                                        "signature": "Emotet"}}, "sha256")
+    assert mb["score"] >= 85 and mb["verdict"] == "malicious"
+    vt = sf_hunt.bucket_verdict({}, {"virustotal": {"available": True, "in_corpus": True, "malicious": 30,
+                                                     "suspicious": 0, "total_engines": 70}}, "sha256")
+    assert vt["verdict"] == "malicious"
+    quiet = {"malwarebazaar": {"available": True, "in_corpus": False},
+             "threatfox": {"available": True, "match_count": 0},
+             "otx": {"available": True, "pulse_count": 0}}
+    weak = sf_hunt.bucket_verdict({}, dict(quiet, virustotal={"available": True, "in_corpus": True,
+                                                              "malicious": 6, "suspicious": 0,
+                                                              "total_engines": 60}), "sha256")
+    assert weak["verdict"] == "suspicious" and weak["score"] == 65.0
+    assert any("floor 65" in f for f in weak["floors_applied"])
+
+
+def test_domain_urlhaus_live_floor_and_offline_floor():
+    live = sf_hunt.bucket_verdict({}, {"urlhaus": {"available": True, "listed": True, "urls_online": 3}},
+                                  "domain")
+    off = sf_hunt.bucket_verdict({}, {"urlhaus": {"available": True, "listed": True, "urls_online": 0}},
+                                 "domain")
+    assert live["verdict"] == "malicious" and off["verdict"] == "suspicious"
+
+
+def test_conflicts_are_reported_for_benign_vs_malicious_signals():
+    ext = {"greynoise": {"available": True, "classification": "benign"},
+           "abuseipdb": {"available": True, "abuse_score": 90}}
+    v = sf_hunt.bucket_verdict({}, ext, "ipv4")
+    assert any("AbuseIPDB scores 90" in c for c in v["conflicts"])

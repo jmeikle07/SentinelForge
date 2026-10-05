@@ -87,7 +87,7 @@ def test_web_uses_sys_executable_not_python3(client, fake_run):
 def test_web_hunt_rate_limited(client, monkeypatch):
     monkeypatch.setattr(sf_web, "HUNT_RATE_LIMIT", 3)
     monkeypatch.setattr(sf_web, "_run_hunt", lambda ioc: {"ioc": ioc})
-    codes = [client.get("/api/hunt", params={"ioc": "203.0.113.9"}).status_code for _ in range(5)]
+    codes = [client.get("/api/hunt", params={"ioc": "8.8.8.8"}).status_code for _ in range(5)]
     assert codes == [200, 200, 200, 429, 429]
     assert "Retry-After" in client.get("/api/hunt", params={"ioc": "x"}).headers
 
@@ -116,13 +116,13 @@ def test_run_hunt_logs_failure_of_ip_enrichment_and_still_returns(monkeypatch, c
         def close(self):
             pass
 
-    monkeypatch.setattr(sf_web.tk, "memory_init", lambda: Conn())
+    monkeypatch.setattr(sf_web.tk, "memory_init_ephemeral", lambda: Conn())
     monkeypatch.setattr(sf_web.tk, "bucket_external_ip",
                         lambda c, ip: (_ for _ in ()).throw(RuntimeError("siem down")))
     with caplog.at_level("WARNING"):
-        out = sf_web._run_hunt("203.0.113.9")
+        out = sf_web._run_hunt("8.8.8.8")
     assert out["supported"] is True and out["external"] == {}
-    assert any("siem down" in r.getMessage() or "203.0.113.9" in r.getMessage() for r in caplog.records)
+    assert any("siem down" in r.getMessage() or "8.8.8.8" in r.getMessage() for r in caplog.records)
 
 
 def _stub_enrichment(monkeypatch, external):
@@ -130,7 +130,7 @@ def _stub_enrichment(monkeypatch, external):
         def close(self):
             pass
 
-    monkeypatch.setattr(sf_web.tk, "memory_init", lambda: Conn())
+    monkeypatch.setattr(sf_web.tk, "memory_init_ephemeral", lambda: Conn())
     monkeypatch.setattr(sf_web.tk, "bucket_external_ip", lambda c, ip: external)
 
 
@@ -146,14 +146,14 @@ _ALL_MALICIOUS = {
 
 def test_web_route_all_sources_malicious_is_malicious(monkeypatch):
     _stub_enrichment(monkeypatch, _ALL_MALICIOUS)
-    v = sf_web._run_hunt("198.51.100.7")["verdict"]
+    v = sf_web._run_hunt("1.1.1.1")["verdict"]
     assert v["verdict"] == "malicious" and v["action"] == "BLOCK"
 
 
 def test_web_route_matches_bucket_verdict_directly(monkeypatch):
     ext = dict(_ALL_MALICIOUS, spamhaus_drop={"available": True, "in_drop": True})
     _stub_enrichment(monkeypatch, ext)
-    via_web = sf_web._run_hunt("198.51.100.7")["verdict"]
+    via_web = sf_web._run_hunt("1.1.1.1")["verdict"]
     assert via_web == sf_web.tk.bucket_verdict({}, ext, "ipv4")
     assert via_web["verdict"] == "malicious"      # DROP not capped at SUSPICIOUS
 
@@ -169,7 +169,7 @@ def test_web_route_all_sources_failing_is_not_benign(monkeypatch):
 def test_web_route_string_typed_api_fields_do_not_500(client, monkeypatch):
     ext = dict(_ALL_MALICIOUS, abuseipdb={"available": True, "abuse_score": "100"})
     _stub_enrichment(monkeypatch, ext)
-    r = client.get("/api/hunt", params={"ioc": "198.51.100.7"})
+    r = client.get("/api/hunt", params={"ioc": "1.1.1.1"})
     assert r.status_code == 200 and r.json()["verdict"]["verdict"] == "malicious"
 
 
