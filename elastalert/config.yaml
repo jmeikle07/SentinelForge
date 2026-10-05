@@ -1,9 +1,12 @@
-es_host: 10.0.0.1
-es_port: 9200
+# SentinelForge ElastAlert config TEMPLATE. Never put secrets here.
+# Render with elastalert/run.sh, which substitutes ${...} from the environment
+# (see .env.example) into a git-ignored build directory.
+es_host: ${ELASTIC_HOST}
+es_port: ${ELASTIC_PORT}
 use_ssl: true
-verify_certs: false
-es_api_key: cUNQS0Y1NEJTcHRIZm9pTklVbHo6TFRSd29ZcGJfeVBvMEV4SVRlUENKZw==
-rules_folder: /Users/albundy/detection-lab/elastalert/rules
+verify_certs: true
+es_api_key: ${ELASTIC_API_KEY}
+rules_folder: ${ELASTALERT_RULES_DIR}
 run_every:
   minutes: 5
 buffer_time:

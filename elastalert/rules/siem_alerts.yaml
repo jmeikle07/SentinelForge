@@ -22,15 +22,15 @@ alert:
   - email
 
 email:
-  - 1xlozec@gmail.com
+  - ${ALERT_EMAIL_TO}
 
-smtp_host: smtp.gmail.com
-smtp_port: 465
+smtp_host: ${SMTP_HOST}
+smtp_port: ${SMTP_PORT}
 smtp_ssl: true
-smtp_auth_file: /Users/albundy/detection-lab/elastalert/smtp_auth.yaml
-from_addr: 1xlozec@gmail.com
+smtp_auth_file: ${SMTP_AUTH_FILE}
+from_addr: ${ALERT_EMAIL_FROM}
 
-alert_subject: "[{0}] {1} — {2}"
+alert_subject: "[{0}] {1} - {2}"
 alert_subject_args:
   - "kibana.alert.severity"
   - "kibana.alert.rule.name"
@@ -38,31 +38,30 @@ alert_subject_args:
 
 alert_text_type: alert_text_only
 alert_text: |
-  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  ⚠  DETECTION ALERT  ·  1xLoZec Lab
-  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  ======================================
+  DETECTION ALERT  |  SentinelForge
+  ======================================
 
   Rule:       {0}
   Severity:   {1}
   Host:       {2}
   Time:       {3}
 
-  ──────────────────────────────────────
+  --------------------------------------
   WHAT HAPPENED
-  ──────────────────────────────────────
+  --------------------------------------
   {4}
 
-  ──────────────────────────────────────
+  --------------------------------------
   PROCESS
-  ──────────────────────────────────────
+  --------------------------------------
   Name:       {5}
   Command:    {6}
   Parent:     {7}
   User:       {8}
 
-  ──────────────────────────────────────
-  → https://1xlozec.com
-  ~ tall kitchen ~
+  --------------------------------------
+  Dashboard: ${ALERT_DASHBOARD_URL}
 
 alert_text_args:
   - "kibana.alert.rule.name"

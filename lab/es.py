@@ -40,3 +40,47 @@ def search_all(session: requests.Session, index: str, body: dict, page_size: int
         if len(hits) < page_size:
             return
         query["search_after"] = hits[-1]["sort"]
+
+
+def _auth(base_url: Optional[str], api_key: Optional[str]) -> tuple[str, dict]:
+    if base_url is None:
+        settings = config.load()
+        base_url = settings.elastic_url
+        if api_key is None:
+            api_key = settings.elastic_api_key
+    headers = {"Content-Type": "application/json"}
+    if api_key:
+        headers["Authorization"] = f"ApiKey {api_key}"
+    return base_url.rstrip("/"), headers
+
+
+def backtest_body(lucene: str, days: int = 7) -> dict:
+    """Count body for a Lucene query restricted to the last `days` days."""
+    return {"query": {"bool": {"filter": [
+        {"range": {"@timestamp": {"gte": f"now-{int(days)}d"}}},
+        {"query_string": {"query": lucene, "analyze_wildcard": True}},
+    ]}}}
+
+
+def backtest_count(session: requests.Session, lucene: str, days: int = 7, index: str = "logs-*",
+                   *, base_url: Optional[str] = None, api_key: Optional[str] = None) -> int:
+    """Number of events in the last `days` days matching `lucene`. Raises SearchError on any failure."""
+    base, headers = _auth(base_url, api_key)
+    try:
+        resp = session.post(f"{base}/{index}/_count", json=backtest_body(lucene, days), headers=headers)
+        resp.raise_for_status()
+        return int(resp.json()["count"])
+    except (requests.RequestException, KeyError, ValueError, TypeError) as exc:
+        raise SearchError(f"backtest count on {index} failed: {exc}") from exc
+
+
+def search(session: requests.Session, index: str, body: dict,
+           *, base_url: Optional[str] = None, api_key: Optional[str] = None) -> dict:
+    """Single _search call returning the parsed response. Raises SearchError on any failure."""
+    base, headers = _auth(base_url, api_key)
+    try:
+        resp = session.post(f"{base}/{index}/_search", json=body, headers=headers)
+        resp.raise_for_status()
+        return resp.json()
+    except (requests.RequestException, ValueError) as exc:
+        raise SearchError(f"search on {index} failed: {exc}") from exc
