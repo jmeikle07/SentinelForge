@@ -39,6 +39,9 @@ def pipeline() -> ProcessingPipeline:
             "DestinationIp": "destination.ip",
             "DestinationPort": "destination.port",
             "User": "user.name",
+            # No ECS core field exists for integrity level; the Elastic Agent / Winlogbeat
+            # Sysmon integration indexes it as winlog.event_data.IntegrityLevel.
+            "IntegrityLevel": "winlog.event_data.IntegrityLevel",
         })),
     ])
 

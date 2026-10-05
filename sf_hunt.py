@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 """
-1xLoZec Detection Lab
-tallkitchen_hunt — Analyst-facing IOC enrichment companion
+SentinelForge
+sf_hunt — Analyst-facing IOC enrichment companion
 Loads credentials from .env automatically.
 
 Usage:
-    python tallkitchen_hunt.py <ioc>              # hunt an IOC (check memory first)
-    python tallkitchen_hunt.py <ioc> --fresh      # skip memory, re-enrich
-    python tallkitchen_hunt.py --history          # show recent hunts
-    python tallkitchen_hunt.py --history <ioc>    # show past hunts for one IOC
+    python sf_hunt.py <ioc>              # hunt an IOC (check memory first)
+    python sf_hunt.py <ioc> --fresh      # skip memory, re-enrich
+    python sf_hunt.py --history          # show recent hunts
+    python sf_hunt.py --history <ioc>    # show past hunts for one IOC
 
 Phase 5 scope: Engine + transmission (memory) + external + VERDICT + PIVOTS.
 Memory layer: SQLite local cache + ES hunt-logs-* canonical record.
@@ -33,9 +33,10 @@ import uuid
 import socket
 import sqlite3
 import argparse
-import warnings
+import logging
+import threading
 import ipaddress
-import urllib3
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from datetime import datetime, timezone
 
@@ -44,15 +45,18 @@ from dotenv import load_dotenv
 from rich.console import Console
 from rich.table import Table
 from rich.text import Text
+
 from hunt_water_rules import bucket_rules
+from lab import config as lab_config
+from lab import http as lab_http
 
 # ── Setup ─────────────────────────────────────────────────────────────────────
 load_dotenv()
-warnings.filterwarnings("ignore", category=urllib3.exceptions.InsecureRequestWarning)
+log = logging.getLogger(__name__)
 
 # ── Config ────────────────────────────────────────────────────────────────────
-ELASTIC_URL     = os.getenv("ELASTIC_URL",     "https://10.0.0.1:9200")
-ELASTIC_API_KEY = os.getenv("ELASTIC_API_KEY", "")
+# Elastic settings (ELASTIC_URL, ELASTIC_API_KEY, TLS) come from lab.config.load() at call
+# time: there is no default host, and TLS verification is on unless LAB_INSECURE_TLS=1.
 
 # External source API keys (each optional — Hunt degrades gracefully if missing)
 ABUSEIPDB_API_KEY  = os.getenv("ABUSEIPDB_API_KEY",  "")
@@ -63,17 +67,17 @@ ABUSECH_AUTH_KEY   = os.getenv("ABUSECH_AUTH_KEY",   "")   # unlocks URLhaus, Ma
 
 # Self-IPs — IPs that belong to your own infrastructure (droplet, WireGuard mesh,
 # home network). Hunt filters these out of pivot results to reduce noise.
-# Comma-separated list in env: TALLKITCHEN_SELF_IPS="68.183.139.30,10.0.0.1,..."
+# Comma-separated list in env: SF_SELF_IPS="198.51.100.10,192.0.2.5,..."
 SELF_IPS = set(
-    ip.strip() for ip in os.getenv("TALLKITCHEN_SELF_IPS", "").split(",")
+    ip.strip() for ip in os.getenv("SF_SELF_IPS", "").split(",")
     if ip.strip()
 )
 
 TPOT_INDEX      = "tpot-*"
-HUNT_LOGS_INDEX = "tk-hunt-logs"   # we write to tk-hunt-logs (no glob); ES creates as-needed
+HUNT_LOGS_INDEX = "sf-hunt-logs"   # we write to sf-hunt-logs (no glob); ES creates as-needed
 
 # Memory layer — local SQLite cache, lives next to Water's state but in its own dir
-MEMORY_DIR  = Path(__file__).parent / "state" / "tallkitchen"
+MEMORY_DIR  = Path(__file__).resolve().parent / "state" / "sf"
 MEMORY_DB   = MEMORY_DIR / "hunt_memory.db"
 HUNTER_ID   = socket.gethostname()  # provenance: which machine ran the hunt
 
@@ -86,7 +90,7 @@ CACHE_TTL_SECONDS = {
     "threatfox":     12 * 3600,   # 12h — community DB updates frequently
     "internetdb":    24 * 3600,   # 24h — Shodan data is daily-ish
     "spamhaus_drop": 24 * 3600,
-    "malwarebazaar": 7 * 24 * 3600,   # 24h — list itself only changes once per day
+    "malwarebazaar": 24 * 3600,   # 24h — list itself only changes once per day
 }
 
 
@@ -123,17 +127,30 @@ def detect_ioc_type(ioc: str) -> str:
     return "unknown"
 
 
-# ── ELK query helper ──────────────────────────────────────────────────────────
+# ── HTTP / ELK helpers ────────────────────────────────────────────────────────
+def _http():
+    """Third-party intel lookups: lab.http session (TLS on, default timeout) without retries,
+    so a 429 quota response surfaces immediately instead of sleeping on Retry-After."""
+    return lab_http.session(retries=0, timeout=10.0)
+
+
+def _source_failed(source: str, reason: str, exc: BaseException = None) -> dict:
+    """A source lookup failed. Log it (never silent) and report it as unavailable so the
+    verdict scores it as unknown (0 signal) rather than guessing."""
+    log.warning("source %s unavailable: %s%s", source, reason, f" ({exc!r})" if exc is not None else "")
+    return {"available": False, "reason": reason}
+
+
 def elk_search(index: str, query: dict) -> dict:
-    """POST to ELK _search, return parsed JSON. Mirrors Water's pattern."""
+    """POST to ELK _search, return parsed JSON. Raises lab.config.ConfigError if ELASTIC_URL unset."""
+    settings = lab_config.load()
     headers = {"Content-Type": "application/json"}
-    if ELASTIC_API_KEY:
-        headers["Authorization"] = f"ApiKey {ELASTIC_API_KEY}"
-    r = requests.post(
-        f"{ELASTIC_URL}/{index}/_search",
+    if settings.elastic_api_key:
+        headers["Authorization"] = f"ApiKey {settings.elastic_api_key}"
+    r = lab_http.session().post(
+        f"{settings.elastic_url}/{index}/_search",
         headers=headers,
         json=query,
-        verify=False,
         timeout=30,
     )
     r.raise_for_status()
@@ -142,27 +159,28 @@ def elk_search(index: str, query: dict) -> dict:
 
 def elk_index_doc(index: str, doc: dict) -> bool:
     """POST a document to <index>/_doc. Returns True on success, False on failure.
-    Failures are non-fatal — Hunt logs the issue but doesn't block on ES being down."""
-    headers = {"Content-Type": "application/json"}
-    if ELASTIC_API_KEY:
-        headers["Authorization"] = f"ApiKey {ELASTIC_API_KEY}"
+    Failures are non-fatal (logged) so Hunt doesn't block on ES being down."""
     try:
-        r = requests.post(
-            f"{ELASTIC_URL}/{index}/_doc",
+        settings = lab_config.load()
+        headers = {"Content-Type": "application/json"}
+        if settings.elastic_api_key:
+            headers["Authorization"] = f"ApiKey {settings.elastic_api_key}"
+        r = lab_http.session().post(
+            f"{settings.elastic_url}/{index}/_doc",
             headers=headers,
             json=doc,
-            verify=False,
             timeout=10,
         )
         r.raise_for_status()
         return True
-    except Exception:
+    except (requests.RequestException, lab_config.ConfigError) as e:
+        log.warning("could not index hunt document into %s: %s", index, e)
         return False
 
 
 # ── Memory layer (the transmission) ───────────────────────────────────────────
 # Local SQLite cache for fast "have I seen this before?" lookups.
-# Every hunt also gets shipped to ES tk-hunt-logs index (canonical record + Water-readable).
+# Every hunt also gets shipped to ES sf-hunt-logs index (canonical record + Water-readable).
 
 MEMORY_SCHEMA = """
 CREATE TABLE IF NOT EXISTS hunts (
@@ -193,10 +211,15 @@ CREATE INDEX IF NOT EXISTS idx_cache_timestamp ON enrichment_cache(timestamp_utc
 """
 
 
+_DB_LOCK = threading.RLock()
+
+
 def memory_init() -> sqlite3.Connection:
     """Create memory directory and DB if they don't exist, return open connection."""
     MEMORY_DIR.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(MEMORY_DB)
+    # check_same_thread=False: source lookups run in a thread pool; every cache access is
+    # serialised through _DB_LOCK, so sharing one connection is safe.
+    conn = sqlite3.connect(MEMORY_DB, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     conn.executescript(MEMORY_SCHEMA)
     conn.commit()
@@ -269,11 +292,12 @@ def memory_recent_hunts(conn: sqlite3.Connection, limit: int = 50) -> list:
 def cache_get(conn: sqlite3.Connection, ioc: str, source_name: str) -> dict:
     """Return cached enrichment if present and within TTL. Returns None if miss/stale."""
     ttl = CACHE_TTL_SECONDS.get(source_name, 24 * 3600)
-    row = conn.execute(
-        "SELECT timestamp_utc, response_json FROM enrichment_cache "
-        "WHERE ioc = ? AND source_name = ?",
-        (ioc, source_name),
-    ).fetchone()
+    with _DB_LOCK:
+        row = conn.execute(
+            "SELECT timestamp_utc, response_json FROM enrichment_cache "
+            "WHERE ioc = ? AND source_name = ?",
+            (ioc, source_name),
+        ).fetchone()
     if not row:
         return None
     try:
@@ -282,21 +306,23 @@ def cache_get(conn: sqlite3.Connection, ioc: str, source_name: str) -> dict:
         if age > ttl:
             return None
         return json.loads(row["response_json"])
-    except Exception:
+    except (ValueError, TypeError, AttributeError) as e:
+        log.warning("ignoring unreadable %s cache entry for %s: %s", source_name, ioc, e)
         return None
 
 
 def cache_put(conn: sqlite3.Connection, ioc: str, source_name: str,
               response: dict, status_code: int = None) -> None:
     """Store enrichment response in cache. Overwrites prior entry for same (ioc, source)."""
-    conn.execute(
-        "INSERT OR REPLACE INTO enrichment_cache "
-        "(ioc, source_name, timestamp_utc, response_json, status_code) "
-        "VALUES (?, ?, ?, ?, ?)",
-        (ioc, source_name, datetime.now(timezone.utc).isoformat(),
-         json.dumps(response, default=str), status_code),
-    )
-    conn.commit()
+    with _DB_LOCK:
+        conn.execute(
+            "INSERT OR REPLACE INTO enrichment_cache "
+            "(ioc, source_name, timestamp_utc, response_json, status_code) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (ioc, source_name, datetime.now(timezone.utc).isoformat(),
+             json.dumps(response, default=str), status_code),
+        )
+        conn.commit()
 
 
 # ── External source: AbuseIPDB ────────────────────────────────────────────────
@@ -338,9 +364,9 @@ def abuseipdb_check_ip(conn: sqlite3.Connection, ip: str) -> dict:
     params = {"ipAddress": ip, "maxAgeInDays": 90, "verbose": ""}
 
     try:
-        r = requests.get(ABUSEIPDB_URL, headers=headers, params=params, timeout=10)
-    except Exception as e:
-        return {"available": False, "reason": f"request failed: {type(e).__name__}"}
+        r = _http().get(ABUSEIPDB_URL, headers=headers, params=params, timeout=10)
+    except requests.RequestException as e:
+        return _source_failed("abuseipdb_check_ip", f"request failed: {type(e).__name__}", e)
 
     if r.status_code == 429:
         return {"available": False, "reason": "rate limit hit (AbuseIPDB daily quota)",
@@ -351,8 +377,8 @@ def abuseipdb_check_ip(conn: sqlite3.Connection, ip: str) -> dict:
 
     try:
         body = r.json().get("data", {}) or {}
-    except Exception:
-        return {"available": False, "reason": "malformed JSON response"}
+    except ValueError as e:
+        return _source_failed("abuseipdb_check_ip", "malformed JSON response", e)
 
     normalized = {
         "available":        True,
@@ -389,9 +415,9 @@ def greynoise_check_ip(conn: sqlite3.Connection, ip: str) -> dict:
 
     headers = {"key": GREYNOISE_API_KEY, "Accept": "application/json"}
     try:
-        r = requests.get(f"{GREYNOISE_URL}{ip}", headers=headers, timeout=10)
-    except Exception as e:
-        return {"available": False, "reason": f"request failed: {type(e).__name__}"}
+        r = _http().get(f"{GREYNOISE_URL}{ip}", headers=headers, timeout=10)
+    except requests.RequestException as e:
+        return _source_failed("greynoise_check_ip", f"request failed: {type(e).__name__}", e)
 
     # 404 from GreyNoise means "not seen" — that's data, not error
     if r.status_code == 404:
@@ -416,8 +442,8 @@ def greynoise_check_ip(conn: sqlite3.Connection, ip: str) -> dict:
 
     try:
         body = r.json()
-    except Exception:
-        return {"available": False, "reason": "malformed JSON"}
+    except ValueError as e:
+        return _source_failed("greynoise_check_ip", "malformed JSON", e)
 
     normalized = {
         "available":      True,
@@ -452,9 +478,9 @@ def virustotal_check_ip(conn: sqlite3.Connection, ip: str) -> dict:
 
     headers = {"x-apikey": VIRUSTOTAL_API_KEY, "Accept": "application/json"}
     try:
-        r = requests.get(f"{VT_BASE_URL}/ip_addresses/{ip}", headers=headers, timeout=10)
-    except Exception as e:
-        return {"available": False, "reason": f"request failed: {type(e).__name__}"}
+        r = _http().get(f"{VT_BASE_URL}/ip_addresses/{ip}", headers=headers, timeout=10)
+    except requests.RequestException as e:
+        return _source_failed("virustotal_check_ip", f"request failed: {type(e).__name__}", e)
 
     if r.status_code == 429:
         return {"available": False, "reason": "rate limit hit (VT 4/min or 500/day)",
@@ -474,8 +500,8 @@ def virustotal_check_ip(conn: sqlite3.Connection, ip: str) -> dict:
 
     try:
         attrs = (r.json().get("data", {}) or {}).get("attributes", {}) or {}
-    except Exception:
-        return {"available": False, "reason": "malformed JSON"}
+    except ValueError as e:
+        return _source_failed("virustotal_check_ip", "malformed JSON", e)
 
     stats = attrs.get("last_analysis_stats", {}) or {}
     normalized = {
@@ -515,10 +541,10 @@ def otx_check_ip(conn: sqlite3.Connection, ip: str) -> dict:
 
     headers = {"X-OTX-API-KEY": OTX_API_KEY, "Accept": "application/json"}
     try:
-        r = requests.get(f"{OTX_BASE_URL}/IPv4/{ip}/general",
+        r = _http().get(f"{OTX_BASE_URL}/IPv4/{ip}/general",
                          headers=headers, timeout=10)
-    except Exception as e:
-        return {"available": False, "reason": f"request failed: {type(e).__name__}"}
+    except requests.RequestException as e:
+        return _source_failed("otx_check_ip", f"request failed: {type(e).__name__}", e)
 
     if r.status_code != 200:
         return {"available": False, "reason": f"HTTP {r.status_code}",
@@ -526,8 +552,8 @@ def otx_check_ip(conn: sqlite3.Connection, ip: str) -> dict:
 
     try:
         body = r.json() or {}
-    except Exception:
-        return {"available": False, "reason": "malformed JSON"}
+    except ValueError as e:
+        return _source_failed("otx_check_ip", "malformed JSON", e)
 
     pulse_info = body.get("pulse_info", {}) or {}
     pulses = pulse_info.get("pulses", []) or []
@@ -566,9 +592,9 @@ def threatfox_check_ioc(conn: sqlite3.Connection, ioc: str, ioc_type: str) -> di
     headers = {"Auth-Key": ABUSECH_AUTH_KEY, "Content-Type": "application/json"}
     payload = {"query": "search_ioc", "search_term": ioc}
     try:
-        r = requests.post(THREATFOX_URL, headers=headers, json=payload, timeout=10)
-    except Exception as e:
-        return {"available": False, "reason": f"request failed: {type(e).__name__}"}
+        r = _http().post(THREATFOX_URL, headers=headers, json=payload, timeout=10)
+    except requests.RequestException as e:
+        return _source_failed("threatfox_check_ioc", f"request failed: {type(e).__name__}", e)
 
     if r.status_code != 200:
         return {"available": False, "reason": f"HTTP {r.status_code}",
@@ -576,8 +602,8 @@ def threatfox_check_ioc(conn: sqlite3.Connection, ioc: str, ioc_type: str) -> di
 
     try:
         body = r.json() or {}
-    except Exception:
-        return {"available": False, "reason": "malformed JSON"}
+    except ValueError as e:
+        return _source_failed("threatfox_check_ioc", "malformed JSON", e)
 
     # ThreatFox returns query_status="no_result" when IOC isn't in their DB
     if body.get("query_status") == "no_result":
@@ -627,9 +653,9 @@ def internetdb_check_ip(conn: sqlite3.Connection, ip: str) -> dict:
         return cached
 
     try:
-        r = requests.get(f"{INTERNETDB_URL}/{ip}", timeout=10)
-    except Exception as e:
-        return {"available": False, "reason": f"request failed: {type(e).__name__}"}
+        r = _http().get(f"{INTERNETDB_URL}/{ip}", timeout=10)
+    except requests.RequestException as e:
+        return _source_failed("internetdb_check_ip", f"request failed: {type(e).__name__}", e)
 
     if r.status_code == 404:
         # 404 means not scanned/no info — that's data, not error
@@ -646,8 +672,8 @@ def internetdb_check_ip(conn: sqlite3.Connection, ip: str) -> dict:
 
     try:
         body = r.json() or {}
-    except Exception:
-        return {"available": False, "reason": "malformed JSON"}
+    except ValueError as e:
+        return _source_failed("internetdb_check_ip", "malformed JSON", e)
 
     normalized = {
         "available":    True,
@@ -690,13 +716,13 @@ def _spamhaus_drop_refresh_if_stale() -> bool:
             if age < SPAMHAUS_DROP_MAX_AGE_SECONDS:
                 return True
         # File is missing or stale — fetch
-        r = requests.get(SPAMHAUS_DROP_URL, timeout=15)
+        r = _http().get(SPAMHAUS_DROP_URL, timeout=15)
         if r.status_code == 200 and r.text:
             SPAMHAUS_DROP_CACHE.parent.mkdir(parents=True, exist_ok=True)
-            SPAMHAUS_DROP_CACHE.write_text(r.text)
+            SPAMHAUS_DROP_CACHE.write_text(r.text, encoding="utf-8")
             return True
-    except Exception:
-        pass
+    except (requests.RequestException, OSError) as e:
+        log.warning("could not refresh Spamhaus DROP list: %s", e)
     # If a stale file exists, use it rather than nothing
     return SPAMHAUS_DROP_CACHE.exists()
 
@@ -715,7 +741,7 @@ def _spamhaus_drop_load() -> list:
 
     parsed = []
     try:
-        for line in SPAMHAUS_DROP_CACHE.read_text().splitlines():
+        for line in SPAMHAUS_DROP_CACHE.read_text(encoding="utf-8").splitlines():
             line = line.strip()
             if not line or line.startswith(";") or line.startswith("#"):
                 continue
@@ -727,9 +753,11 @@ def _spamhaus_drop_load() -> list:
                 net = ipaddress.ip_network(cidr, strict=False)
                 if isinstance(net, ipaddress.IPv4Network):
                     parsed.append((net, sbl))
-            except Exception:
+            except ValueError as e:
+                log.warning("skipping unparseable DROP line %r: %s", line, e)
                 continue
-    except Exception:
+    except (OSError, UnicodeDecodeError) as e:
+        log.warning("cannot read DROP list %s: %s", SPAMHAUS_DROP_CACHE, e)
         return []
 
     _spamhaus_parsed_ranges = parsed
@@ -759,8 +787,8 @@ def spamhaus_drop_check_ip(conn: sqlite3.Connection, ip: str) -> dict:
 
     try:
         addr = ipaddress.ip_address(ip)
-    except Exception:
-        return {"available": False, "reason": f"not a parseable IP: {ip}"}
+    except ValueError:
+        return _source_failed("spamhaus_drop_check_ip", f"not a parseable IP: {ip}")
 
     if not isinstance(addr, ipaddress.IPv4Address):
         # DROP is IPv4 only
@@ -820,15 +848,15 @@ def malwarebazaar_check_hash(conn: sqlite3.Connection, hash_str: str, hash_type:
     headers = {"Auth-Key": ABUSECH_AUTH_KEY}
     data = {"query": "get_info", "hash": hash_str}
     try:
-        r = requests.post(MALWAREBAZAAR_URL, headers=headers, data=data, timeout=10)
-    except Exception as e:
-        return {"available": False, "reason": f"request failed: {type(e).__name__}"}
+        r = _http().post(MALWAREBAZAAR_URL, headers=headers, data=data, timeout=10)
+    except requests.RequestException as e:
+        return _source_failed("malwarebazaar_check_hash", f"request failed: {type(e).__name__}", e)
     if r.status_code != 200:
         return {"available": False, "reason": f"HTTP {r.status_code}", "_status_code": r.status_code}
     try:
         body = r.json() or {}
-    except Exception:
-        return {"available": False, "reason": "malformed JSON"}
+    except ValueError as e:
+        return _source_failed("malwarebazaar_check_hash", "malformed JSON", e)
     status = body.get("query_status")
     if status == "hash_not_found":
         normalized = {"available": True, "in_corpus": False, "signature": None,
@@ -871,9 +899,9 @@ def virustotal_check_hash(conn: sqlite3.Connection, hash_str: str, hash_type: st
         return cached
     headers = {"x-apikey": VIRUSTOTAL_API_KEY, "Accept": "application/json"}
     try:
-        r = requests.get(f"{VT_BASE_URL}/files/{hash_str}", headers=headers, timeout=10)
-    except Exception as e:
-        return {"available": False, "reason": f"request failed: {type(e).__name__}"}
+        r = _http().get(f"{VT_BASE_URL}/files/{hash_str}", headers=headers, timeout=10)
+    except requests.RequestException as e:
+        return _source_failed("virustotal_check_hash", f"request failed: {type(e).__name__}", e)
     if r.status_code == 429:
         return {"available": False, "reason": "rate limit hit (VT 4/min or 500/day)", "_status_code": 429}
     if r.status_code == 404:
@@ -890,8 +918,8 @@ def virustotal_check_hash(conn: sqlite3.Connection, hash_str: str, hash_type: st
         return {"available": False, "reason": f"HTTP {r.status_code}", "_status_code": r.status_code}
     try:
         attrs = (r.json().get("data", {}) or {}).get("attributes", {}) or {}
-    except Exception:
-        return {"available": False, "reason": "malformed JSON"}
+    except ValueError as e:
+        return _source_failed("virustotal_check_hash", "malformed JSON", e)
     stats = attrs.get("last_analysis_stats", {}) or {}
     ptc = attrs.get("popular_threat_classification", {}) or {}
     sig = attrs.get("signature_info", {}) or {}
@@ -927,15 +955,15 @@ def otx_check_hash(conn: sqlite3.Connection, hash_str: str, hash_type: str) -> d
         return cached
     headers = {"X-OTX-API-KEY": OTX_API_KEY, "Accept": "application/json"}
     try:
-        r = requests.get(f"{OTX_BASE_URL}/file/{hash_str}/general", headers=headers, timeout=10)
-    except Exception as e:
-        return {"available": False, "reason": f"request failed: {type(e).__name__}"}
+        r = _http().get(f"{OTX_BASE_URL}/file/{hash_str}/general", headers=headers, timeout=10)
+    except requests.RequestException as e:
+        return _source_failed("otx_check_hash", f"request failed: {type(e).__name__}", e)
     if r.status_code != 200:
         return {"available": False, "reason": f"HTTP {r.status_code}", "_status_code": r.status_code}
     try:
         body = r.json() or {}
-    except Exception:
-        return {"available": False, "reason": "malformed JSON"}
+    except ValueError as e:
+        return _source_failed("otx_check_hash", "malformed JSON", e)
     pi = body.get("pulse_info", {}) or {}
     pulses = pi.get("pulses", []) or []
     normalized = {"available": True, "pulse_count": pi.get("count", 0),
@@ -962,15 +990,15 @@ def urlhaus_check_domain(conn: sqlite3.Connection, domain: str) -> dict:
     headers = {"Auth-Key": ABUSECH_AUTH_KEY}
     data = {"host": domain}
     try:
-        r = requests.post(URLHAUS_HOST_URL, headers=headers, data=data, timeout=10)
-    except Exception as e:
-        return {"available": False, "reason": f"request failed: {type(e).__name__}"}
+        r = _http().post(URLHAUS_HOST_URL, headers=headers, data=data, timeout=10)
+    except requests.RequestException as e:
+        return _source_failed("urlhaus_check_domain", f"request failed: {type(e).__name__}", e)
     if r.status_code != 200:
         return {"available": False, "reason": f"HTTP {r.status_code}", "_status_code": r.status_code}
     try:
         body = r.json() or {}
-    except Exception:
-        return {"available": False, "reason": "malformed JSON"}
+    except ValueError as e:
+        return _source_failed("urlhaus_check_domain", "malformed JSON", e)
     status = body.get("query_status")
     if status == "no_results":
         normalized = {"available": True, "listed": False, "url_count": 0, "urls_online": 0,
@@ -1008,9 +1036,9 @@ def virustotal_check_domain(conn: sqlite3.Connection, domain: str) -> dict:
         return cached
     headers = {"x-apikey": VIRUSTOTAL_API_KEY, "Accept": "application/json"}
     try:
-        r = requests.get(f"{VT_BASE_URL}/domains/{domain}", headers=headers, timeout=10)
-    except Exception as e:
-        return {"available": False, "reason": f"request failed: {type(e).__name__}"}
+        r = _http().get(f"{VT_BASE_URL}/domains/{domain}", headers=headers, timeout=10)
+    except requests.RequestException as e:
+        return _source_failed("virustotal_check_domain", f"request failed: {type(e).__name__}", e)
     if r.status_code == 429:
         return {"available": False, "reason": "rate limit hit (VT 4/min or 500/day)", "_status_code": 429}
     if r.status_code == 404:
@@ -1024,8 +1052,8 @@ def virustotal_check_domain(conn: sqlite3.Connection, domain: str) -> dict:
         return {"available": False, "reason": f"HTTP {r.status_code}", "_status_code": r.status_code}
     try:
         attrs = (r.json().get("data", {}) or {}).get("attributes", {}) or {}
-    except Exception:
-        return {"available": False, "reason": "malformed JSON"}
+    except ValueError as e:
+        return _source_failed("virustotal_check_domain", "malformed JSON", e)
     stats = attrs.get("last_analysis_stats", {}) or {}
     cats = attrs.get("categories", {}) or {}
     normalized = {"available": True, "in_corpus": True,
@@ -1050,15 +1078,15 @@ def otx_check_domain(conn: sqlite3.Connection, domain: str) -> dict:
         return cached
     headers = {"X-OTX-API-KEY": OTX_API_KEY, "Accept": "application/json"}
     try:
-        r = requests.get(f"{OTX_BASE_URL}/domain/{domain}/general", headers=headers, timeout=10)
-    except Exception as e:
-        return {"available": False, "reason": f"request failed: {type(e).__name__}"}
+        r = _http().get(f"{OTX_BASE_URL}/domain/{domain}/general", headers=headers, timeout=10)
+    except requests.RequestException as e:
+        return _source_failed("otx_check_domain", f"request failed: {type(e).__name__}", e)
     if r.status_code != 200:
         return {"available": False, "reason": f"HTTP {r.status_code}", "_status_code": r.status_code}
     try:
         body = r.json() or {}
-    except Exception:
-        return {"available": False, "reason": "malformed JSON"}
+    except ValueError as e:
+        return _source_failed("otx_check_domain", "malformed JSON", e)
     pi = body.get("pulse_info", {}) or {}
     pulses = pi.get("pulses", []) or []
     normalized = {"available": True, "pulse_count": pi.get("count", 0),
@@ -1069,20 +1097,35 @@ def otx_check_domain(conn: sqlite3.Connection, domain: str) -> dict:
     return normalized
 
 
+def _run_sources(jobs: dict) -> dict:
+    """Run {source_name: zero-arg callable} concurrently. A source that raises is logged and
+    reported as unavailable (scored unknown); it never blocks or poisons the others."""
+    def guarded(name, fn):
+        try:
+            return fn()
+        except Exception as e:  # noqa: BLE001 - isolation boundary: one source must not sink the rest
+            log.exception("source %s raised", name)
+            return {"available": False, "reason": f"source error: {type(e).__name__}"}
+
+    with ThreadPoolExecutor(max_workers=max(1, len(jobs))) as pool:
+        futures = {name: pool.submit(guarded, name, fn) for name, fn in jobs.items()}
+        return {name: fut.result() for name, fut in futures.items()}
+
+
 def bucket_external_ip(conn: sqlite3.Connection, ip: str) -> dict:
     """
-    Orchestrate all external IP enrichment sources. Returns a dict keyed by source name.
-    Adding new sources: just add another call here.
+    Orchestrate all external IP enrichment sources in parallel. Returns a dict keyed by source name.
+    Adding new sources: just add another entry here.
     """
-    return {
-        "abuseipdb":     abuseipdb_check_ip(conn, ip),
-        "greynoise":     greynoise_check_ip(conn, ip),
-        "virustotal":    virustotal_check_ip(conn, ip),
-        "otx":           otx_check_ip(conn, ip),
-        "threatfox":     threatfox_check_ioc(conn, ip, "ipv4"),
-        "internetdb":    internetdb_check_ip(conn, ip),
-        "spamhaus_drop": spamhaus_drop_check_ip(conn, ip),
-    }
+    return _run_sources({
+        "abuseipdb":     lambda: abuseipdb_check_ip(conn, ip),
+        "greynoise":     lambda: greynoise_check_ip(conn, ip),
+        "virustotal":    lambda: virustotal_check_ip(conn, ip),
+        "otx":           lambda: otx_check_ip(conn, ip),
+        "threatfox":     lambda: threatfox_check_ioc(conn, ip, "ipv4"),
+        "internetdb":    lambda: internetdb_check_ip(conn, ip),
+        "spamhaus_drop": lambda: spamhaus_drop_check_ip(conn, ip),
+    })
 
 
 # ── VERDICT bucket ────────────────────────────────────────────────────────────
@@ -1133,22 +1176,22 @@ VERDICT_BANDS = [
 
 def bucket_external_hash(conn: sqlite3.Connection, hash_str: str, hash_type: str) -> dict:
     """Orchestrate hash enrichment sources. IP-only sources are skipped."""
-    return {
-        "malwarebazaar": malwarebazaar_check_hash(conn, hash_str, hash_type),
-        "virustotal":    virustotal_check_hash(conn, hash_str, hash_type),
-        "otx":           otx_check_hash(conn, hash_str, hash_type),
-        "threatfox":     threatfox_check_ioc(conn, hash_str, hash_type),
-    }
+    return _run_sources({
+        "malwarebazaar": lambda: malwarebazaar_check_hash(conn, hash_str, hash_type),
+        "virustotal":    lambda: virustotal_check_hash(conn, hash_str, hash_type),
+        "otx":           lambda: otx_check_hash(conn, hash_str, hash_type),
+        "threatfox":     lambda: threatfox_check_ioc(conn, hash_str, hash_type),
+    })
 
 
 def bucket_external_domain(conn: sqlite3.Connection, domain: str) -> dict:
     """Orchestrate domain enrichment sources. IP-only sources are skipped."""
-    return {
-        "urlhaus":    urlhaus_check_domain(conn, domain),
-        "virustotal": virustotal_check_domain(conn, domain),
-        "otx":        otx_check_domain(conn, domain),
-        "threatfox":  threatfox_check_ioc(conn, domain, "domain"),
-    }
+    return _run_sources({
+        "urlhaus":    lambda: urlhaus_check_domain(conn, domain),
+        "virustotal": lambda: virustotal_check_domain(conn, domain),
+        "otx":        lambda: otx_check_domain(conn, domain),
+        "threatfox":  lambda: threatfox_check_ioc(conn, domain, "domain"),
+    })
 
 
 def _signal_tpot(observed: dict) -> float:
@@ -1490,7 +1533,8 @@ def _pivot_same_asn(ip: str, identity: dict, lookback_days: int = 7) -> dict:
     }
     try:
         result = elk_search(TPOT_INDEX, query)
-    except Exception:
+    except (requests.RequestException, ValueError) as e:
+        log.warning("pivot query for %s failed: %s", ip, e)
         return None
 
     aggs = result.get("aggregations", {}) or {}
@@ -1540,7 +1584,8 @@ def _pivot_same_country_recent(ip: str, identity: dict, lookback_hours: int = 24
     }
     try:
         result = elk_search(TPOT_INDEX, query)
-    except Exception:
+    except (requests.RequestException, ValueError) as e:
+        log.warning("pivot query for %s failed: %s", ip, e)
         return None
 
     aggs = result.get("aggregations", {}) or {}
@@ -1596,7 +1641,8 @@ def _pivot_same_honeypot_mix(ip: str, observed: dict, lookback_days: int = 7) ->
     }
     try:
         result = elk_search(TPOT_INDEX, query)
-    except Exception:
+    except (requests.RequestException, ValueError) as e:
+        log.warning("pivot query for %s failed: %s", ip, e)
         return None
 
     aggs = result.get("aggregations", {}) or {}
@@ -1661,7 +1707,8 @@ def _pivot_same_drop_range(ip: str, external: dict, lookback_days: int = 30) -> 
     }
     try:
         result = elk_search(TPOT_INDEX, query)
-    except Exception:
+    except (requests.RequestException, ValueError) as e:
+        log.warning("pivot query for %s failed: %s", ip, e)
         return None
 
     aggs = result.get("aggregations", {}) or {}
@@ -1689,7 +1736,7 @@ def bucket_pivots(ip: str, identity: dict, observed: dict, external: dict) -> li
     pivot dicts. Each pivot only appears if it would yield useful results
     (>= 1 distinct IP other than the current one).
 
-    Self-IP filter (Layer 6 defense for pivots): IPs in TALLKITCHEN_SELF_IPS
+    Self-IP filter (Layer 6 defense for pivots): IPs in SF_SELF_IPS
     are filtered out of top_examples. Self-IPs belong to your own infra
     (droplet running T-Pot, WireGuard endpoints, etc.) — suggesting them as
     pivots would be noise that erodes analyst trust.
@@ -1749,7 +1796,8 @@ def bucket_identity_ip(ip: str) -> dict:
     }
     try:
         result = elk_search(TPOT_INDEX, query)
-    except Exception as e:
+    except (requests.RequestException, ValueError) as e:
+        log.warning("identity query for %s failed: %s", ip, e)
         return {"ip": ip, "error": str(e)}
 
     hits = result.get("hits", {}).get("hits", [])
@@ -1791,7 +1839,8 @@ def bucket_observed_ip(ip: str) -> dict:
     }
     try:
         result = elk_search(TPOT_INDEX, query)
-    except Exception as e:
+    except (requests.RequestException, ValueError) as e:
+        log.warning("observed query for %s failed: %s", ip, e)
         return {"error": str(e)}
 
     total = result.get("hits", {}).get("total", {})
@@ -1814,7 +1863,7 @@ def bucket_observed_ip(ip: str) -> dict:
 # ── Rendering ─────────────────────────────────────────────────────────────────
 def render_header(ioc: str, ioc_type: str) -> None:
     console.print()
-    console.print(f"[bold cyan]🥄 tallkitchen hunt[/]  ·  [dim]1xLoZec Detection Lab[/]")
+    console.print(f"[bold cyan]sentinelforge hunt[/]  ·  [dim]SentinelForge[/]")
     console.print(f"[bold]> {ioc}[/]  [dim]({ioc_type})[/]")
     console.print()
 
@@ -2269,7 +2318,7 @@ def render_memory(past_hunts: list) -> None:
             elapsed = f"{int(delta.total_seconds() / 3600)}h ago"
         else:
             elapsed = f"{delta.days}d ago"
-    except Exception:
+    except ValueError:
         elapsed = "previously"
 
     console.print("[bold yellow]MEMORY[/] [dim](Hunt has seen this before)[/]")
@@ -2330,7 +2379,7 @@ def render_history_list(hunts: list, header: str = "RECENT HUNTS") -> None:
                 when = f"{int(delta.total_seconds() / 3600)}h ago"
             else:
                 when = f"{delta.days}d ago"
-        except Exception:
+        except ValueError:
             when = ts[:19]
         table.add_row(when, h["ioc"], h["ioc_type"], h.get("notes") or "")
     console.print(table)
@@ -2416,7 +2465,7 @@ def show_history(ioc: str = None, limit: int = 50) -> int:
     """Show past hunts. Either filtered by IOC or recent across all IOCs."""
     conn = memory_init()
     console.print()
-    console.print(f"[bold cyan]🥄 tallkitchen hunt[/]  ·  [dim]history[/]")
+    console.print(f"[bold cyan]sentinelforge hunt[/]  ·  [dim]history[/]")
     console.print()
 
     if ioc:
@@ -2432,8 +2481,8 @@ def show_history(ioc: str = None, limit: int = 50) -> int:
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        prog="tallkitchen_hunt",
-        description="Tall Kitchen Hunt — analyst IOC enrichment companion.",
+        prog="sf_hunt",
+        description="SentinelForge Hunt — analyst IOC enrichment companion.",
     )
     parser.add_argument("ioc", nargs="?",
                         help="The IOC to investigate (IPv4 only currently)")
@@ -2452,6 +2501,9 @@ def main() -> int:
     except KeyboardInterrupt:
         console.print("\n[dim]Interrupted.[/]")
         return 130
+    except lab_config.ConfigError as e:
+        console.print(f"[bold red]Configuration error:[/] {e}")
+        return 2
 
 
 if __name__ == "__main__":

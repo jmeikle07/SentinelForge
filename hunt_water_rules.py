@@ -18,19 +18,23 @@ The technique inference reuses water_hunt_trigger's HONEYPOT_TO_TECHNIQUE map
 so both pillars use the same honeypot→ATT&CK semantics — no drift possible.
 """
 
+import logging
 import re
 from pathlib import Path
 
-try:
-    import yaml
-    YAML_AVAILABLE = True
-except ImportError:
-    YAML_AVAILABLE = False
+import yaml
 
+from water_hunt_trigger import HONEYPOT_TO_TECHNIQUE
 
-# Where Water writes rules
-SIGMA_DIR             = Path("detections/sigma")
-SIGMA_HUNT_DIR        = Path("detections/sigma/hunt-triggered")
+log = logging.getLogger(__name__)
+
+# Where Water writes rules (anchored to this file so the cwd never matters)
+_ROOT                 = Path(__file__).resolve().parent
+SIGMA_DIR             = _ROOT / "detections" / "sigma"
+SIGMA_HUNT_DIR        = _ROOT / "detections" / "sigma" / "hunt-triggered"
+
+# Parsed-rule cache keyed by path; an entry is valid while (mtime_ns, size) is unchanged.
+_PARSE_CACHE: dict = {}
 
 
 def _infer_techniques_from_observed(observed: dict) -> list:
@@ -40,11 +44,6 @@ def _infer_techniques_from_observed(observed: dict) -> list:
     Returns top 3 techniques by cumulative event volume, with the dominant
     one first. May be empty for IOCs with no honeypot activity (e.g. DROP-only).
     """
-    try:
-        from water_hunt_trigger import HONEYPOT_TO_TECHNIQUE
-    except ImportError:
-        return []
-
     honeypots = observed.get("honeypots", []) or []
     if not honeypots:
         return []
@@ -69,7 +68,7 @@ def _infer_techniques_from_observed(observed: dict) -> list:
     return [t["id"] for t in sorted_techniques[:3]]
 
 
-def _parse_rule_file(path: Path) -> dict:
+def _parse_rule_file_uncached(path: Path) -> dict:
     """
     Parse a Sigma YAML file. Returns minimal dict with the fields Hunt needs.
     Handles the provenance comment block at the top of hunt-triggered rules.
@@ -79,8 +78,9 @@ def _parse_rule_file(path: Path) -> dict:
     (title, technique tags, status, IOC if hunt-triggered).
     """
     try:
-        text = path.read_text()
-    except (OSError, UnicodeDecodeError):
+        text = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError) as exc:
+        log.warning("cannot read rule file %s: %s", path, exc)
         return None
 
     # Strip any leading comment-block (hunt-triggered rules have a # provenance header)
@@ -107,15 +107,15 @@ def _parse_rule_file(path: Path) -> dict:
     if not yaml_text.strip():
         return None
 
-    # Try full YAML parse if available; otherwise regex-extract the fields we need
+    # Full YAML parse; if it fails, regex-extract the fields we need (and say so)
     parsed = None
-    if YAML_AVAILABLE:
-        try:
-            parsed = yaml.safe_load(yaml_text)
-            if not isinstance(parsed, dict):
-                parsed = None
-        except yaml.YAMLError:
+    try:
+        parsed = yaml.safe_load(yaml_text)
+        if not isinstance(parsed, dict):
             parsed = None
+    except yaml.YAMLError as exc:
+        log.warning("rule file %s is not valid YAML (%s); falling back to field regex", path, exc)
+        parsed = None
 
     if parsed is None:
         # Fallback regex parser — extracts top-level fields needed for display
@@ -172,6 +172,22 @@ def _parse_rule_file(path: Path) -> dict:
         "triggered_by_hunt_id":  triggered_by_hunt_id,
         "triggered_by_ioc":      triggered_by_ioc,
     }
+
+
+def _parse_rule_file(path: Path) -> dict:
+    """Cached wrapper: a file is parsed once until its mtime/size changes."""
+    try:
+        st = path.stat()
+    except OSError as exc:
+        log.warning("cannot stat rule file %s: %s", path, exc)
+        return None
+    stamp = (st.st_mtime_ns, st.st_size)
+    hit = _PARSE_CACHE.get(path)
+    if hit is not None and hit[0] == stamp:
+        return hit[1]
+    rule = _parse_rule_file_uncached(path)
+    _PARSE_CACHE[path] = (stamp, rule)
+    return rule
 
 
 def find_rules_for_techniques(technique_ids: list) -> list:

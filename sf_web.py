@@ -1,20 +1,88 @@
 """
-Tall Kitchen Hunt - web API.
-Thin wrapper over tallkitchen_hunt. Imports the real logic, never duplicates it.
+SentinelForge Hunt - web API.
+Thin wrapper over sf_hunt. Imports the real logic, never duplicates it.
 Serves the concise verdict + source breakdown as JSON, and the static page.
+
+Security model:
+  - State-changing routes (/api/approve, /api/reject) require the LAB_ADMIN_TOKEN value in the
+    X-Admin-Token header (constant-time compare). With no token configured they are disabled.
+  - rule_id path parameters must be UUIDs (no path traversal into the filesystem or subprocess).
+  - /api/hunt is rate limited per client address.
 """
-import json
-from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import FileResponse, JSONResponse
-from fastapi.staticfiles import StaticFiles
+import hmac
+import logging
+import os
+import subprocess
+import sys
+import threading
+import time
+import uuid
+from collections import defaultdict, deque
 from pathlib import Path
 
-import tallkitchen_hunt as tk
+from fastapi import FastAPI, Header, HTTPException, Request
+from fastapi.responses import FileResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 
-app = FastAPI(title="Tall Kitchen Hunt")
+import sf_hunt as tk
+from lab import state as lab_state
+
+log = logging.getLogger(__name__)
+
+app = FastAPI(title="SentinelForge Hunt")
 
 HERE = Path(__file__).resolve().parent
 WEB_DIR = HERE / "web"
+
+# Per-client sliding-window limit for /api/hunt (each call fans out to paid/quota'd intel APIs).
+HUNT_RATE_LIMIT = int(os.environ.get("SF_HUNT_RATE_LIMIT", "10"))      # requests ...
+HUNT_RATE_WINDOW = float(os.environ.get("SF_HUNT_RATE_WINDOW", "60"))  # ... per this many seconds
+_rate_hits: dict = defaultdict(deque)
+_rate_lock = threading.Lock()
+
+APPROVE_TIMEOUT_SECONDS = 120
+
+
+def _reset_rate_limits() -> None:
+    with _rate_lock:
+        _rate_hits.clear()
+
+
+def _check_rate_limit(request: Request) -> None:
+    """Raise 429 when this client exceeded HUNT_RATE_LIMIT calls in the window.
+    Keyed on the socket peer address: behind a reverse proxy that is the proxy, so run the
+    proxy's own per-client limiter in that setup (X-Forwarded-For is client-controlled)."""
+    client = request.client.host if request.client else "unknown"
+    now = time.monotonic()
+    with _rate_lock:
+        hits = _rate_hits[client]
+        while hits and now - hits[0] >= HUNT_RATE_WINDOW:
+            hits.popleft()
+        if len(hits) >= HUNT_RATE_LIMIT:
+            retry = max(1, int(HUNT_RATE_WINDOW - (now - hits[0])) + 1)
+            raise HTTPException(status_code=429, detail="rate limit exceeded",
+                                headers={"Retry-After": str(retry)})
+        hits.append(now)
+
+
+def _state(name: str, default):
+    """Read a JSON state file. Missing -> default. Corrupt -> logged (file quarantined by
+    lab.state) and default. Never silently swallowed."""
+    try:
+        return lab_state.read(HERE / "state" / name, default=default)
+    except lab_state.StateCorrupt as exc:
+        log.error("state file %s is corrupt: %s", name, exc)
+    except OSError as exc:
+        log.error("cannot read state file %s: %s", name, exc)
+    return default
+
+
+def _require_rule_id(rule_id: str) -> str:
+    """Rule ids are UUIDs. Anything else (including '../x') is a 400. Returns canonical form."""
+    try:
+        return str(uuid.UUID(rule_id))
+    except (ValueError, AttributeError, TypeError):
+        raise HTTPException(status_code=400, detail="rule_id must be a UUID")
 
 
 def _run_hunt(ioc: str) -> dict:
@@ -38,7 +106,8 @@ def _run_hunt(ioc: str) -> dict:
             # IP path needs internal SIEM; degrade gracefully if unreachable
             try:
                 external = tk.bucket_external_ip(conn, ioc)
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 - degrade gracefully, but never silently
+                log.warning("external IP enrichment for %s failed: %r", ioc, e)
                 external = {}
         verdict = tk.bucket_verdict({}, external, ioc_type)
     finally:
@@ -49,7 +118,8 @@ def _run_hunt(ioc: str) -> dict:
 
 
 @app.get("/api/hunt")
-def api_hunt(ioc: str):
+def api_hunt(ioc: str, request: Request):
+    _check_rate_limit(request)
     return JSONResponse(_run_hunt(ioc))
 
 
@@ -65,24 +135,14 @@ TACTIC_ORDER = [
 
 @app.get("/api/water")
 def api_water():
-    state = HERE / "state"
-    seen, log, last_run = {}, [], None
-    try:
-        seen = json.loads((state / "seen_techniques.json").read_text())
-    except Exception:
-        seen = {}
-    try:
-        log = json.loads((state / "hunt_log.json").read_text())
-    except Exception:
-        log = []
-    try:
-        last_run = json.loads((state / "last_run.json").read_text()).get("timestamp")
-    except Exception:
-        last_run = None
+    seen = _state("seen_techniques.json", {})
+    hunt_log = _state("hunt_log.json", [])
+    last_run_doc = _state("last_run.json", {})
+    last_run = last_run_doc.get("timestamp") if isinstance(last_run_doc, dict) else None
     # rule efficacy snapshot (real fires per deployed rule; updated when rule_efficacy.py runs)
     efficacy = None
-    try:
-        eff = json.loads((state / "rule_efficacy.json").read_text())
+    eff = _state("rule_efficacy.json", None)
+    if isinstance(eff, dict):
         fired = []
         for tid, r in (eff.get("by_technique") or {}).items():
             if isinstance(r, dict) and r.get("fire_count", 0) > 0:
@@ -100,12 +160,10 @@ def api_water():
             "rules_dormant": eff.get("rules_dormant", 0),
             "fired": fired,
         }
-    except Exception:
-        efficacy = None
     # 3-AI validation receipts (real per-validator votes, from validate_rule.py)
     validations = None
-    try:
-        vraw = json.loads((state / "rule_validations.json").read_text())
+    vraw = _state("rule_validations.json", None)
+    if isinstance(vraw, dict):
         items = []
         for rid, v in vraw.items():
             atts = v.get("attempts") or []
@@ -121,8 +179,6 @@ def api_water():
             })
         items.sort(key=lambda x: x.get("validated_at") or "", reverse=True)
         validations = items[:6]
-    except Exception:
-        validations = None
 
     # techniques grouped by tactic
     by_tactic = {}
@@ -139,7 +195,7 @@ def api_water():
 
     # outcome + confidence counts from the log
     outcomes, confidences = {}, {}
-    for e in log:
+    for e in hunt_log:
         outcomes[e.get("result", "unknown")] = outcomes.get(e.get("result", "unknown"), 0) + 1
         c = e.get("confidence")
         if c:
@@ -152,7 +208,7 @@ def api_water():
     hunt_triggered = len(list(ht_dir.glob("*.yml"))) if ht_dir.exists() else 0
 
     # newest-first timeline (cap to 60)
-    timeline = sorted(log, key=lambda e: e.get("timestamp") or "", reverse=True)[:60]
+    timeline = sorted(hunt_log, key=lambda e: e.get("timestamp") or "", reverse=True)[:60]
 
     return JSONResponse({
         "last_run": last_run,
@@ -169,26 +225,22 @@ def api_water():
     })
 
 
-def _localhost_only(request: Request):
-    """These endpoints CHANGE state (deploy rules). Only allow them from localhost / the
-    machine itself — never a remote caller. Safe by design: no public attack surface."""
-    host = (request.client.host if request.client else "") or ""
-    if host not in ("127.0.0.1", "::1", "localhost"):
-        raise HTTPException(status_code=403, detail="approvals are local-only")
+def _require_admin(token: str = None) -> None:
+    """These endpoints CHANGE state (deploy rules). Require the LAB_ADMIN_TOKEN value in the
+    X-Admin-Token header. Works behind a reverse proxy (unlike a client-address check, which
+    sees only the proxy). With LAB_ADMIN_TOKEN unset the routes are disabled (fail closed)."""
+    expected = os.environ.get("LAB_ADMIN_TOKEN", "")
+    if not expected:
+        raise HTTPException(status_code=403, detail="approvals disabled: LAB_ADMIN_TOKEN is not set")
+    if not token or not hmac.compare_digest(token.encode("utf-8"), expected.encode("utf-8")):
+        raise HTTPException(status_code=401, detail="missing or invalid admin token")
 
 
 @app.get("/api/pending")
 def api_pending():
     """List rules waiting for human approval, with their 3-AI vote receipts."""
-    state = HERE / "state"
-    try:
-        pending = json.loads((state / "pending_rules.json").read_text())
-    except Exception:
-        pending = []
-    try:
-        validations = json.loads((state / "rule_validations.json").read_text())
-    except Exception:
-        validations = {}
+    pending = _state("pending_rules.json", [])
+    validations = _state("rule_validations.json", {})
     # attach the vote receipt (by rule_id) to each pending rule if we have it
     out = []
     for p in pending:
@@ -257,16 +309,17 @@ def _technique_plain(tags):
     return None
 
 
-@app.get("/api/pending-detail/{rule_id}")
+@app.get("/api/pending-detail/{rule_id:path}")
 def api_pending_detail(rule_id: str):
     """Return a readable view of a pending rule: title, description, and the raw yaml,
     so the reviewer can see exactly what it would catch before approving."""
     import yaml as _yaml
+    rule_id = _require_rule_id(rule_id)
     pdir = HERE / "detections" / "pending"
     fp = pdir / f"{rule_id}.yml"
     if not fp.exists():
         raise HTTPException(status_code=404, detail="rule not found")
-    raw = fp.read_text()
+    raw = fp.read_text(encoding="utf-8")
     out = {"rule_id": rule_id, "yaml": raw, "title": None, "summary": None,
            "triggers": [], "false_alarms": [], "level": None, "meaning": None, "ai_context": None}
     try:
@@ -276,14 +329,10 @@ def api_pending_detail(rule_id: str):
         out["level"] = doc.get("level")
         out["meaning"] = _technique_plain(doc.get("tags", []))
         # pull the AI-written context note (if any) from the pending record
-        try:
-            pend = json.loads((HERE / "state" / "pending_rules.json").read_text())
-            for p in pend:
-                if p.get("rule_id") == rule_id and p.get("ai_context"):
-                    out["ai_context"] = p["ai_context"]
-                    break
-        except Exception:
-            pass
+        for p in _state("pending_rules.json", []):
+            if p.get("rule_id") == rule_id and p.get("ai_context"):
+                out["ai_context"] = p["ai_context"]
+                break
         out["false_alarms"] = doc.get("falsepositives", []) or []
         # Translate the detection logic into plain human triggers.
         FIELD_PLAIN = {
@@ -312,8 +361,9 @@ def api_pending_detail(rule_id: str):
                     if negate:
                         phrase = "NOT when " + phrase
                     out["triggers"].append(phrase)
-    except Exception:
-        pass
+    except (_yaml.YAMLError, AttributeError, TypeError) as exc:
+        # Unparseable / oddly-shaped rule: still return the raw YAML so the reviewer can read it.
+        log.warning("could not summarise pending rule %s: %r", rule_id, exc)
     return JSONResponse(out)
 
 
@@ -337,24 +387,31 @@ def _event_code_plain(v):
     return codes.get(key, f"a Sysmon event of type {key} occurs")
 
 
-@app.post("/api/approve/{rule_id}")
-def api_approve(rule_id: str, request: Request):
-    _localhost_only(request)
-    import subprocess
-    r = subprocess.run(["python3", str(HERE / "approve.py"), "approve", rule_id],
-                       capture_output=True, text=True, cwd=str(HERE))
+def _run_approve_cli(action: str, rule_id: str) -> JSONResponse:
+    try:
+        r = subprocess.run([sys.executable, str(HERE / "approve.py"), action, rule_id],
+                           capture_output=True, text=True, cwd=str(HERE),
+                           timeout=APPROVE_TIMEOUT_SECONDS)
+    except subprocess.TimeoutExpired:
+        log.error("approve.py %s %s timed out after %ss", action, rule_id, APPROVE_TIMEOUT_SECONDS)
+        return JSONResponse({"ok": False, "output": f"timed out after {APPROVE_TIMEOUT_SECONDS}s"},
+                            status_code=504)
     ok = r.returncode == 0
+    if not ok:
+        log.error("approve.py %s %s exited %s", action, rule_id, r.returncode)
     return JSONResponse({"ok": ok, "output": (r.stdout or "") + (r.stderr or "")})
 
 
-@app.post("/api/reject/{rule_id}")
-def api_reject(rule_id: str, request: Request):
-    _localhost_only(request)
-    import subprocess
-    r = subprocess.run(["python3", str(HERE / "approve.py"), "reject", rule_id],
-                       capture_output=True, text=True, cwd=str(HERE))
-    ok = r.returncode == 0
-    return JSONResponse({"ok": ok, "output": (r.stdout or "") + (r.stderr or "")})
+@app.post("/api/approve/{rule_id:path}")
+def api_approve(rule_id: str, x_admin_token: str = Header(default=None)):
+    _require_admin(x_admin_token)
+    return _run_approve_cli("approve", _require_rule_id(rule_id))
+
+
+@app.post("/api/reject/{rule_id:path}")
+def api_reject(rule_id: str, x_admin_token: str = Header(default=None)):
+    _require_admin(x_admin_token)
+    return _run_approve_cli("reject", _require_rule_id(rule_id))
 
 
 @app.get("/review")

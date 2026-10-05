@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-tallkitchen_safety — Cross-pillar safety module for Hunt ↔ Water integration
+sf_safety — Cross-pillar safety module for Hunt ↔ Water integration
 
 Both pillars import this module. It encodes the rules that prevent the
 closed-loop feedback amplification documented in OWASP Agentic AI Top 10 2026
@@ -27,16 +27,21 @@ the error becomes stronger with each iteration" — Knostic, Jan 2026).
 """
 
 import json
+import logging
 from dataclasses import dataclass
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Optional
 
+from lab import state as lab_state
+
+log = logging.getLogger(__name__)
+
 
 # ── Module constants ──────────────────────────────────────────────────────────
 
 # State directory for cross-pillar coordination (rate limits, audit logs)
-SAFETY_STATE_DIR = Path("state/tallkitchen")
+SAFETY_STATE_DIR = Path(__file__).resolve().parent / "state" / "sf"
 
 # How fresh a verdict must be for Water to act on it. Older verdicts may
 # reflect an attacker who has moved on, or stale source data.
@@ -86,7 +91,7 @@ class ValidationResult:
 
 def validate_hunt_record_for_water(record: dict) -> ValidationResult:
     """
-    Strict schema check before Water acts on anything from tk-hunt-logs.
+    Strict schema check before Water acts on anything from sf-hunt-logs.
 
     A malformed or unexpected record never reaches Water's action layer.
     This is the perimeter guard — even if ES is compromised or someone
@@ -277,15 +282,18 @@ class RateLimiter:
         return datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
     def _load(self) -> dict:
-        if not self.state_file.exists():
-            return {}
         try:
-            return json.loads(self.state_file.read_text())
-        except (json.JSONDecodeError, OSError):
+            return lab_state.read(self.state_file, default={})
+        except lab_state.StateCorrupt:
+            # lab.state already quarantined the file to <name>.corrupt and logged it.
+            log.error("rate-limit state %s was corrupt; quarantined, starting from empty", self.state_file)
+            return {}
+        except OSError as exc:
+            log.error("cannot read rate-limit state %s: %s", self.state_file, exc)
             return {}
 
     def _save(self, state: dict) -> None:
-        self.state_file.write_text(json.dumps(state, indent=2))
+        lab_state.write(self.state_file, state)
 
     def current_count(self) -> int:
         """Count consumed slots for today (UTC)."""
@@ -406,7 +414,7 @@ def water_should_generate_rule_from_verdict(
 
 if __name__ == "__main__":
     """
-    Run as: python tallkitchen_safety.py
+    Run as: python sf_safety.py
     Exercises every gate with synthetic records. Useful as a smoke test
     after edits and as living documentation of what each gate does.
     """

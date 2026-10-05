@@ -29,3 +29,31 @@ def test_pipeline_is_ecs_fieldmap():
 def test_convert_returns_list_of_str():
     out = ecs.convert(FIXTURE.read_text(encoding="utf-8"))
     assert isinstance(out, list) and all(isinstance(q, str) for q in out)
+
+
+def _rule(selection_field: str) -> str:
+    return f"""title: integrity probe
+id: 11111111-2222-4333-8444-555555555555
+status: test
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    selection:
+        {selection_field}: System
+    condition: selection
+level: low
+"""
+
+
+def test_sigma_integritylevel_maps_to_integration_field():
+    # Verified against elastic/integrations (windows sysmon_operational): Sysmon's
+    # IntegrityLevel is indexed as winlog.event_data.IntegrityLevel (keyword); ECS core has
+    # no integrity-level field, so that is the canonical target for the Sigma name.
+    out = ecs.convert(_rule("IntegrityLevel"))
+    assert out == ["event.code:1 AND winlog.event_data.IntegrityLevel:System"]
+
+
+def test_already_qualified_integritylevel_is_unchanged():
+    out = ecs.convert(_rule("winlog.event_data.IntegrityLevel"))
+    assert out == ["event.code:1 AND winlog.event_data.IntegrityLevel:System"]

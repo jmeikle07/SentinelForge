@@ -7,8 +7,8 @@ high-confidence Hunt verdicts (in addition to its existing Sysmon-coverage
 driven generation).
 
 Architecture:
-  1. Query tk-hunt-logs for recent high-confidence verdicts
-  2. Apply tallkitchen_safety gates (provenance, score, conflicts, rate limit)
+  1. Query sf-hunt-logs for recent high-confidence verdicts
+  2. Apply sf_safety gates (provenance, score, conflicts, rate limit)
   3. Infer ATT&CK technique from the attacker's honeypot hit profile
   4. Hand off to Water's existing generate_sigma_rule(iocs, analysis) function
   5. Tag the generated rule with triggered_by_hunt_id provenance
@@ -18,20 +18,20 @@ The pass is independent of Water's normal coverage flow — both run in the
 same invocation, neither blocks the other. Failures here are logged and
 swallowed; Water's main coverage pass always continues afterward.
 
-CRITICAL: never writes to tk-hunt-logs (Water is a reader only). Never reads
+CRITICAL: never writes to sf-hunt-logs (Water is a reader only). Never reads
 records with source=='water' (prevents feedback amplification — see
-tallkitchen_safety.should_water_act_on_hunt).
+sf_safety.should_water_act_on_hunt).
 """
 
-import json
-import os
-import urllib3
+import logging
 from datetime import datetime, timezone
 from pathlib import Path
 
 import requests
 
-from tallkitchen_safety import (
+from lab import config as lab_config
+from lab import http as lab_http
+from sf_safety import (
     RateLimiter,
     SOURCE_USER, SOURCE_HUNT, TRUST_LEVEL_HIGH,
     HUNT_VERDICT_MAX_AGE_HOURS,
@@ -41,14 +41,14 @@ from tallkitchen_safety import (
     water_should_generate_rule_from_verdict,
 )
 
-urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+logger = logging.getLogger(__name__)
 
 # Where Hunt writes its canonical records (Hunt's Phase 2 ES dual-write target)
-HUNT_LOG_INDEX = "tk-hunt-logs"
+HUNT_LOG_INDEX = "sf-hunt-logs"
 
 # Where hunt-triggered rules live (kept separate from Water's normal output
 # for clearer audit trail and easier targeted rollback)
-HUNT_TRIGGERED_RULES_DIR = Path("detections/sigma/hunt-triggered")
+HUNT_TRIGGERED_RULES_DIR = Path(__file__).resolve().parent / "detections" / "sigma" / "hunt-triggered"
 
 # Per-technique mapping: which ATT&CK technique does each honeypot hit suggest?
 # Source: T-Pot honeypot capabilities + MITRE ATT&CK reconnaissance/initial-access
@@ -81,25 +81,31 @@ HONEYPOT_TO_TECHNIQUE = {
 
 
 def _es_search(es_url: str, api_key: str, index: str, query: dict) -> dict:
-    """Search ES via raw requests. Returns {} on any failure (logged by caller)."""
+    """Search ES through lab.http.session (TLS verified, timeout, retries).
+    Returns {} on failure; the failure is logged here with the reason."""
     headers = {"Content-Type": "application/json"}
     if api_key:
         headers["Authorization"] = f"ApiKey {api_key}"
     try:
-        r = requests.post(
-            f"{es_url}/{index}/_search",
-            headers=headers, json=query, verify=False, timeout=15,
+        r = lab_http.session().post(
+            f"{es_url}/{index}/_search", headers=headers, json=query, timeout=15,
         )
-        if r.status_code == 200:
-            return r.json()
+    except requests.RequestException as exc:
+        logger.warning("ES search on %s failed: %s", index, exc)
         return {}
-    except Exception:
+    if r.status_code != 200:
+        logger.warning("ES search on %s returned HTTP %s", index, r.status_code)
+        return {}
+    try:
+        return r.json()
+    except ValueError as exc:
+        logger.warning("ES search on %s returned non-JSON body: %s", index, exc)
         return {}
 
 
 def fetch_recent_hunt_verdicts(es_url: str, api_key: str, hours: int = None) -> list:
     """
-    Pull Hunt verdicts from tk-hunt-logs in the last N hours. Default matches
+    Pull Hunt verdicts from sf-hunt-logs in the last N hours. Default matches
     safety module's HUNT_VERDICT_MAX_AGE_HOURS so stale records aren't fetched.
     Returns list of records (may be empty if index doesn't exist or nothing matches).
 
@@ -242,11 +248,16 @@ def process_hunt_triggered_verdicts(generate_fn, save_and_push_fn, log: list, _c
         else:
             print(msg)
 
-    es_url = os.environ.get("ELASTIC_URL", "https://10.0.0.1:9200")
-    api_key = os.environ.get("ELASTIC_API_KEY", "")
+    try:
+        settings = lab_config.load()
+    except lab_config.ConfigError as exc:
+        logger.error("hunt-trigger pass skipped: %s", exc)
+        _say(f"  Hunt-trigger pass skipped: {exc}")
+        return 0
+    es_url, api_key = settings.elastic_url, settings.elastic_api_key
 
-    _say("[bold cyan]Hunt-trigger pass[/]  [dim](pulling recent verdicts from tk-hunt-logs)[/]"
-         if _con else "Hunt-trigger pass (pulling recent verdicts from tk-hunt-logs)")
+    _say("[bold cyan]Hunt-trigger pass[/]  [dim](pulling recent verdicts from sf-hunt-logs)[/]"
+         if _con else "Hunt-trigger pass (pulling recent verdicts from sf-hunt-logs)")
 
     # Step 1: fetch recent verdicts (may be empty if no recent hunts)
     records = fetch_recent_hunt_verdicts(es_url, api_key)
@@ -352,7 +363,7 @@ def process_hunt_triggered_verdicts(generate_fn, save_and_push_fn, log: list, _c
                 f"event volume: {observed.get('event_count', 0)} events in {HUNT_VERDICT_MAX_AGE_HOURS}h",
             ],
             "reasoning": (
-                f"Tall Kitchen Hunt assigned this IP a {label} verdict with score {score}/100. "
+                f"SentinelForge Hunt assigned this IP a {label} verdict with score {score}/100. "
                 f"The attacker hit multiple honeypot types ({', '.join(honeypot_names)}) suggesting "
                 f"{inferred['technique_name']} ({inferred['technique_id']}). "
                 f"This rule should fire when similar IPs scan our environment, allowing earlier detection "
@@ -368,7 +379,8 @@ def process_hunt_triggered_verdicts(generate_fn, save_and_push_fn, log: list, _c
 
         try:
             sigma_yaml, rule_id = generate_fn(iocs, analysis)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 - LLM/network boundary: any failure must not stop the pass
+            logger.exception("rule generation failed for %s", ioc)
             _say(f"  [red]× generation failed: {e}[/]" if _con else f"  × generation failed: {e}")
             # Refund the rate budget on failure — this slot wasn't actually used
             # for a successful rule. Decrement carefully via consuming a negative...
@@ -400,7 +412,7 @@ def process_hunt_triggered_verdicts(generate_fn, save_and_push_fn, log: list, _c
             f"# Status: pending_review (analyst must approve before deployment)\n"
             f"# Generated: {datetime.now(timezone.utc).isoformat()}\n\n"
         )
-        filepath.write_text(provenance_block + sigma_yaml)
+        filepath.write_text(provenance_block + sigma_yaml, encoding="utf-8")
         # Also place into the unified review queue (approve.py) so both paths funnel to one place
         if queue_for_review_fn is not None:
             try:
@@ -410,8 +422,8 @@ def process_hunt_triggered_verdicts(generate_fn, save_and_push_fn, log: list, _c
                     "tactic": inferred.get("tactic"),
                     "confidence": "high",
                 }, rule_id, datetime.now(timezone.utc).isoformat())
-            except Exception:
-                pass
+            except Exception:  # noqa: BLE001 - queueing is best-effort; the rule file is already written
+                logger.exception("could not queue hunt-triggered rule %s for review", rule_id)
 
         # Step 9: record provenance in Water's hunt_log
         log_entry = {
@@ -498,16 +510,9 @@ if __name__ == "__main__":
     print(f"  ✓ Cowrie-heavy attacker correctly mapped to brute force\n")
 
     # Test 4: ES query smoke (will be empty if no hunt records yet)
-    print("Test 4: tk-hunt-logs query smoke")
-    es_url = os.environ.get("ELASTIC_URL", "https://10.0.0.1:9200")
-    api_key = os.environ.get("ELASTIC_API_KEY", "")
-    if not api_key:
-        # Read from .env manually for the test
-        for line in open(".env"):
-            if line.startswith("ELASTIC_API_KEY="):
-                api_key = line.split("=", 1)[1].strip().strip('"').strip("'")
-                break
-    records = fetch_recent_hunt_verdicts(es_url, api_key)
+    print("Test 4: sf-hunt-logs query smoke")
+    settings = lab_config.load()
+    records = fetch_recent_hunt_verdicts(settings.elastic_url, settings.elastic_api_key)
     print(f"  fetched {len(records)} recent verdicts from {HUNT_LOG_INDEX}")
     if records:
         sample = records[0]
