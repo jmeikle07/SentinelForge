@@ -1,0 +1,23 @@
+id: 9d19c38d-a376-4e18-a517-db535a8322be
+positive:
+- name: sdbinst -m -bg
+  event: &ev
+    event.code: "1"
+    process.name: sdbinst.exe
+    process.executable: C:\Windows\System32\sdbinst.exe
+    process.command_line: sdbinst.exe -m -bg
+    process.parent.name: cmd.exe
+negative:
+- name: only one of the two flags (old logic ORed them)
+  event:
+    <<: *ev
+    process.command_line: sdbinst.exe -bg
+- name: path containing -m but no flag
+  event:
+    <<: *ev
+    process.command_line: sdbinst.exe C:\a-my\fix.sdb
+- name: other binary
+  event:
+    <<: *ev
+    process.name: rundll32.exe
+    process.command_line: rundll32.exe shell32.dll,Control_RunDLL -m -bg

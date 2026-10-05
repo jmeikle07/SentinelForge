@@ -1,0 +1,67 @@
+title: Application Shim Database Installation via sdbinst.exe (Superseded)
+id: 9d19c38d-a376-4e18-a517-db535a8322be
+status: deprecated
+related:
+- id: 5c8ea8be-7a0e-4809-b65a-2d26f91ee077
+  type: similar
+- id: c27fffce-2372-458e-ae4b-4f247823dc2c
+  type: similar
+- id: d54e55da-9600-4e18-92a2-25a442b3efab
+  type: similar
+- id: 63a6f63d-043a-4ddc-9f24-febd436a77f5
+  type: similar
+- id: 132c70fd-1074-4d10-a9f5-cd1be4e40ef6
+  type: similar
+- id: 575160f3-5822-495e-afce-54fee80dca9a
+  type: similar
+description: |
+  Deprecated: duplicate of 5c8ea8be-7a0e-4809-b65a-2d26f91ee077; its registry half now lives in the registry_set rules 132c70fd-1074-4d10-a9f5-cd1be4e40ef6 and 575160f3-5822-495e-afce-54fee80dca9a. Detects sdbinst.exe started with both -m and -bg, i.e. application shim database installation (T1546.011, Event Triggered Execution: Application Shimming). It was originally tagged T1218.011 (Rundll32), which sdbinst is not. Earlier versions matched on either flag alone and carried a filter on registry events that used fields (IntegrityLevel, parent process) which registry events do not have, so the filter never excluded anything.
+
+  Defender notes:
+  - Hardening control: Disable application compatibility shim installation for standard users and audit AppCompatFlags registry changes.
+  - IR step: Export the shim database and registry keys, remove the registration, and check the shimmed application for tampering.
+  - Risk treatment: Mitigate: configuration control; accept residual risk for legitimate compatibility fixes with change approval.
+author: Jahsean Meikle
+date: 2026/05/10
+modified: 2026/10/05
+references:
+- https://attack.mitre.org/techniques/T1546/011/
+- https://www.fireeye.com/blog/threat-research/2017/05/fin7-shim-databases-persistence.html
+- https://docs.microsoft.com/en-us/windows/win32/devnotes/application-compatibility-database
+tags:
+- attack.persistence
+- attack.privilege_escalation
+- attack.t1546.011
+- cert.secplus.2.4
+- cert.secplus.4.1
+- cert.secplus.4.4
+- cert.secplus.4.6
+- cert.isc2cc.d3
+- cert.isc2cc.d5
+- nist.800-53.ac-6
+- nist.800-53.cm-6
+- nist.800-53.cm-7
+- nist.800-53.si-7
+- cis.v8.4.1
+- cis.v8.4.8
+- cis.v8.5.4
+- cis.v8.8.5
+logsource:
+  category: process_creation
+  product: windows
+detection:
+  selection_sdbinst_execution:
+    process.name: sdbinst.exe
+    process.command_line|contains|all:
+    - ' -m'
+    - ' -bg'
+  condition: selection_sdbinst_execution
+falsepositives:
+- Enterprise application compatibility shim deployments managed via SCCM or Group Policy
+- Windows servicing or vendor installers that call sdbinst.exe silently
+fields:
+- process.name
+- process.executable
+- process.command_line
+- process.parent.name
+level: medium

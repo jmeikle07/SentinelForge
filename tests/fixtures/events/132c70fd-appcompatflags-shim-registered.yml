@@ -1,0 +1,31 @@
+id: 132c70fd-1074-4d10-a9f5-cd1be4e40ef6
+positive:
+- name: sdbinst registers a database (InstalledSDB)
+  event: &ev
+    event.code: "13"
+    process.name: sdbinst.exe
+    process.executable: C:\Windows\System32\sdbinst.exe
+    registry.key: HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\InstalledSDB\{3a1b2c4d-0000-4000-8000-000000000001}.sdb
+    registry.value: DatabasePath
+- name: per-executable shim (Custom)
+  event:
+    <<: *ev
+    process.name: reg.exe
+    process.executable: C:\Windows\System32\reg.exe
+    registry.key: HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\Custom\notepad.exe
+    registry.value: "{3a1b2c4d-0000-4000-8000-000000000001}.sdb"
+negative:
+- name: Compatibility Assistant persisted layer (AppCompatFlags\Layers, not a shim database)
+  event:
+    <<: *ev
+    process.name: explorer.exe
+    registry.key: HKCU\SOFTWARE\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\Layers
+- name: unrelated registry write
+  event:
+    <<: *ev
+    registry.key: HKLM\SOFTWARE\Vendor\App
+- name: process creation event for sdbinst
+  event:
+    event.code: "1"
+    process.name: sdbinst.exe
+    process.command_line: sdbinst.exe -m -bg

@@ -1,0 +1,23 @@
+id: 63a6f63d-043a-4ddc-9f24-febd436a77f5
+positive:
+- name: sdbinst -m -bg started by services.exe
+  event: &ev
+    event.code: "1"
+    process.name: sdbinst.exe
+    process.executable: C:\Windows\System32\sdbinst.exe
+    process.command_line: sdbinst.exe -m -bg
+    process.parent.name: services.exe
+negative:
+- name: same command from an interactive shell
+  event:
+    <<: *ev
+    process.parent.name: cmd.exe
+- name: services.exe child that is not sdbinst
+  event:
+    <<: *ev
+    process.name: svchost.exe
+    process.command_line: svchost.exe -k netsvcs
+- name: services.exe child sdbinst without the flags
+  event:
+    <<: *ev
+    process.command_line: sdbinst.exe C:\Temp\fix.sdb

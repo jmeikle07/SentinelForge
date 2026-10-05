@@ -1,0 +1,27 @@
+id: d54e55da-9600-4e18-92a2-25a442b3efab
+positive:
+- name: sdbinst -m -bg from cmd.exe
+  event: &ev
+    event.code: "1"
+    process.name: sdbinst.exe
+    process.executable: C:\Windows\System32\sdbinst.exe
+    process.command_line: sdbinst.exe -m -bg
+    process.parent.name: cmd.exe
+negative:
+- name: spawned by TrustedInstaller (servicing)
+  event:
+    <<: *ev
+    process.parent.name: TrustedInstaller.exe
+- name: spawned by msiexec
+  event:
+    <<: *ev
+    process.parent.name: msiexec.exe
+- name: no silent flags
+  event:
+    <<: *ev
+    process.command_line: sdbinst.exe C:\Temp\fix.sdb
+- name: Run-key registry write (what the old logic claimed to catch)
+  event:
+    event.code: "13"
+    process.name: reg.exe
+    registry.key: HKCU\SOFTWARE\Microsoft\Windows\CurrentVersion\Run

@@ -1,0 +1,71 @@
+title: Sdbinst Silent Shim Installation Outside Servicing Parents (Superseded)
+id: d54e55da-9600-4e18-92a2-25a442b3efab
+status: deprecated
+related:
+- id: 5c8ea8be-7a0e-4809-b65a-2d26f91ee077
+  type: similar
+- id: c27fffce-2372-458e-ae4b-4f247823dc2c
+  type: similar
+- id: 9d19c38d-a376-4e18-a517-db535a8322be
+  type: similar
+- id: 63a6f63d-043a-4ddc-9f24-febd436a77f5
+  type: similar
+- id: 132c70fd-1074-4d10-a9f5-cd1be4e40ef6
+  type: similar
+- id: 575160f3-5822-495e-afce-54fee80dca9a
+  type: similar
+description: |
+  Deprecated: superseded by 5c8ea8be-7a0e-4809-b65a-2d26f91ee077 (sdbinst -m -bg) and the registry_set rules 132c70fd-1074-4d10-a9f5-cd1be4e40ef6 / 575160f3-5822-495e-afce-54fee80dca9a. Detects sdbinst.exe started with -m and -bg whose parent is not TrustedInstaller.exe or msiexec.exe, an application shimming persistence pattern (T1546.011). This rule was originally filed under T1547.001 (Run keys / Startup folder), which it does not detect, and it ANDed a registry event with process fields that registry events do not have, so it could never fire. It is now a valid process-creation rule kept only because its id may be deployed.
+
+  Defender notes:
+  - Hardening control: Disable application compatibility shim installation for standard users and audit AppCompatFlags registry changes.
+  - IR step: Export the shim database and registry keys, remove the registration, and check the shimmed application for tampering.
+  - Risk treatment: Mitigate: configuration control; accept residual risk for legitimate compatibility fixes with change approval.
+author: Jahsean Meikle
+date: 2026/05/10
+modified: 2026/10/05
+references:
+- https://attack.mitre.org/techniques/T1546/011/
+- https://www.geoffchappell.com/studies/windows/win32/apphelp/sdb/index.htm
+tags:
+- attack.persistence
+- attack.privilege_escalation
+- attack.t1546.011
+- cert.secplus.2.4
+- cert.secplus.4.1
+- cert.secplus.4.4
+- cert.secplus.4.6
+- cert.isc2cc.d3
+- cert.isc2cc.d5
+- nist.800-53.ac-6
+- nist.800-53.cm-6
+- nist.800-53.cm-7
+- nist.800-53.si-7
+- cis.v8.4.1
+- cis.v8.4.8
+- cis.v8.5.4
+- cis.v8.8.5
+logsource:
+  category: process_creation
+  product: windows
+detection:
+  selection_process:
+    process.name: sdbinst.exe
+    process.command_line|contains|all:
+    - ' -m'
+    - ' -bg'
+  filter_legitimate_parent:
+    process.parent.name:
+    - TrustedInstaller.exe
+    - MsiExec.exe
+    - msiexec.exe
+  condition: selection_process and not filter_legitimate_parent
+falsepositives:
+- Windows servicing, patch management or software deployment tools that run sdbinst.exe silently from another parent process
+level: medium
+fields:
+- process.name
+- process.executable
+- process.command_line
+- process.parent.name
+- process.parent.executable

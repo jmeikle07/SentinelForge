@@ -9,14 +9,15 @@ ISC2 Certified in Cybersecurity (CC) domains, NIST SP 800-53 rev5 controls and
 CIS Controls v8 safeguards. IDs are validated against
 `docs/compliance/objectives.yml`.
 
-Rules covered: **39**
+Rules covered: **40**
 
 ## Rules
 
 | Rule | ID | ATT&CK | Security+ SY0-701 | ISC2 CC | NIST 800-53 | CIS v8 |
 |---|---|---|---|---|---|---|
-| Application Shim Database Installation via sdbinst.exe | `9d19c38d-a376-4e18-a517-db535a8322be` | T1218.011 | 2.4, 4.1, 4.4 | D5 | AU-6, CM-10, CM-7, SI-4 | 2.5, 4.8, 8.8, 8.11 |
-| Application Shimming via AppCompatFlags Registry Write | `575160f3-5822-495e-afce-54fee80dca9a` | T1546.011 | 2.4, 4.1, 4.4 | D5 | CM-6, CM-7, SI-7 | 4.1, 4.8, 8.5 |
+| Application Shim Database Installation via sdbinst.exe (Superseded) | `9d19c38d-a376-4e18-a517-db535a8322be` | T1546.011 | 2.4, 4.1, 4.4, 4.6 | D3, D5 | AC-6, CM-6, CM-7, SI-7 | 4.1, 4.8, 5.4, 8.5 |
+| Application Shim Database Registered in AppCompatFlags (InstalledSDB / Custom) | `132c70fd-1074-4d10-a9f5-cd1be4e40ef6` | T1546.011 | 2.4, 4.1, 4.4, 4.6 | D3, D5 | AC-6, CM-6, CM-7, SI-7 | 4.1, 4.8, 5.4, 8.5 |
+| Application Shim Registry Keys Written by a Process Other Than sdbinst.exe | `575160f3-5822-495e-afce-54fee80dca9a` | T1546.011 | 2.4, 4.1, 4.4 | D5 | CM-6, CM-7, SI-7 | 4.1, 4.8, 8.5 |
 | Archive Utility Spawned by CMD or PowerShell for Data Staging | `e1bed71c-47d5-4f71-b9f0-a1b6717c06e2` | T1560.001 | 3.3, 4.4 | D5 | AC-4, SC-7, SI-4 | 3.3, 3.13, 8.8, 13.4 |
 | Brute Force Password Guessing via Net Use IPC$ Share with FOR Loop | `77ecdffa-3fa9-462a-a86d-ea87e42455d0` | T1110.001 | 2.4, 4.6 | D3, D5 | AC-7, IA-5, SI-4 | 5.2, 6.3, 8.11 |
 | Cmdkey Credential Store Followed by MSTSC RDP Lateral Movement | `43846fcf-f24e-420e-8469-6a61e6201646` | T1021.001 | 2.2, 3.2, 4.6 | D3, D4 | AC-17, IA-2, SC-7 | 4.4, 6.4, 13.4, 13.5 |
@@ -43,17 +44,17 @@ Rules covered: **39**
 | Remote System Discovery via Net View with Domain Enumeration | `e82c8c54-344a-4bf5-92dd-ad324a5e1f98` | T1018 | 2.4, 4.4 | D4, D5 | CA-7, SI-4 | 8.5, 13.1 |
 | SAM Registry Hive Dumping via Reg Save Command | `ffaa3523-eeb1-4706-aff3-d1d59b16b0d9` | T1003.002 | 2.4, 4.4, 4.6 | D3, D5 | AC-6, AU-6, IA-5, SI-4 | 5.2, 5.4, 8.5, 8.8 |
 | Scheduled Task Creation via Schtasks with Logon or Startup Triggers | `9aa53a2b-66bc-4f8d-a40f-b6962cf9c927` | T1053.005 | 2.4, 4.1, 4.4 | D3, D5 | AC-6, CM-5, CM-6, CM-7 | 4.1, 4.8, 5.4, 8.5 |
-| Sdbinst Silent Machine-Wide Shim Installation | `5c8ea8be-7a0e-4809-b65a-2d26f91ee077` | T1546.011, T1218.011 | 2.4, 4.1, 4.4 | D5 | AU-6, CM-10, CM-6, CM-7, SI-4, SI-7 | 2.5, 4.1, 4.8, 8.5, 8.8, 8.11 |
+| Sdbinst Silent Machine-Wide Shim Installation | `5c8ea8be-7a0e-4809-b65a-2d26f91ee077` | T1546.011 | 2.4, 4.1, 4.4, 4.6 | D3, D5 | AC-6, CM-6, CM-7, SI-7 | 4.1, 4.8, 5.4, 8.5 |
+| Sdbinst Silent Shim Installation Outside Servicing Parents (Superseded) | `d54e55da-9600-4e18-92a2-25a442b3efab` | T1546.011 | 2.4, 4.1, 4.4, 4.6 | D3, D5 | AC-6, CM-6, CM-7, SI-7 | 4.1, 4.8, 5.4, 8.5 |
+| Sdbinst Silent Shim Installation Spawned by services.exe (Superseded) | `63a6f63d-043a-4ddc-9f24-febd436a77f5` | T1546.011 | 2.4, 4.1, 4.4, 4.6 | D3, D5 | AC-6, CM-6, CM-7, SI-7 | 4.1, 4.8, 5.4, 8.5 |
 | Silent MSI Execution via CMD or PowerShell Proxy | `b8ee8991-c2af-4d5e-9dd8-4702f01a2e14` | T1216, T1218.007 | 2.4, 4.1, 4.4 | D5 | AU-6, CM-10, CM-11, CM-7, SI-4 | 2.3, 2.5, 2.7, 8.8, 8.11 |
 | Suspicious Svchost Execution with Unusual Service Group Parameter | `6d060b71-5faf-425c-bf21-bb7751cc0e83` | T1569.002 | 2.4, 4.1 | D5 | CM-6, CM-7, SI-4 | 4.8, 8.8 |
-| Suspicious sdbinst.exe Execution | `c27fffce-2372-458e-ae4b-4f247823dc2c` | T1546.011 | 2.4, 4.1, 4.4 | D5 | CM-6, CM-7, SI-7 | 4.1, 4.8, 8.5 |
-| Suspicious sdbinst.exe Execution with Silent Background Flags via Services Context | `63a6f63d-043a-4ddc-9f24-febd436a77f5` | T1574.010 | 2.4, 4.1, 4.6 | D3, D5 | AC-6, CM-5, CM-6, CM-7 | 4.1, 4.8, 5.4 |
-| Suspicious sdbinst.exe Silent Background Shim Database Installation with Registry Writes | `d54e55da-9600-4e18-92a2-25a442b3efab` | T1547.001 | 2.4, 4.1, 4.4 | D5 | CM-6, CM-7, SI-7 | 2.3, 4.1, 8.5 |
 | System Information Discovery via CMD Enumeration Utilities | `99975fcf-52cb-4595-a905-0c45242c30db` | T1082, T1016, T1033 | 2.4, 4.4 | D4, D5 | AU-12, SI-4 | 8.5, 8.6, 8.8 |
 | System Language Discovery via Chained Systeminfo and Disk Enum Registry Query | `b8765da9-bc02-4c22-8b48-01096420d98a` | T1614.001 | 2.4, 4.4 | D5 | AU-12, SI-4 | 8.5, 8.8 |
 | System Network Connections Discovery via Chained CMD Commands | `1b7ee4dd-14c6-4538-aa6b-c64169bb6018` | T1049 | 2.4, 4.4 | D4, D5 | AU-12, SI-4 | 8.5, 8.8 |
 | System Owner/User Discovery via Scripting Engine Parent Process | `0d36e12f-4b63-4cf0-8483-8552b1d57090` | T1033 | 2.4, 4.4 | D5 | AU-12, SI-4 | 8.5, 8.8 |
 | Windows Credential Manager Injection via cmdkey.exe for RDP Lateral Movement | `831565f9-d936-4dcc-abaf-0112e0cb5bb4` | T1555.004, T1021.001 | 2.2, 2.4, 3.2, 4.6 | D3, D4, D5 | AC-17, AC-6, IA-2, IA-5, SC-7, SI-4 | 4.4, 5.2, 5.4, 6.4, 8.8, 13.4, 13.5 |
+| sdbinst.exe Execution (Application Shim Database Installer) | `c27fffce-2372-458e-ae4b-4f247823dc2c` | T1546.011 | 2.4, 4.1, 4.4 | D5 | CM-6, CM-7, SI-7 | 4.1, 4.8, 8.5 |
 
 ## Defender notes by technique
 
@@ -86,13 +87,10 @@ Rules covered: **39**
 | T1204.002 | Block macros from internet-sourced Office files, filter risky attachment types, and run phishing awareness training. | Isolate the host, retrieve the document and macro, identify the delivery email, and purge it from other mailboxes. | Mitigate: macro blocking and training; transfer part of the risk with email security services. |
 | T1216 | Use application control to restrict signed proxy-execution binaries and scripts to approved uses. | Identify the proxied payload, preserve the MSI or script, and scope its install or execution footprint. | Mitigate: application control; accept residual risk for legitimate software deployment tools. |
 | T1218.007 | Restrict msiexec to administrators or software distribution, block installs from user-writable paths, and apply application control. | Retrieve the MSI package, inspect its custom actions, and uninstall and remove artefacts after scoping. | Mitigate: application control; accept residual risk for approved silent deployments. |
-| T1218.011 | Block or restrict rundll32 and sdbinst for standard users with application control and audit their command lines. | Identify the DLL or shim database loaded, preserve it, and remove the registration once scoped. | Mitigate: application control; accept residual risk where legacy applications need compatibility shims. |
 | T1482 | Restrict directory trust enumeration to administrative accounts and log net.exe command chains. | Identify the account and host, review the trusts enumerated, and watch for cross-domain lateral movement. | Accept with monitoring: trust discovery is rare for standard users and valuable as a high-signal indicator. |
 | T1546.011 | Disable application compatibility shim installation for standard users and audit AppCompatFlags registry changes. | Export the shim database and registry keys, remove the registration, and check the shimmed application for tampering. | Mitigate: configuration control; accept residual risk for legitimate compatibility fixes with change approval. |
-| T1547.001 | Monitor Run keys and Startup folders, restrict write access, and remove unauthorised software. | Record and remove the autostart entry, identify the referenced binary, and hunt for the same entry on other hosts. | Mitigate: write restrictions and monitoring; accept residual risk for user-installed software, with review. |
 | T1555.004 | Restrict cmdkey use, enable Credential Guard, and prefer MFA over stored RDP credentials. | Identify the stored credentials and targets, reset affected accounts, and review RDP connections that followed. | Mitigate: Credential Guard and MFA; accept residual risk for legitimate stored administrator sessions. |
 | T1560.001 | Restrict archive utilities on sensitive systems, apply DLP, and monitor staging directories. | Locate and preserve the archive, identify what data it contains, and check for exfiltration from the same host. | Mitigate: DLP; accept noise from legitimate compression, escalating when paired with outbound transfer. |
 | T1564.001 | Enforce Explorer settings (show file extensions) through Group Policy and restrict reg.exe for standard users. | Revert the value, look for files using double extensions, and trace the delivery of those files. | Mitigate: configuration management; the change itself is low-impact, so accept with monitoring. |
 | T1569.002 | Disable unnecessary services, restrict service creation to administrators, and baseline svchost service groups. | Inspect the new or modified service binary and parameters, preserve it, and remove persistence once scoped. | Mitigate: service allowlisting and least privilege; accept residual risk from legitimate administrative tooling. |
-| T1574.010 | Audit service binary and folder permissions, remove write access for non-admins, and apply least privilege. | Identify the weak service permission abused, restore ACLs, and replace or verify the service binary. | Mitigate: ACL hardening and periodic permission audits; accept residual risk on legacy services pending replacement. |
 | T1614.001 | Collect command-line audit logs and baseline legitimate regional and language queries. | Check the process chain for malware that tailors its behaviour to locale, and hunt for follow-on execution. | Accept: language discovery is low-impact alone; treat as a correlation signal. |

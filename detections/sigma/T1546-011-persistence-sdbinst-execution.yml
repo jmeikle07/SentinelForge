@@ -1,4 +1,4 @@
-title: Suspicious sdbinst.exe Execution
+title: sdbinst.exe Execution (Application Shim Database Installer)
 id: c27fffce-2372-458e-ae4b-4f247823dc2c
 status: experimental
 related:
@@ -8,8 +8,14 @@ related:
   type: similar
 - id: 575160f3-5822-495e-afce-54fee80dca9a
   type: similar
+- id: d54e55da-9600-4e18-92a2-25a442b3efab
+  type: similar
+- id: 63a6f63d-043a-4ddc-9f24-febd436a77f5
+  type: similar
+- id: 132c70fd-1074-4d10-a9f5-cd1be4e40ef6
+  type: similar
 description: |
-  Detects suspicious execution of sdbinst.exe associated with application shimming persistence techniques
+  Detects any execution of sdbinst.exe, the Windows application compatibility (shim) database installer. It is rare on most endpoints and is the standard way to register a shim database for application shimming persistence (T1546.011), but it is also used legitimately, so this is a broad visibility rule at low severity and not evidence of malice by itself. 5c8ea8be-7a0e-4809-b65a-2d26f91ee077 is the narrower sdbinst -m -bg rule; the AppCompatFlags registry writes are covered by 132c70fd-1074-4d10-a9f5-cd1be4e40ef6 and 575160f3-5822-495e-afce-54fee80dca9a.
 
   Defender notes:
   - Hardening control: Disable application compatibility shim installation for standard users and audit AppCompatFlags registry changes.
@@ -17,6 +23,7 @@ description: |
   - Risk treatment: Mitigate: configuration control; accept residual risk for legitimate compatibility fixes with change approval.
 author: Jahsean Meikle
 date: 2026/05/08
+modified: 2026/10/05
 references:
 - https://attack.mitre.org/techniques/T1546/011/
 tags:
@@ -39,9 +46,9 @@ detection:
   selection:
     process.name: sdbinst.exe
   condition: selection
-level: medium
+level: low
 falsepositives:
-- Legitimate application compatibility database installations
+- Legitimate application compatibility database installations by administrators, deployment tools or Windows servicing; every run is matched, so review the command line and .sdb path
 fields:
 - process.name
 - process.command_line

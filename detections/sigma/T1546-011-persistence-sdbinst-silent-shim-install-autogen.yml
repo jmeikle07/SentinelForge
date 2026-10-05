@@ -6,10 +6,16 @@ related:
   type: similar
 - id: 9d19c38d-a376-4e18-a517-db535a8322be
   type: similar
+- id: d54e55da-9600-4e18-92a2-25a442b3efab
+  type: similar
+- id: 63a6f63d-043a-4ddc-9f24-febd436a77f5
+  type: similar
+- id: 132c70fd-1074-4d10-a9f5-cd1be4e40ef6
+  type: similar
 - id: 575160f3-5822-495e-afce-54fee80dca9a
   type: similar
 description: |
-  Detects sdbinst.exe executing with -m and -bg flags indicating silent machine-wide shim database installation, a technique used for application shimming persistence and defense evasion (T1546.011). Also detects associated registry writes to AppCompatFlags\SdbUpdates.
+  Detects sdbinst.exe (the Windows application compatibility database installer) started with both the -m and -bg flags, a silent machine-wide shim database installation pattern associated with application shimming persistence (T1546.011). Only the process-creation half is detected here; the AppCompatFlags registry writes that a shim installation produces are covered by the separate registry_set rules 132c70fd-1074-4d10-a9f5-cd1be4e40ef6 and 575160f3-5822-495e-afce-54fee80dca9a (a registry write can never match a process-creation event, so the earlier combined rule could never fire on its registry branch). The -m and -bg switches are not part of sdbinst's publicly documented usage text and their exact meaning could not be verified offline; treat the command line as a pivot, not proof of malice, because Windows servicing and deployment tools may use sdbinst as well.
 
   Defender notes:
   - Hardening control: Disable application compatibility shim installation for standard users and audit AppCompatFlags registry changes.
@@ -17,53 +23,43 @@ description: |
   - Risk treatment: Mitigate: configuration control; accept residual risk for legitimate compatibility fixes with change approval.
 author: Jahsean Meikle
 date: 2026/05/11
+modified: 2026/10/05
 references:
 - https://attack.mitre.org/techniques/T1546/011/
-- https://attack.mitre.org/techniques/T1218/011/
 tags:
-- attack.defense_evasion
 - attack.persistence
+- attack.privilege_escalation
 - attack.t1546.011
-- attack.t1218.011
 - cert.secplus.2.4
 - cert.secplus.4.1
 - cert.secplus.4.4
+- cert.secplus.4.6
+- cert.isc2cc.d3
 - cert.isc2cc.d5
-- nist.800-53.au-6
-- nist.800-53.cm-10
+- nist.800-53.ac-6
 - nist.800-53.cm-6
 - nist.800-53.cm-7
-- nist.800-53.si-4
 - nist.800-53.si-7
-- cis.v8.2.5
 - cis.v8.4.1
 - cis.v8.4.8
+- cis.v8.5.4
 - cis.v8.8.5
-- cis.v8.8.8
-- cis.v8.8.11
 logsource:
   category: process_creation
   product: windows
 detection:
-  selection_process:
-    event.code: '1'
+  selection:
     process.name: sdbinst.exe
     process.command_line|contains|all:
-    - -m
-    - -bg
-  selection_registry:
-    event.code: '13'
-    registry.key|contains: SOFTWARE\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\SdbUpdates
-  condition: selection_process or selection_registry
+    - ' -m'
+    - ' -bg'
+  condition: selection
 falsepositives:
-- Legitimate Windows Update or patch management processes may invoke sdbinst.exe with these flags during application compatibility updates
-- Enterprise software deployment tools (SCCM, Intune) may register shim databases silently as part of application packaging
-level: high
+- Windows servicing, patch management or software deployment tools (SCCM, Intune) may run sdbinst.exe silently when installing application compatibility fixes; validate against change windows and the .sdb path.
+level: medium
 fields:
 - process.name
 - process.executable
 - process.command_line
 - process.parent.name
 - process.parent.executable
-- registry.key
-- winlog.event_data.IntegrityLevel

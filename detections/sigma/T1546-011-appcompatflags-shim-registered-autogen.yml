@@ -1,0 +1,65 @@
+title: Application Shim Database Registered in AppCompatFlags (InstalledSDB / Custom)
+id: 132c70fd-1074-4d10-a9f5-cd1be4e40ef6
+status: experimental
+related:
+- id: 5c8ea8be-7a0e-4809-b65a-2d26f91ee077
+  type: similar
+- id: 575160f3-5822-495e-afce-54fee80dca9a
+  type: similar
+- id: c27fffce-2372-458e-ae4b-4f247823dc2c
+  type: similar
+- id: 9d19c38d-a376-4e18-a517-db535a8322be
+  type: similar
+- id: d54e55da-9600-4e18-92a2-25a442b3efab
+  type: similar
+- id: 63a6f63d-043a-4ddc-9f24-febd436a77f5
+  type: similar
+description: |
+  Detects any process writing a registry value under HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\InstalledSDB or AppCompatFlags\Custom, the keys where an application compatibility (shim) database is registered, including registrations made by sdbinst.exe (T1546.011, Event Triggered Execution: Application Shimming). This is the registry half of the former combined rule 5c8ea8be-7a0e-4809-b65a-2d26f91ee077, split out because a registry event can never satisfy a process-creation condition. It deliberately does not exclude sdbinst.exe, since sdbinst is how shims are normally registered; 575160f3-5822-495e-afce-54fee80dca9a is the narrower variant for writers other than sdbinst. Which of these keys a given installer writes was taken from public shim-persistence write-ups and could not be re-verified offline.
+
+  Defender notes:
+  - Hardening control: Disable application compatibility shim installation for standard users and audit AppCompatFlags registry changes.
+  - IR step: Export the shim database and registry keys, remove the registration, and check the shimmed application for tampering.
+  - Risk treatment: Mitigate: configuration control; accept residual risk for legitimate compatibility fixes with change approval.
+author: Jahsean Meikle
+date: 2026/10/05
+references:
+- https://attack.mitre.org/techniques/T1546/011/
+- https://www.geoffchappell.com/studies/windows/win32/apphelp/sdb/index.htm
+- https://www.fireeye.com/blog/threat-research/2017/05/fin7-shim-databases-persistence.html
+tags:
+- attack.persistence
+- attack.privilege_escalation
+- attack.t1546.011
+- cert.secplus.2.4
+- cert.secplus.4.1
+- cert.secplus.4.4
+- cert.secplus.4.6
+- cert.isc2cc.d3
+- cert.isc2cc.d5
+- nist.800-53.ac-6
+- nist.800-53.cm-6
+- nist.800-53.cm-7
+- nist.800-53.si-7
+- cis.v8.4.1
+- cis.v8.4.8
+- cis.v8.5.4
+- cis.v8.8.5
+logsource:
+  category: registry_set
+  product: windows
+detection:
+  selection:
+    registry.key|contains:
+    - \AppCompatFlags\InstalledSDB\
+    - \AppCompatFlags\Custom\
+  condition: selection
+falsepositives:
+- Enterprise application compatibility deployments (SCCM, Group Policy, the Application Compatibility Toolkit) and software installers that ship shims
+- Windows servicing registering built-in compatibility databases
+level: medium
+fields:
+- process.name
+- process.executable
+- registry.key
+- registry.value

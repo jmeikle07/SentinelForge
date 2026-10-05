@@ -1,0 +1,40 @@
+id: 575160f3-5822-495e-afce-54fee80dca9a
+positive:
+- name: reg.exe writes a Custom shim entry directly
+  event: &ev
+    event.code: "13"
+    process.name: reg.exe
+    process.executable: C:\Windows\System32\reg.exe
+    registry.key: HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\Custom\notepad.exe
+    registry.value: "{3a1b2c4d-0000-4000-8000-000000000001}.sdb"
+- name: PowerShell writes InstalledSDB
+  event:
+    <<: *ev
+    process.name: powershell.exe
+    process.executable: C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe
+    registry.key: HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\InstalledSDB\{3a1b2c4d-0000-4000-8000-000000000001}.sdb
+- name: renamed copy of sdbinst outside System32 is not trusted
+  event:
+    <<: *ev
+    process.name: sdbinst.exe
+    process.executable: C:\Users\Public\sdbinst.exe
+negative:
+- name: genuine sdbinst in System32
+  event:
+    <<: *ev
+    process.name: sdbinst.exe
+    process.executable: C:\Windows\System32\sdbinst.exe
+- name: genuine 32-bit sdbinst
+  event:
+    <<: *ev
+    process.name: sdbinst.exe
+    process.executable: C:\Windows\SysWOW64\sdbinst.exe
+- name: unrelated AppCompatFlags value (Layers)
+  event:
+    <<: *ev
+    registry.key: HKCU\SOFTWARE\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\Layers
+- name: process creation event
+  event:
+    event.code: "1"
+    process.name: reg.exe
+    process.command_line: reg.exe add HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\Custom

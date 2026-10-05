@@ -1,0 +1,36 @@
+id: 5c8ea8be-7a0e-4809-b65a-2d26f91ee077
+positive:
+- name: sdbinst -m -bg
+  event: &ev
+    event.code: "1"
+    process.name: sdbinst.exe
+    process.executable: C:\Windows\System32\sdbinst.exe
+    process.command_line: sdbinst.exe -m -bg
+    process.parent.name: cmd.exe
+- name: flags in either order with a database path
+  event:
+    <<: *ev
+    process.command_line: C:\Windows\System32\sdbinst.exe -bg -m C:\ProgramData\evil.sdb
+negative:
+- name: interactive install of one database, no -m/-bg
+  event:
+    <<: *ev
+    process.command_line: sdbinst.exe -q C:\Users\bob\Desktop\fix.sdb
+- name: only -bg
+  event:
+    <<: *ev
+    process.command_line: sdbinst.exe -bg
+- name: -m only inside a path, no real flag (path contains "-m")
+  event:
+    <<: *ev
+    process.command_line: sdbinst.exe C:\tools-my\fix-bg.sdb
+- name: other binary with the same flags
+  event:
+    <<: *ev
+    process.name: setup.exe
+    process.command_line: setup.exe -m -bg
+- name: registry event (rule is process creation only)
+  event:
+    event.code: "13"
+    process.name: sdbinst.exe
+    registry.key: HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\InstalledSDB\{1}

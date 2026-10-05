@@ -1,12 +1,12 @@
 {
-  "name": "SentinelForge Detection Lab \u2014 37 Techniques Covered",
+  "name": "SentinelForge Detection Lab \u2014 34 Techniques Covered",
   "versions": {
     "attack": "16",
     "navigator": "4.9",
     "layer": "4.5"
   },
   "domain": "enterprise-attack",
-  "description": "Auto-generated from the SentinelForge autonomous rule engine. 37 techniques covered as of 2026-10-05. Green = HIGH confidence, Orange = MEDIUM, Blue = LOW, Grey = not assessed.",
+  "description": "Auto-generated from the SentinelForge autonomous rule engine. 34 techniques covered as of 2026-10-05. Green = HIGH confidence, Orange = MEDIUM, Blue = LOW, Grey = not assessed.",
   "filters": {
     "platforms": [
       "Windows",
@@ -258,14 +258,6 @@
       "metadata": []
     },
     {
-      "techniqueID": "T1218.011",
-      "color": "#ff9800",
-      "comment": "Deployed: 2026-05-11 | Confidence: MEDIUM | Tactic: Persistence, Defense Evasion | Rules: 2",
-      "enabled": true,
-      "score": 1,
-      "metadata": []
-    },
-    {
       "techniqueID": "T1482",
       "color": "#4caf50",
       "comment": "Deployed: 2026-05-10 | Confidence: HIGH | Tactic: Discovery | Rules: 1",
@@ -275,16 +267,8 @@
     },
     {
       "techniqueID": "T1546.011",
-      "color": "#9e9e9e",
-      "comment": "Confidence: not assessed | Tactic: Persistence, Defense Evasion | Rules: 3",
-      "enabled": true,
-      "score": 1,
-      "metadata": []
-    },
-    {
-      "techniqueID": "T1547.001",
       "color": "#ff9800",
-      "comment": "Deployed: 2026-05-10 | Confidence: MEDIUM | Tactic: Persistence | Rules: 1",
+      "comment": "Deployed: 2026-05-11 | Confidence: MEDIUM | Tactic: Persistence, Privilege Escalation | Rules: 4",
       "enabled": true,
       "score": 1,
       "metadata": []
@@ -309,14 +293,6 @@
       "techniqueID": "T1564.001",
       "color": "#4caf50",
       "comment": "Deployed: 2026-05-10 | Confidence: HIGH | Tactic: Defense Evasion | Rules: 1",
-      "enabled": true,
-      "score": 1,
-      "metadata": []
-    },
-    {
-      "techniqueID": "T1574.010",
-      "color": "#ff9800",
-      "comment": "Deployed: 2026-05-15 | Confidence: MEDIUM | Tactic: Persistence, Privilege Escalation | Rules: 1",
       "enabled": true,
       "score": 1,
       "metadata": []

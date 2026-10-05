@@ -1,0 +1,28 @@
+id: c27fffce-2372-458e-ae4b-4f247823dc2c
+positive:
+- name: any sdbinst run
+  event: &ev
+    event.code: "1"
+    process.name: sdbinst.exe
+    process.executable: C:\Windows\System32\sdbinst.exe
+    process.command_line: sdbinst.exe C:\Temp\fix.sdb
+    process.parent.name: explorer.exe
+- name: uninstall
+  event:
+    <<: *ev
+    process.command_line: sdbinst.exe -u C:\Temp\fix.sdb
+negative:
+- name: different image with sdb in the command line
+  event:
+    <<: *ev
+    process.name: notepad.exe
+    process.command_line: notepad.exe C:\Temp\sdbinst.exe.txt
+- name: name that merely contains sdbinst
+  event:
+    <<: *ev
+    process.name: sdbinst.exe.bak
+- name: registry event
+  event:
+    event.code: "13"
+    process.name: sdbinst.exe
+    registry.key: HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\InstalledSDB\{1}

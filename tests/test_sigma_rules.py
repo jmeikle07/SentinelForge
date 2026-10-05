@@ -44,6 +44,10 @@ DUPLICATE_GROUPS = {
         "c27fffce-2372-458e-ae4b-4f247823dc2c",
         "9d19c38d-a376-4e18-a517-db535a8322be",
         "5c8ea8be-7a0e-4809-b65a-2d26f91ee077",
+        "d54e55da-9600-4e18-92a2-25a442b3efab",
+        "63a6f63d-043a-4ddc-9f24-febd436a77f5",
+        "132c70fd-1074-4d10-a9f5-cd1be4e40ef6",
+        "575160f3-5822-495e-afce-54fee80dca9a",
     ],
     "hidefileext": [
         "0acbfe83-9428-4eda-8c9c-6482e4d60c0a",

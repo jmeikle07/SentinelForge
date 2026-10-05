@@ -162,7 +162,9 @@ def _parse(text: str):
                 out.append(("any",))
             elif ch == "?":
                 out.append(("one",))
-            elif ch in "[]{}~^/":
+            elif ch in "[]{}~^/(:":
+                # '(' / ':' unescaped inside a value would be nested groups or a
+                # second field: refuse loudly instead of reading them as literals.
                 raise LuceneError(f"unsupported Lucene syntax {ch!r}")
             else:
                 out.append(("lit", ch))
@@ -306,6 +308,8 @@ def test_eval_cidr_and_multivalued_fields():
 
 
 @pytest.mark.parametrize("bad", [
+    "a:((1 OR 2) OR 3)",           # nested field group: would silently become literals
+    "a:b:c",                       # unescaped ':' inside a value
     "a:1 AND b:2 OR c:3",          # ambiguous precedence must be rejected, not guessed
     "a:1 AND (b:2",                # unbalanced
     "a:[1 TO 5]",                  # ranges unsupported -> loud failure, never silent
@@ -315,6 +319,38 @@ def test_eval_cidr_and_multivalued_fields():
 def test_eval_rejects_what_it_cannot_evaluate(bad):
     with pytest.raises(LuceneError):
         _parse(bad)
+
+
+def test_eval_not_and_or_precedence_through_groups():
+    ev = {"event.code": "1", "process.name": "a.exe"}
+    q = "event.code:1 AND ((process.name:b.exe OR process.name:c.exe) OR (process.name:a.exe AND NOT process.parent.name:x))"
+    assert matches(q, ev)
+    assert not matches(q, {**ev, "process.parent.name": "x"})
+    assert rule_matches(["event.code:2", "process.name:a.exe"], ev)  # OR across queries
+    assert not rule_matches([], ev)
+
+
+def test_eval_on_real_pysigma_output_roundtrip():
+    rule = """
+title: t
+id: 00000000-0000-4000-8000-000000000001
+status: test
+logsource: {category: process_creation, product: windows}
+detection:
+  sel: {process.name: Foo.exe, process.command_line|contains|all: ['-a', 'b c']}
+  flt: {process.parent.name: [x.exe, y.exe]}
+  condition: sel and not flt
+level: low
+"""
+    qs = convert(rule)
+    ev = {"event.code": "1", "process.name": "foo.exe", "process.command_line": r"C:oo.exe -a b c"}
+    # Sigma is case-insensitive; the rendered Lucene keeps the literal's case verbatim
+    # and this evaluator (like keyword-typed ECS fields) compares case-sensitively.
+    assert "Foo.exe" in qs[0] and "foo.exe" not in qs[0]
+    assert rule_matches(qs, {**ev, "process.name": "Foo.exe"})
+    assert not rule_matches(qs, ev)
+    assert not rule_matches(qs, {**ev, "process.parent.name": "y.exe"})
+    assert not rule_matches(qs, {**ev, "process.command_line": r"foo.exe -a"})
 
 
 def test_dnf_expands_de_morgan():
@@ -353,13 +389,16 @@ SYSMON_EVENT_FIELDS = {
     },
     # Sysmon event 3 "Network connection": Image, User, Protocol, Initiated,
     # SourceIp/Port/Hostname, DestinationIp/Port/Hostname. No CommandLine, no parent.
+    # (Protocol -> network.transport; network.protocol is the application protocol
+    # and is NOT populated from event 3, so it is deliberately absent.)
     "3": _PROC | {
         "source.ip", "source.port", "source.domain", "destination.ip",
         "destination.port", "destination.domain", "network.transport",
-        "network.protocol", "network.direction", "network.type",
+        "network.direction", "network.type",
     },
     # Sysmon event 7 "Image loaded": Image, ImageLoaded, Signed, Signature, Hashes.
-    "7": _PROC | {"dll.path", "dll.name", "dll.hash.sha256", "file.path", "file.name",
+    # (ImageLoaded is dll.path/dll.name, not file.*.)
+    "7": _PROC | {"dll.path", "dll.name", "dll.hash.sha256",
                   "dll.code_signature.subject_name", "dll.code_signature.status"},
     # Sysmon event 8 "CreateRemoteThread": SourceImage, TargetImage, StartAddress...
     "8": _PROC | {"winlog.event_data.TargetImage", "winlog.event_data.StartAddress",
@@ -372,18 +411,29 @@ SYSMON_EVENT_FIELDS = {
     # Sysmon events 12/13/14 "Registry create/delete, value set, rename": EventType,
     # Image, TargetObject, Details (13), NewName (14), User. No CommandLine,
     # no parent, no IntegrityLevel.
-    "12": _PROC | {"registry.key", "registry.path", "registry.value", "registry.hive",
-                   "registry.data.strings", "registry.data.type"},
+    # Details (the value written) exists on event 13 only; 12 has EventType+TargetObject,
+    # 14 has TargetObject+NewName.
+    "12": _PROC | {"registry.key", "registry.path", "registry.value", "registry.hive"},
     "13": _PROC | {"registry.key", "registry.path", "registry.value", "registry.hive",
                    "registry.data.strings", "registry.data.type"},
-    "14": _PROC | {"registry.key", "registry.path", "registry.value", "registry.hive",
-                   "registry.data.strings", "registry.data.type"},
+    "14": _PROC | {"registry.key", "registry.path", "registry.value", "registry.hive"},
     # Sysmon event 17 "Pipe created": PipeName, Image, User.
     "17": _PROC | {"file.name", "file.path"},
     # Sysmon event 22 "DNSEvent": QueryName, QueryStatus, QueryResults, Image, User.
     # No CommandLine, no parent.
     "22": _PROC | {"dns.question.name", "dns.question.type", "dns.resolved_ip",
                    "dns.answers.data", "dns.response_code"},
+    # Sysmon 2 FileCreateTime change, 6 DriverLoad, 23/26 FileDelete(+Detected),
+    # 19/20/21 WMI filter/consumer/binding. No command line, no parent.
+    "2": _PROC | {"file.path", "file.name", "file.directory"},
+    "6": _PROC | {"file.path", "file.name", "dll.path", "dll.code_signature.status"},
+    "23": _PROC | {"file.path", "file.name", "file.directory", "file.extension"},
+    "26": _PROC | {"file.path", "file.name", "file.directory", "file.extension"},
+    "19": _PROC | {"winlog.event_data.EventNamespace", "winlog.event_data.Name",
+                   "winlog.event_data.Query"},
+    "20": _PROC | {"winlog.event_data.Name", "winlog.event_data.Destination",
+                   "winlog.event_data.Type"},
+    "21": _PROC | {"winlog.event_data.Consumer", "winlog.event_data.Filter"},
 }
 # The pySigma sysmon pipeline pins each logsource category to these events.
 CATEGORY_EVENTS = {
@@ -391,6 +441,8 @@ CATEGORY_EVENTS = {
     "create_remote_thread": {"8"}, "process_access": {"10"}, "file_event": {"11"},
     "registry_add": {"12"}, "registry_delete": {"12"}, "registry_set": {"13"},
     "registry_event": {"12", "13", "14"}, "pipe_created": {"17"}, "dns_query": {"22"},
+    "file_change": {"2"}, "driver_load": {"6"}, "file_delete": {"23", "26"},
+    "wmi_event": {"19", "20", "21"},
 }
 
 RULE_FILES = sorted(RULES_DIR.glob("*.yml"))
