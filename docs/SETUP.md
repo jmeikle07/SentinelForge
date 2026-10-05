@@ -61,7 +61,7 @@ cp .env.example .env
 | `ABUSEIPDB_API_KEY`, `GREYNOISE_API_KEY`, `VIRUSTOTAL_API_KEY`, `OTX_API_KEY`, `ABUSECH_AUTH_KEY` | optional | `sf_hunt.py` | Each source degrades gracefully if its key is missing. |
 | `SF_LAB_DIR`, `SF_LOG_DIR` | no | `run_*.sh`, `scripts/*` | Project directory and log directory; default to the script's location and `logs/`. |
 
-`.env.example` lists the core variables and a few optional ones; it does not list `SF_ALLOWED_HOSTS`, `SF_CASE_VARIANTS`, the `SF_AUTH_*` and `SF_HUNT_*` limits or `STOP_SF_ENGINE`, so add the ones you need. Never commit `.env`.
+`.env.example` lists every variable the code reads; optional ones are commented out, because an empty value is not the same as unset (`tests/test_env_example.py` keeps the file in sync with the code). Never commit `.env`.
 
 ## 5. Run the pieces
 

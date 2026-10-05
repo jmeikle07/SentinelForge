@@ -99,7 +99,7 @@ Commands that need Elastic, Kibana or API keys: `sf_hunt.py <ioc>` (also `script
 
 ## Configuration
 
-Settings come from environment variables; `python-dotenv` loads `.env`. The table lists the variables that change security behaviour or are needed for a first run; [docs/SETUP.md](docs/SETUP.md) has the complete list. `.env.example` currently lists only the core variables, so add the others you need.
+Settings come from environment variables; `python-dotenv` loads `.env`. The table lists the variables that change security behaviour or are needed for a first run; [docs/SETUP.md](docs/SETUP.md) has the complete list. `.env.example` lists every variable the code reads (optional ones commented out), and a test keeps it that way.
 
 | Variable | Purpose | Default |
 |---|---|---|
@@ -279,7 +279,6 @@ Limits. Front-end tests (`test_web_frontend.py`) run the pages' scripts under No
 - **Scheduling and ElastAlert.** The launchd files and shell scripts are macOS-oriented and were not run on other platforms; the ElastAlert templates are checked structurally only.
 - **Certification and control mappings** are the author's judgement and have not been reviewed by the issuing bodies.
 - **Platform.** Development and the last test run were on Windows with Python 3.14. The workflows target Ubuntu with Python 3.12 and have not been run.
-- **`.env.example` is incomplete.** It does not list `LAB_ADMIN_TOKEN` guidance, `SF_ALLOWED_HOSTS` or `SF_CASE_VARIANTS`; the tables in this README and in SETUP are the reference.
 
 ## Repository layout
 

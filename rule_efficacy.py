@@ -71,7 +71,14 @@ def fires_for_techniques(session, tech_ids):
     return out
 
 
-def main():
+def main(argv=None):
+    import argparse
+    argparse.ArgumentParser(
+        prog="rule_efficacy.py",
+        description="Count real alerts per deployed rule from the Kibana alerts index (one aggregation) "
+                    "and write state/rule_efficacy.json. Needs ELASTIC_URL and ELASTIC_API_KEY. "
+                    "Takes no options; running it overwrites that state file.",
+    ).parse_args([] if argv is None else argv)
     seen_path = STATE_DIR / "seen_techniques.json"
     if not seen_path.exists():
         print("no seen_techniques.json found")
@@ -141,4 +148,4 @@ def main():
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(main(sys.argv[1:]))

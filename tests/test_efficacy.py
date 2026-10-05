@@ -84,3 +84,23 @@ def test_backtest_count_raises_on_failure():
     responses.add(responses.POST, f"{BASE}/logs-*/_count", status=500)
     with pytest.raises(es.SearchError):
         es.backtest_count(http.session(retries=0), "x:y", base_url=BASE)
+
+
+def test_help_does_not_run_the_tool_or_touch_state(tmp_path, monkeypatch, capsys):
+    """`rule_efficacy.py --help` used to execute the whole run and overwrite state/rule_efficacy.json."""
+    (tmp_path / "seen_techniques.json").write_text(json.dumps(_techs(2)))
+    monkeypatch.setattr(rule_efficacy, "STATE_DIR", tmp_path)
+    with pytest.raises(SystemExit) as exc:
+        rule_efficacy.main(["--help"])
+    assert exc.value.code == 0
+    assert not (tmp_path / "rule_efficacy.json").exists()
+    assert "usage" in capsys.readouterr().out.lower()
+
+
+def test_unknown_argument_is_rejected_without_running(tmp_path, monkeypatch):
+    (tmp_path / "seen_techniques.json").write_text(json.dumps(_techs(2)))
+    monkeypatch.setattr(rule_efficacy, "STATE_DIR", tmp_path)
+    with pytest.raises(SystemExit) as exc:
+        rule_efficacy.main(["--bogus"])
+    assert exc.value.code == 2
+    assert not (tmp_path / "rule_efficacy.json").exists()

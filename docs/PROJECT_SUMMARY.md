@@ -83,4 +83,3 @@ Next:
 3. Replay Atomic Red Team tests against the lab and record per-rule results, to replace hand-written fixtures with captured events.
 4. Put authentication on the read endpoints and make the review gate default on.
 5. Add a hashed dependency lock file so CI can use `--require-hashes`.
-6. Complete `.env.example` with the variables the code reads.
