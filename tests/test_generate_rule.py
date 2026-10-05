@@ -155,11 +155,12 @@ def test_query_elasticsearch_pages_past_100_events(monkeypatch):
 
 
 @responses.activate
-def test_query_elasticsearch_error_returns_empty_and_logs(monkeypatch, caplog):
+def test_query_elasticsearch_error_raises_and_logs(monkeypatch, caplog):
     monkeypatch.setenv("ELASTIC_URL", "https://es.test:9200")
     responses.add(responses.POST, "https://es.test:9200/logs-*/_search", status=401, json={})
     with caplog.at_level("ERROR"):
-        assert generate_rule.query_elasticsearch(60) == []
+        with pytest.raises(generate_rule.SearchError):
+            generate_rule.query_elasticsearch(60)
     assert caplog.records
 
 

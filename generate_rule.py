@@ -301,7 +301,7 @@ def query_elasticsearch(lookback_minutes):
         return [h["_source"] for h in hits]
     except SearchError as exc:
         _log.error("Elasticsearch error: %s", exc)
-        return []
+        raise  # an ES failure is not "no events": the caller must not advance last_run
 
 
 # ── Preprocessing ──────────────────────────────────────────────────────────────
@@ -1084,7 +1084,7 @@ def email_stopped():
 def _try_push_state():
     """Publish state/ but never abort the run: a failed push is surfaced as a loud error."""
     try:
-        _try_push_state()
+        git_push_state()
     except GitError as exc:
         _con.print(f"  [red]State push failed (state is saved locally):[/] {exc}")
         _log.error("state push failed: %s", exc)
@@ -1144,6 +1144,11 @@ def main():
             events = query_elasticsearch(lookback)
         except lab_config.ConfigError as exc:
             _con.print(f"[red]Error:[/] {exc}")
+            sys.exit(1)
+        except SearchError as exc:
+            # Do NOT record no_events or advance last_run: the window was never analysed.
+            _log.error("Elasticsearch query failed; window NOT analysed, last_run not advanced: %s", exc)
+            _con.print(f"[red]Error:[/] Elasticsearch query failed ({exc}); this window was not analysed.")
             sys.exit(1)
     _step_ok("Elasticsearch", f"pulled {len(events)} Sysmon events from the last {lookback} minutes", _t.time()-t0)
 
