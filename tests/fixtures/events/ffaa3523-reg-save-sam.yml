@@ -1,0 +1,33 @@
+id: ffaa3523-eeb1-4706-aff3-d1d59b16b0d9
+positive:
+- name: reg save HKLM\SAM
+  event: &ev
+    event.code: "1"
+    process.name: reg.exe
+    process.executable: C:\Windows\System32\reg.exe
+    process.command_line: reg save HKLM\SAM C:\Windows\Temp\sam.hive
+    process.parent.name: cmd.exe
+- name: reg save HKLM\SYSTEM
+  event:
+    <<: *ev
+    process.command_line: reg save HKLM\SYSTEM C:\Windows\Temp\system.hive
+- name: whole command run through cmd.exe
+  event:
+    <<: *ev
+    process.name: cmd.exe
+    process.executable: C:\Windows\System32\cmd.exe
+    process.command_line: cmd.exe /c reg save HKLM\SECURITY C:\x\sec.hive
+    process.parent.name: powershell.exe
+negative:
+- name: backup engine saves the hive
+  event:
+    <<: *ev
+    process.parent.name: wbengine.exe
+- name: reg save of a user hive
+  event:
+    <<: *ev
+    process.command_line: reg save HKCU\Software C:\x\sw.hive
+- name: reg query of SAM is not a save
+  event:
+    <<: *ev
+    process.command_line: reg query HKLM\SAM

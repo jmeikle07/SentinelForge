@@ -1,0 +1,35 @@
+id: 99975fcf-52cb-4595-a905-0c45242c30db
+positive:
+- name: cmd.exe starts systeminfo.exe
+  event: &ev
+    event.code: "1"
+    process.name: systeminfo.exe
+    process.executable: C:\Windows\System32\systeminfo.exe
+    process.command_line: systeminfo
+    process.parent.name: cmd.exe
+- name: cmd.exe starts ipconfig.exe
+  event:
+    <<: *ev
+    process.name: ipconfig.exe
+    process.command_line: ipconfig /all
+- name: HOSTNAME.EXE (upper-case on disk in Windows 11 System32)
+  event:
+    <<: *ev
+    process.name: HOSTNAME.EXE
+    process.executable: C:\Windows\System32\HOSTNAME.EXE
+    process.command_line: hostname
+- name: ARP.EXE (upper-case on disk in Windows 11 System32)
+  event:
+    <<: *ev
+    process.name: ARP.EXE
+    process.executable: C:\Windows\System32\ARP.EXE
+    process.command_line: arp -a
+negative:
+- name: powershell.exe parent
+  event:
+    <<: *ev
+    process.parent.name: powershell.exe
+- name: cmd.exe starts an unrelated binary
+  event:
+    <<: *ev
+    process.name: notepad.exe

@@ -1,8 +1,8 @@
-title: Registry Query Against HotPatch Key by Non-SYSTEM User
+title: Registry Query of the HotPatch Key by a Non-SYSTEM User (Lab Simulation Signature)
 id: 40c64994-869e-4907-967b-6ff05bd0f8d8
 status: experimental
 description: |
-  Detects reg.exe executing a query against HKLM\SYSTEM\CurrentControlSet\Control\HotPatch under a non-SYSTEM user context, indicative of T1012 registry enumeration for patch management reconnaissance.
+  Lab-validated simulation signature for a T1012 Query Registry test: reg.exe with "query" and "HotPatch" on the command line (HKLM\SYSTEM\CurrentControlSet\Control\HotPatch) at an integrity level other than System. Only this one key is matched, so ordinary registry reconnaissance of other keys is not detected; whether the key is part of a published Atomic Red Team test could not be verified offline. This is a lab-validated simulation signature: it matches the literal strings of one lab simulation and says nothing about other ways of doing the same thing, so it proves the pipeline end to end and is not a general detector.
 
   Defender notes:
   - Hardening control: Collect process-creation events with full command lines and baseline legitimate registry query tooling per host role.
@@ -10,6 +10,7 @@ description: |
   - Risk treatment: Accept: low-impact discovery on its own; monitor and escalate when combined with other discovery or execution alerts.
 author: Jahsean Meikle
 date: 2026/05/11
+modified: 2026/10/05
 references:
 - https://attack.mitre.org/techniques/T1012/
 tags:
@@ -39,7 +40,7 @@ detection:
 falsepositives:
 - Legitimate administrative scripts querying HotPatch registry settings under a user account
 - Security or patch management tooling running under interactive user context
-level: medium
+level: low
 fields:
 - process.name
 - process.executable

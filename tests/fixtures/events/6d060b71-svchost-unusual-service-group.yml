@@ -1,0 +1,43 @@
+id: 6d060b71-5faf-425c-bf21-bb7751cc0e83
+positive:
+- name: group name that only starts like a known group (netsvcsEvil)
+  event: &ev
+    event.code: "1"
+    process.name: svchost.exe
+    process.executable: C:\Windows\System32\svchost.exe
+    process.command_line: C:\Windows\system32\svchost.exe -k netsvcsEvil -p
+    process.parent.name: services.exe
+- name: LocalServiceEvil must not pass through the LocalService prefix
+  event:
+    <<: *ev
+    process.command_line: C:\Windows\system32\svchost.exe -k LocalServiceEvil
+- name: completely unknown group at end of the command line
+  event:
+    <<: *ev
+    process.command_line: C:\Windows\system32\svchost.exe -k evilgroup
+negative:
+- name: netsvcs with trailing options
+  event:
+    <<: *ev
+    process.command_line: C:\Windows\system32\svchost.exe -k netsvcs -p -s Schedule
+- name: LocalService exact
+  event:
+    <<: *ev
+    process.command_line: C:\Windows\system32\svchost.exe -k LocalService -p
+- name: LocalServiceNetworkRestricted with service name
+  event:
+    <<: *ev
+    process.command_line: C:\Windows\system32\svchost.exe -k LocalServiceNetworkRestricted -p -s Dhcp
+- name: known group as last token
+  event:
+    <<: *ev
+    process.command_line: C:\Windows\system32\svchost.exe -k RPCSS
+- name: group present in the Svchost registry key of Windows 11 build 26300 (UdkSvcGroup)
+  event:
+    <<: *ev
+    process.command_line: C:\Windows\system32\svchost.exe -k UdkSvcGroup -s UdkUserSvc
+- name: parent is not services.exe (not what this rule looks at)
+  event:
+    <<: *ev
+    process.command_line: C:\Windows\system32\svchost.exe -k evilgroup
+    process.parent.name: cmd.exe

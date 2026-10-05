@@ -1,6 +1,9 @@
 title: System Information Discovery via CMD Enumeration Utilities
 id: 99975fcf-52cb-4595-a905-0c45242c30db
 status: experimental
+related:
+- id: f7f59eb3-ad8b-4d57-b1cc-fe60a5418b39
+  type: similar
 description: |
   Detects cmd.exe spawning common system and network enumeration utilities indicative of host reconnaissance activity associated with T1082 System Information Discovery.
 
@@ -10,6 +13,7 @@ description: |
   - Risk treatment: Accept: system discovery is low-impact and common; use for correlation.
 author: Jahsean Meikle
 date: 2026/05/10
+modified: 2026/10/05
 references:
 - https://attack.mitre.org/techniques/T1082/
 tags:
@@ -36,8 +40,10 @@ detection:
     process.name:
     - whoami.exe
     - hostname.exe
+    - HOSTNAME.EXE
     - ipconfig.exe
     - arp.exe
+    - ARP.EXE
     - nbtstat.exe
     - netsh.exe
     - net1.exe

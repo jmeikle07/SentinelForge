@@ -399,3 +399,19 @@ rules:
     hardening: "Restrict cmdkey.exe for users who do not need it, enable Credential Guard, and prefer MFA over stored RDP credentials."
     ir: "Identify the stored target and account, remove the entry (cmdkey /delete), reset the affected account, and review RDP connections that followed."
     risk: "Mitigate: Credential Guard and MFA; accept residual risk for legitimate stored administrator sessions."
+  1020dcc4-0817-41c0-ba1e-7d3034e816c6:  # NCSI DNS lookups from non-svchost processes (T1016.001)
+    secplus: ["2.4", "4.4"]
+    isc2cc: [4, 5]
+    nist: [si-4, au-12]
+    cis: ["8.5", "8.6"]
+    hardening: "Log DNS queries centrally and baseline which processes legitimately contact connectivity-check domains."
+    ir: "Identify the querying process and its parent, then check for proxy or C2 behaviour from the same host."
+    risk: "Accept: connectivity checks are common noise; keep the alert as a correlation signal."
+  f7f59eb3-ad8b-4d57-b1cc-fe60a5418b39:  # deprecated: network configuration tools under cmd.exe (T1016)
+    secplus: ["2.4", "4.4"]
+    isc2cc: [4, 5]
+    nist: [si-4, au-12]
+    cis: ["8.5", "8.8"]
+    hardening: "Log command lines for cmd.exe children and restrict network utilities that standard users do not need."
+    ir: "Determine what launched cmd.exe, review commands run in the same session, and check outbound connections afterwards."
+    risk: "Accept with monitoring: network configuration lookups are frequently benign; escalate only with other attacker behaviour."

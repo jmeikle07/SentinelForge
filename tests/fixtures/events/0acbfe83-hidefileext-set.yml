@@ -1,0 +1,31 @@
+id: 0acbfe83-9428-4eda-8c9c-6482e4d60c0a
+positive:
+- name: reg add HideFileExt /d 1 under cmd.exe
+  event: &ev
+    event.code: "1"
+    process.name: reg.exe
+    process.executable: C:\Windows\System32\reg.exe
+    process.command_line: reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" /v HideFileExt /t REG_DWORD /d 1 /f
+    process.parent.name: cmd.exe
+    winlog.event_data.IntegrityLevel: Medium
+- name: from powershell.exe
+  event:
+    <<: *ev
+    process.parent.name: powershell.exe
+- name: running as SYSTEM is covered too (duplicate 57053051 excluded it)
+  event:
+    <<: *ev
+    winlog.event_data.IntegrityLevel: System
+negative:
+- name: value 0 shows extensions
+  event:
+    <<: *ev
+    process.command_line: reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" /v HideFileExt /t REG_DWORD /d 0 /f
+- name: a different Explorer value
+  event:
+    <<: *ev
+    process.command_line: reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" /v Hidden /t REG_DWORD /d 1 /f
+- name: parent is Explorer
+  event:
+    <<: *ev
+    process.parent.name: explorer.exe

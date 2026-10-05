@@ -1,0 +1,19 @@
+id: 57053051-8d37-43fc-b572-c3c2c320da81
+positive:
+- name: reg add HideFileExt /d 1 under cmd.exe
+  event: &ev
+    event.code: "1"
+    process.name: reg.exe
+    process.executable: C:\Windows\System32\reg.exe
+    process.command_line: reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" /v HideFileExt /t REG_DWORD /d 1 /f
+    process.parent.name: powershell.exe
+    winlog.event_data.IntegrityLevel: Medium
+negative:
+- name: SYSTEM integrity is excluded by this older rule
+  event:
+    <<: *ev
+    winlog.event_data.IntegrityLevel: System
+- name: value 0
+  event:
+    <<: *ev
+    process.command_line: reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" /v HideFileExt /t REG_DWORD /d 0 /f

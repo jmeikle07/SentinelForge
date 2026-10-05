@@ -2,20 +2,20 @@ title: DNS Query to NCSI Connectivity-Check Domain from a Process Other Than the
 id: 1020dcc4-0817-41c0-ba1e-7d3034e816c6
 status: experimental
 description: |
-  Detects Sysmon Event ID 22 (DNS query) lookups of the Windows Network Connectivity Status Indicator (NCSI) probe hosts (msftconnecttest.com, msftncsi.com) made by any process other than C:\Windows\System32\svchost.exe, which hosts the Network Location Awareness service (NlaSvc) that performs the routine check. A tool or an attacker can use the same lookup to test for working internet or DNS egress (closest sub-technique: T1016.001 Internet Connection Discovery). Sysmon event 22 carries only the querying process image, user and the query itself, so the earlier exclusion of NlaSvc by parent process or command line could not be evaluated and matched the routine check on every host; it was replaced by the image-path exclusion.
+  Detects Sysmon Event ID 22 (DNS query) lookups of the Windows Network Connectivity Status Indicator (NCSI) probe hosts (msftconnecttest.com, msftncsi.com) made by any process other than C:\Windows\System32\svchost.exe, which hosts the Network Location Awareness service (NlaSvc) that performs the routine check. A tool or an attacker can use the same lookup to test for working internet or DNS egress, which is Internet Connection Discovery (T1016.001; it was previously tagged the parent T1016, and the ipconfig/netsh/arp rule f7f59eb3 carried the .001 tag by mistake). Sysmon event 22 carries only the querying process image, user and the query itself, so the earlier exclusion of NlaSvc by parent process or command line could not be evaluated and matched the routine check on every host; it was replaced by the image-path exclusion.
 
   This is a correlation signal (level informational), not an alert on its own: other Windows components, VPN/network agents and connectivity-testing tools may resolve these names too, and which Microsoft binaries other than svchost.exe do so could not be verified offline. Baseline the querying processes in your environment before alerting on it.
 
   Defender notes:
   - Hardening control: Log DNS queries centrally and baseline which processes legitimately contact connectivity-check domains.
   - IR step: Identify the querying process and its parent, then check for proxy or C2 behaviour from the same host.
-  - Risk treatment: Accept: network configuration discovery is common noise; tune thresholds and keep the alert as a correlation signal.
+  - Risk treatment: Accept: connectivity checks are common noise; keep the alert as a correlation signal.
 author: Jahsean Meikle
 date: 2026/05/15
 modified: 2026/10/05
 tags:
 - attack.discovery
-- attack.t1016
+- attack.t1016.001
 - cert.secplus.2.4
 - cert.secplus.4.4
 - cert.isc2cc.d4
@@ -25,7 +25,7 @@ tags:
 - cis.v8.8.5
 - cis.v8.8.6
 references:
-- https://attack.mitre.org/techniques/T1016/
+- https://attack.mitre.org/techniques/T1016/001/
 - https://docs.microsoft.com/en-us/windows-server/networking/ncsi/ncsi-overview
 logsource:
   category: dns_query

@@ -1,0 +1,33 @@
+id: 1b7ee4dd-14c6-4538-aa6b-c64169bb6018
+positive:
+- name: NETSTAT.EXE (upper-case on disk) -ano under cmd.exe
+  event: &ev
+    event.code: "1"
+    process.name: NETSTAT.EXE
+    process.executable: C:\Windows\System32\NETSTAT.EXE
+    process.command_line: netstat -ano
+    process.parent.name: cmd.exe
+- name: net1 sessions under powershell.exe
+  event:
+    <<: *ev
+    process.name: net1.exe
+    process.command_line: C:\Windows\system32\net1 sessions
+    process.parent.name: powershell.exe
+- name: lower-case netstat.exe spelling
+  event:
+    <<: *ev
+    process.name: netstat.exe
+negative:
+- name: netstat without -ano
+  event:
+    <<: *ev
+    process.command_line: netstat -an
+- name: ipconfig
+  event:
+    <<: *ev
+    process.name: ipconfig.exe
+    process.command_line: ipconfig -ano
+- name: parent is Explorer
+  event:
+    <<: *ev
+    process.parent.name: explorer.exe

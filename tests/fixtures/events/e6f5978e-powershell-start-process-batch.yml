@@ -1,0 +1,25 @@
+id: e6f5978e-b45f-4713-a7a2-104d1217ffa1
+positive:
+- name: Start-Process on a .bat file
+  event: &ev
+    event.code: "1"
+    process.name: powershell.exe
+    process.executable: C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe
+    process.command_line: powershell.exe -c "Start-Process C:\Users\Public\run.bat"
+- name: Invoke-Expression on a .cmd file
+  event:
+    <<: *ev
+    process.command_line: powershell.exe -c "Invoke-Expression C:\x\go.cmd"
+negative:
+- name: Start-Process on an exe
+  event:
+    <<: *ev
+    process.command_line: powershell.exe -c "Start-Process notepad.exe"
+- name: batch file without Start-Process or Invoke-Expression
+  event:
+    <<: *ev
+    process.command_line: powershell.exe -c "& C:\x\go.cmd"
+- name: not powershell
+  event:
+    <<: *ev
+    process.name: cmd.exe

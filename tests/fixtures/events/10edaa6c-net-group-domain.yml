@@ -1,0 +1,31 @@
+id: 10edaa6c-50ec-48e8-af0f-8d2a19f0c9a1
+positive:
+- name: net group /domain
+  event: &ev
+    event.code: "1"
+    process.name: net.exe
+    process.executable: C:\Windows\System32\net.exe
+    process.command_line: net group /domain
+- name: net group "Domain Admins" /domain as typed (capitalised group name)
+  event:
+    <<: *ev
+    process.command_line: net group "Domain Admins" /domain
+- name: net1 with enterprise admins in lower case
+  event:
+    <<: *ev
+    process.name: net1.exe
+    process.command_line: net1 group "enterprise admins" /domain
+negative:
+- name: local group listing
+  event:
+    <<: *ev
+    process.command_line: net localgroup administrators
+- name: net user
+  event:
+    <<: *ev
+    process.command_line: net user bob
+- name: different binary
+  event:
+    <<: *ev
+    process.name: ipconfig.exe
+    process.command_line: ipconfig /domain

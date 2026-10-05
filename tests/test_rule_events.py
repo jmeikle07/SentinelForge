@@ -9,8 +9,8 @@ event type does not have, ...). This module therefore
 3. checks every field a rule references exists for the Sysmon event it targets
    (guard test, driven by SYSMON_EVENT_FIELDS), and
 4. replays hand-written ECS-flattened events from tests/fixtures/events/*.yml:
-   every rule I changed or review B flagged has >=1 event that must match and
-   >=1 realistic near-miss that must not.
+   every rule has >=1 event that must match and >=1 realistic near-miss that
+   must not (test_every_rule_has_a_positive_and_a_negative_event).
 
 Case sensitivity: the evaluator is case-SENSITIVE. pySigma's Lucene backend
 renders literals verbatim (no case folding) and ECS process.* / registry.* /
@@ -522,49 +522,20 @@ def _load_fixtures():
 FIXTURES = _load_fixtures()
 BY_ID = {r["id"]: (n, r) for n, r in RULES.items()}
 
-# Every rule changed in the review-B pass, or flagged by review B.
-REVIEWED_IDS = {
-    "5c8ea8be-7a0e-4809-b65a-2d26f91ee077",  # sdbinst -m -bg (process half)
-    "132c70fd-1074-4d10-a9f5-cd1be4e40ef6",  # new: AppCompatFlags shim registration (registry half)
-    "d54e55da-9600-4e18-92a2-25a442b3efab",  # was T1547.001 run keys; deprecated duplicate
-    "9d19c38d-a376-4e18-a517-db535a8322be",  # was T1218.011; deprecated duplicate
-    "63a6f63d-043a-4ddc-9f24-febd436a77f5",  # was T1574.010
-    "c27fffce-2372-458e-ae4b-4f247823dc2c",  # any sdbinst
-    "575160f3-5822-495e-afce-54fee80dca9a",  # registry write to SdbUpdates
-    "1020dcc4-0817-41c0-ba1e-7d3034e816c6",  # T1016 NCSI DNS
-    "28a2bef3-af7f-4b3a-8e7f-08616e25b694",  # T1059.001 download
-    "827b2dd7-e596-4d2a-a16b-6fcdbc1f7aed",  # new: T1059.001 DNS half (split from 28a2bef3)
-    "0d36e12f-4b63-4cf0-8483-8552b1d57090",  # T1033 (absorbs the two duplicates below)
-    "e82c8c54-344a-4bf5-92dd-ad324a5e1f98",  # T1018 net view (dead selection removed)
-    "446e7f75-e0c5-48f7-a701-807d8b0a481c",  # was T1057; deprecated
-    "1457a8cc-0e8f-4a18-ae3c-1ee41e4bb8c6",  # was T1087.001; deprecated
-    "61399e8c-6e6d-46d7-8257-ada4b2f3ea76",  # was T1482; deprecated (subset of T1018 e82c8c54)
-    "b8ee8991-c2af-4d5e-9dd8-4702f01a2e14",  # was T1216; deprecated
-    "c1ced7af-9d77-402a-aebd-b93426ebec3a",  # T1218.007
-    "b8765da9-bc02-4c22-8b48-01096420d98a",  # was T1614.001; now T1497.001
-    "831565f9-d936-4dcc-abaf-0112e0cb5bb4",  # was T1555.004; now T1021.001
-    "3f9a6b93-3242-4661-b8bc-e6871b802615",  # was T1046; now T1595
-    "a4a0b85e-6503-452f-8506-f9c30505ce72",  # T1021.002
-    "6d060b71-5faf-425c-bf21-bb7751cc0e83",  # T1035/T1569.002
-    "723b2878-ced4-4052-ab1c-05629a5f4127",  # T1048.003
-    "9aa53a2b-66bc-4f8d-a40f-b6962cf9c927",  # T1053.005
-    "73cfc61f-1ee0-4dcc-ad78-edb3fda1ed6c",  # T1036.005
-    "0acbfe83-9428-4eda-8c9c-6482e4d60c0a",  # T1112
-    "57053051-8d37-43fc-b572-c3c2c320da81",  # was T1564.001; deprecated
-    "c17705f9-58e7-4834-a3fb-8eba1da3b0b0",  # T1055 simulation signature
-    "77ecdffa-3fa9-462a-a86d-ea87e42455d0",  # T1110.001 simulation signature
-    "27b56c7b-ad80-4099-8416-bdb353facd67",  # T1204.002 simulation signature
-    "40c64994-869e-4907-967b-6ff05bd0f8d8",  # T1012 simulation signature
-}
-
-
-def test_every_reviewed_rule_has_a_positive_and_a_negative_event():
-    missing = sorted(REVIEWED_IDS - set(FIXTURES))
+def test_every_rule_has_a_positive_and_a_negative_event():
+    """Every shipped rule (deprecated ones too, they stay in the repo) has event fixtures."""
+    missing = sorted(set(BY_ID) - set(FIXTURES))
     assert not missing, f"no event fixtures for {missing}"
-    for rid in REVIEWED_IDS:
+    for rid in BY_ID:
         _, data = FIXTURES[rid]
         assert data.get("positive"), f"{rid}: needs >=1 positive event"
         assert data.get("negative"), f"{rid}: needs >=1 negative event"
+
+
+def test_deprecated_rules_say_so_in_the_description():
+    for name, rule in RULES.items():
+        if rule.get("status") == "deprecated":
+            assert rule["description"].lstrip().startswith("Deprecated:"), name
 
 
 def test_fixtures_reference_existing_rules():

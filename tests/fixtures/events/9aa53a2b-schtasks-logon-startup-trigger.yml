@@ -1,0 +1,31 @@
+id: 9aa53a2b-66bc-4f8d-a40f-b6962cf9c927
+positive:
+- name: schtasks /create /sc onlogon from cmd.exe
+  event: &ev
+    event.code: "1"
+    process.name: schtasks.exe
+    process.executable: C:\Windows\System32\schtasks.exe
+    process.command_line: schtasks /create /tn Updater /tr C:\Users\Public\a.exe /sc onlogon
+    process.parent.name: cmd.exe
+- name: same task created from powershell.exe (parent no longer restricted)
+  event:
+    <<: *ev
+    process.parent.name: powershell.exe
+- name: upper-case switches as often typed
+  event:
+    <<: *ev
+    process.command_line: SCHTASKS /Create /SC ONSTART /TN x /TR C:\x.exe
+    process.parent.name: wscript.exe
+negative:
+- name: daily schedule is not a logon or startup trigger
+  event:
+    <<: *ev
+    process.command_line: schtasks /create /tn Backup /tr C:\b.exe /sc daily
+- name: query only
+  event:
+    <<: *ev
+    process.command_line: schtasks /query /sc onlogon
+- name: different binary
+  event:
+    <<: *ev
+    process.name: at.exe

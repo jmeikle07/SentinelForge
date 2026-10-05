@@ -10,6 +10,7 @@ description: |
   - Risk treatment: Mitigate: logging and language constraints; accept residual risk for administrators who need full PowerShell.
 author: Jahsean Meikle
 date: 2026/05/08
+modified: 2026/10/05
 references:
 - https://attack.mitre.org/techniques/T1059/001/
 tags:
@@ -43,6 +44,7 @@ detection:
     - \nltest.exe
     - \net1.exe
     - \wmic.exe
+    - \WMIC.exe
   condition: selection
 level: medium
 falsepositives:

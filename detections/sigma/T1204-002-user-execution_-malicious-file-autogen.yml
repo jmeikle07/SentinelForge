@@ -1,8 +1,8 @@
-title: PowerShell IEX Remote Download Targeting Office Macro Execution via raw.githubusercontent.com
+title: PowerShell IEX/iwr of raw.githubusercontent.com with Invoke-MalDoc or Office Markers (Lab Simulation Signature)
 id: 27b56c7b-ad80-4099-8416-bdb353facd67
 status: experimental
 description: |
-  Detects PowerShell processes using IEX to download and execute scripts from raw.githubusercontent.com that reference Office product names or macro execution functions, consistent with Atomic Red Team T1204.002 test execution involving Invoke-MalDoc targeting Word documents.
+  Lab-validated simulation signature for the Atomic Red Team T1204.002 Invoke-MalDoc test: powershell.exe whose command line contains IEX, iwr and raw.githubusercontent.com plus either an Invoke-MalDoc / T1204.002 literal or one of the Office-related words (officeProduct, macroFile, Word, Excel, macrocode). The Office words are broad, so any IEX download from raw.githubusercontent.com that mentions Word or Excel also matches. It does not detect a user opening a malicious document (T1204.002 in general). This is a lab-validated simulation signature: it matches the literal strings of one lab simulation and says nothing about other ways of doing the same thing, so it proves the pipeline end to end and is not a general detector.
 
   Defender notes:
   - Hardening control: Block macros from internet-sourced Office files, filter risky attachment types, and run phishing awareness training.
@@ -10,6 +10,7 @@ description: |
   - Risk treatment: Mitigate: macro blocking and training; transfer part of the risk with email security services.
 author: Jahsean Meikle
 date: 2026/05/10
+modified: 2026/10/05
 references:
 - https://attack.mitre.org/techniques/T1204/002/
 - https://github.com/redcanaryco/atomic-red-team/blob/master/atomics/T1204.002/T1204.002.yaml
@@ -62,4 +63,4 @@ fields:
 - process.parent.name
 - winlog.event_data.IntegrityLevel
 - dns.question.name
-level: high
+level: low

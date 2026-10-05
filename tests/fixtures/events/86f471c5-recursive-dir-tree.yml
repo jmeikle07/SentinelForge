@@ -1,0 +1,24 @@
+id: 86f471c5-c658-4531-a4b6-2ddc0b1de64e
+positive:
+- name: cmd.exe recursive dir redirected to a file
+  event: &ev
+    event.code: "1"
+    process.name: cmd.exe
+    process.executable: C:\Windows\System32\cmd.exe
+    process.command_line: cmd.exe /c dir C:\Users /s >> C:\Windows\Temp\files.txt
+- name: tree /F
+  event:
+    <<: *ev
+    process.name: tree.com
+    process.executable: C:\Windows\System32\tree.com
+    process.command_line: tree C:\Users /F
+negative:
+- name: dir /s without a redirect
+  event:
+    <<: *ev
+    process.command_line: cmd.exe /c dir C:\Users /s
+- name: tree without /F
+  event:
+    <<: *ev
+    process.name: tree.com
+    process.command_line: tree C:\Users

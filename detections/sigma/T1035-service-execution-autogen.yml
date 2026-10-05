@@ -1,8 +1,8 @@
-title: Suspicious Svchost Execution with Unusual Service Group Parameter
+title: Svchost Started by services.exe with a Service Group Not in the Allowlist
 id: 6d060b71-5faf-425c-bf21-bb7751cc0e83
 status: experimental
 description: |
-  Detects svchost.exe instances spawned by services.exe with unusual or rare -k group parameters that deviate from known legitimate Windows service groups. Attackers may register malicious services to achieve persistence and execution under SYSTEM privileges via T1569.002 (formerly T1035).
+  Detects svchost.exe started by services.exe whose "-k <group>" argument is not an exact member of an allowlist of Windows service host groups, e.g. a service registered by an attacker to run under SYSTEM (T1569.002 Service Execution, formerly T1035). The group must now be the whole token: " -k netsvcs " followed by more arguments, or " -k netsvcs" ending the command line. The earlier version used a prefix substring match, so "-k netsvcsEvil" or "-k LocalServiceEvil" passed as "known". The allowlist is the original list plus every group named in HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Svchost on the lab host (Windows 11 build 26300); groups added by other Windows builds or by third-party software will alert until added. Limitations: a malicious ServiceDll added to an existing group such as netsvcs shows the allowed group name and is not detected; literals are case-sensitive, so "Camera" and "camera" are separate entries. Matches only the Sysmon process-creation event of the service host.
 
   Defender notes:
   - Hardening control: Disable unnecessary services, restrict service creation to administrators, and baseline svchost service groups.
@@ -10,6 +10,7 @@ description: |
   - Risk treatment: Mitigate: service allowlisting and least privilege; accept residual risk from legitimate administrative tooling.
 author: Jahsean Meikle
 date: 2026/05/15
+modified: 2026/10/05
 tags:
 - attack.execution
 - attack.t1569.002
@@ -32,36 +33,155 @@ detection:
     event.code: '1'
     process.name: svchost.exe
     process.parent.name: services.exe
-  filter_known_groups:
+  filter_known_group_followed_by_args:
     process.command_line|contains:
-    - -k netsvcs
-    - -k LocalServiceNetworkRestricted
-    - -k LocalServiceNoNetwork
-    - -k LocalService
-    - -k NetworkService
-    - -k DcomLaunch
-    - -k RPCSS
-    - -k termsvcs
-    - -k secsvcs
-    - -k wusvcs
-    - -k LocalSystemNetworkRestricted
-    - -k UnistackSvcGroup
-    - -k ClipboardSvcGroup
-    - -k DevicesFlow
-    - -k PrintWorkflow
-    - -k ICService
-    - -k WbioSvcGroup
-    - -k GPSvcGroup
-    - -k PCASvc
-    - -k wsappx
-    - -k appmodel
-    - -k camera
-    - -k imgsvc
-    - -k rdxsvc
-    - -k StorSvc
-    - -k netsvcs -p
-    - -k LocalServiceAndNoImpersonation
-  condition: selection and not filter_known_groups
+    - ' -k netsvcs '
+    - ' -k LocalServiceNetworkRestricted '
+    - ' -k LocalServiceNoNetwork '
+    - ' -k LocalService '
+    - ' -k NetworkService '
+    - ' -k DcomLaunch '
+    - ' -k RPCSS '
+    - ' -k termsvcs '
+    - ' -k secsvcs '
+    - ' -k wusvcs '
+    - ' -k LocalSystemNetworkRestricted '
+    - ' -k UnistackSvcGroup '
+    - ' -k ClipboardSvcGroup '
+    - ' -k DevicesFlow '
+    - ' -k PrintWorkflow '
+    - ' -k ICService '
+    - ' -k WbioSvcGroup '
+    - ' -k GPSvcGroup '
+    - ' -k PCASvc '
+    - ' -k wsappx '
+    - ' -k appmodel '
+    - ' -k camera '
+    - ' -k imgsvc '
+    - ' -k rdxsvc '
+    - ' -k StorSvc '
+    - ' -k LocalServiceAndNoImpersonation '
+    - ' -k defragsvc '
+    - ' -k InvSvcGroup '
+    - ' -k sdrsvc '
+    - ' -k utcsvc '
+    - ' -k WepHostSvcGroup '
+    - ' -k Camera '
+    - ' -k LocalServiceNoNetworkFirewall '
+    - ' -k NetworkServiceAndNoImpersonation '
+    - ' -k diagnostics '
+    - ' -k AxInstSVGroup '
+    - ' -k AarSvcGroup '
+    - ' -k smphost '
+    - ' -k WebThreatDefense '
+    - ' -k UserProfileService '
+    - ' -k BcastDVRUserService '
+    - ' -k CameraMonitor '
+    - ' -k AppReadiness '
+    - ' -k netprofm '
+    - ' -k P9RdrService '
+    - ' -k WerSvcGroup '
+    - ' -k GraphicsPerfSvcGroup '
+    - ' -k swprv '
+    - ' -k autoTimeSvc '
+    - ' -k osprivacy '
+    - ' -k rdxgroup '
+    - ' -k McpManagementServiceGroup '
+    - ' -k PenService '
+    - ' -k BthAppGroup '
+    - ' -k smbsvcs '
+    - ' -k NetworkServiceNetworkRestricted '
+    - ' -k UdkSvcGroup '
+    - ' -k WSAIFabricSvcGroup '
+    - ' -k print '
+    - ' -k LocalServiceHttp '
+    - ' -k netsvcsRedirectionGuard '
+    - ' -k TerminalService '
+    - ' -k WuqiSvcGroup '
+    - ' -k whesvc '
+    - ' -k appmodelRedirectionGuard '
+    - ' -k PrintScanBrokerService '
+    - ' -k LocalServiceRedirectionGuard '
+    - ' -k McmSvc '
+    - ' -k LocalSystemNetworkRestrictedRedirectionGuard '
+    - ' -k LocalServiceAndNoImpersonationRedirectionGuard '
+    - ' -k IsoEnvBroker '
+    - ' -k IsolationSession '
+  filter_known_group_last_token:
+    process.command_line|endswith:
+    - ' -k netsvcs'
+    - ' -k LocalServiceNetworkRestricted'
+    - ' -k LocalServiceNoNetwork'
+    - ' -k LocalService'
+    - ' -k NetworkService'
+    - ' -k DcomLaunch'
+    - ' -k RPCSS'
+    - ' -k termsvcs'
+    - ' -k secsvcs'
+    - ' -k wusvcs'
+    - ' -k LocalSystemNetworkRestricted'
+    - ' -k UnistackSvcGroup'
+    - ' -k ClipboardSvcGroup'
+    - ' -k DevicesFlow'
+    - ' -k PrintWorkflow'
+    - ' -k ICService'
+    - ' -k WbioSvcGroup'
+    - ' -k GPSvcGroup'
+    - ' -k PCASvc'
+    - ' -k wsappx'
+    - ' -k appmodel'
+    - ' -k camera'
+    - ' -k imgsvc'
+    - ' -k rdxsvc'
+    - ' -k StorSvc'
+    - ' -k LocalServiceAndNoImpersonation'
+    - ' -k defragsvc'
+    - ' -k InvSvcGroup'
+    - ' -k sdrsvc'
+    - ' -k utcsvc'
+    - ' -k WepHostSvcGroup'
+    - ' -k Camera'
+    - ' -k LocalServiceNoNetworkFirewall'
+    - ' -k NetworkServiceAndNoImpersonation'
+    - ' -k diagnostics'
+    - ' -k AxInstSVGroup'
+    - ' -k AarSvcGroup'
+    - ' -k smphost'
+    - ' -k WebThreatDefense'
+    - ' -k UserProfileService'
+    - ' -k BcastDVRUserService'
+    - ' -k CameraMonitor'
+    - ' -k AppReadiness'
+    - ' -k netprofm'
+    - ' -k P9RdrService'
+    - ' -k WerSvcGroup'
+    - ' -k GraphicsPerfSvcGroup'
+    - ' -k swprv'
+    - ' -k autoTimeSvc'
+    - ' -k osprivacy'
+    - ' -k rdxgroup'
+    - ' -k McpManagementServiceGroup'
+    - ' -k PenService'
+    - ' -k BthAppGroup'
+    - ' -k smbsvcs'
+    - ' -k NetworkServiceNetworkRestricted'
+    - ' -k UdkSvcGroup'
+    - ' -k WSAIFabricSvcGroup'
+    - ' -k print'
+    - ' -k LocalServiceHttp'
+    - ' -k netsvcsRedirectionGuard'
+    - ' -k TerminalService'
+    - ' -k WuqiSvcGroup'
+    - ' -k whesvc'
+    - ' -k appmodelRedirectionGuard'
+    - ' -k PrintScanBrokerService'
+    - ' -k LocalServiceRedirectionGuard'
+    - ' -k McmSvc'
+    - ' -k LocalSystemNetworkRestrictedRedirectionGuard'
+    - ' -k LocalServiceAndNoImpersonationRedirectionGuard'
+    - ' -k IsoEnvBroker'
+    - ' -k IsolationSession'
+  condition: selection and not (filter_known_group_followed_by_args or filter_known_group_last_token)
 falsepositives:
 - Legitimate but rare or newly introduced Windows service host groups from Windows updates or third-party software
 - Enterprise software that registers custom svchost service groups during installation

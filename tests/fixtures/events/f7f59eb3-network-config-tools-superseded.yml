@@ -1,0 +1,23 @@
+id: f7f59eb3-ad8b-4d57-b1cc-fe60a5418b39
+positive:
+- name: ipconfig under cmd.exe
+  event: &ev
+    event.code: "1"
+    process.name: ipconfig.exe
+    process.executable: C:\Windows\System32\ipconfig.exe
+    process.command_line: ipconfig /all
+    process.parent.name: cmd.exe
+- name: netsh under cmd.exe
+  event:
+    <<: *ev
+    process.name: netsh.exe
+    process.command_line: netsh interface show interface
+negative:
+- name: ipconfig under powershell.exe
+  event:
+    <<: *ev
+    process.parent.name: powershell.exe
+- name: tool not in the list
+  event:
+    <<: *ev
+    process.name: whoami.exe

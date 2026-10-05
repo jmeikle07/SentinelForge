@@ -2,7 +2,7 @@ title: System Network Connections Discovery via Chained CMD Commands
 id: 1b7ee4dd-14c6-4538-aa6b-c64169bb6018
 status: experimental
 description: |
-  Detects cmd.exe or powershell.exe spawning netstat.exe, net.exe, or net1.exe with discovery-oriented arguments such as -ano, sessions, or use. Particularly suspicious when chained in a single command line, indicating active enumeration of network connections, mapped drives, and SMB sessions consistent with T1049.
+  Detects cmd.exe or powershell.exe spawning netstat.exe (also NETSTAT.EXE, its on-disk name on Windows 11) or net1.exe with -ano or sessions on the command line, enumerating network connections and SMB sessions (T1049). Only the arguments -ano and sessions are matched (a substring test, so any command line containing "sessions" counts); "net use" and other forms are not detected. Chaining several commands in one line is not required.
 
   Defender notes:
   - Hardening control: Log command lines for chained cmd.exe commands and restrict netstat-style tooling for standard users where practical.
@@ -10,6 +10,7 @@ description: |
   - Risk treatment: Accept: connection discovery is common; use as a correlation signal.
 author: Jahsean Meikle
 date: 2026/05/10
+modified: 2026/10/05
 references:
 - https://attack.mitre.org/techniques/T1049/
 tags:
@@ -34,6 +35,7 @@ detection:
   selection_process:
     process.name|contains:
     - netstat
+    - NETSTAT
     - net1
   selection_args:
     process.command_line|contains:

@@ -1,0 +1,54 @@
+title: HideFileExt Registry Value Set via reg.exe (Duplicate, Was Tagged Hidden Files and Directories)
+id: 57053051-8d37-43fc-b572-c3c2c320da81
+status: deprecated
+related:
+- id: 0acbfe83-9428-4eda-8c9c-6482e4d60c0a
+  type: similar
+description: |
+  Deprecated: duplicate of 0acbfe83-9428-4eda-8c9c-6482e4d60c0a, which has the same reg.exe, HideFileExt, Explorer\Advanced and "/d 1" selection and the same cmd.exe / powershell.exe parents; this copy only skipped System integrity. It was tagged T1564.001 Hidden Files and Directories, but HideFileExt controls whether Explorer shows file extensions, not hidden files, so the tag is corrected to T1112 Modify Registry.
+
+  Defender notes:
+  - Hardening control: Enforce secure configuration baselines through Group Policy and restrict reg.exe for standard users.
+  - IR step: Record the key and value changed, revert it to baseline, and determine what process and user made the change.
+  - Risk treatment: Mitigate: configuration management; accept low-impact cosmetic changes with monitoring.
+author: Jahsean Meikle
+date: 2026/05/10
+modified: 2026/10/05
+references:
+- https://attack.mitre.org/techniques/T1112/
+tags:
+- attack.defense_evasion
+- attack.t1112
+- cert.secplus.2.4
+- cert.secplus.4.1
+- cert.secplus.4.4
+- cert.isc2cc.d5
+- nist.800-53.au-12
+- nist.800-53.au-6
+- nist.800-53.cm-5
+- nist.800-53.cm-6
+- cis.v8.4.1
+- cis.v8.4.7
+- cis.v8.8.5
+- cis.v8.8.11
+logsource:
+  category: process_creation
+  product: windows
+detection:
+  selection_process:
+    process.name: reg.exe
+    process.command_line|contains|all:
+    - HideFileExt
+    - Explorer\Advanced
+    - /d 1
+  selection_parent:
+    process.parent.name:
+    - cmd.exe
+    - powershell.exe
+  filter_legitimate:
+    winlog.event_data.IntegrityLevel: System
+  condition: selection_process and selection_parent and not filter_legitimate
+falsepositives:
+- Legitimate administrative scripts or Group Policy configurations that manage Explorer visual settings
+- Software deployment tools that configure user interface preferences
+level: low

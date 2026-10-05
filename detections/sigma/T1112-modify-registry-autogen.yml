@@ -1,11 +1,11 @@
-title: HideFileExt Registry Modification via reg.exe
+title: HideFileExt Set to 1 via reg.exe (Explorer Hides Known File Extensions)
 id: 0acbfe83-9428-4eda-8c9c-6482e4d60c0a
 status: experimental
 related:
 - id: 57053051-8d37-43fc-b572-c3c2c320da81
   type: similar
 description: |
-  Detects reg.exe setting HideFileExt to 1 under the Explorer Advanced registry key, which hides file extensions in Windows Explorer. This technique is used by attackers to disguise malicious executables as benign files to support phishing and execution stages.
+  Detects reg.exe, started by cmd.exe or powershell.exe, writing /d 1 to the HideFileExt value under the Explorer\Advanced key. HideFileExt = 1 means Explorer hides extensions of known file types (the Windows default; 0 shows them: the value on the lab host is 1, but this could not be checked against Microsoft documentation offline, so the semantics rest on that observation and common knowledge). Forcing it to 1 re-hides extensions where a user had shown them, which supports disguising a double-extension file such as invoice.pdf.exe (ATT&CK T1036.007); the registry write itself is T1112 Modify Registry. On a default configuration the command changes nothing, which is why this is a low-severity signal. This rule also replaces 57053051-8d37-43fc-b572-c3c2c320da81, an identical selection tagged T1564.001 (Hidden Files and Directories, which concerns the Hidden/ShowSuperHidden attributes and not file extensions); the only difference was that rule skipped System integrity, which this one does not. The "/d 1" test is a substring match and also matches values such as "/d 10".
 
   Defender notes:
   - Hardening control: Enforce secure configuration baselines through Group Policy and restrict reg.exe for standard users.
@@ -13,6 +13,7 @@ description: |
   - Risk treatment: Mitigate: configuration management; accept low-impact cosmetic changes with monitoring.
 author: Jahsean Meikle
 date: 2026/05/10
+modified: 2026/10/05
 references:
 - https://attack.mitre.org/techniques/T1112/
 tags:
@@ -48,7 +49,7 @@ detection:
 falsepositives:
 - Legitimate administrative scripts or Group Policy configurations that manage file extension visibility settings for end users
 - IT automation tools deploying standardized Windows Explorer settings across managed endpoints
-level: medium
+level: low
 fields:
 - process.name
 - process.executable

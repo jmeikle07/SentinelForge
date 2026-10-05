@@ -1,0 +1,24 @@
+id: 40c64994-869e-4907-967b-6ff05bd0f8d8
+positive:
+- name: reg query of the HotPatch key by a user
+  event: &ev
+    event.code: "1"
+    process.name: reg.exe
+    process.executable: C:\Windows\System32\reg.exe
+    process.command_line: reg query HKLM\SYSTEM\CurrentControlSet\Control\HotPatch
+    process.parent.name: cmd.exe
+    winlog.event_data.IntegrityLevel: High
+negative:
+- name: run as SYSTEM
+  event:
+    <<: *ev
+    winlog.event_data.IntegrityLevel: System
+- name: query of another key
+  event:
+    <<: *ev
+    process.command_line: reg query HKLM\SYSTEM\CurrentControlSet\Control\Lsa
+- name: reg add instead of query
+  event:
+    <<: *ev
+    process.command_line: reg add HKLM\SYSTEM\CurrentControlSet\Control\HotPatch /v x /d 1
+    process.name: regedit.exe

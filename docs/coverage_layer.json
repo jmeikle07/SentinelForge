@@ -1,12 +1,12 @@
 {
-  "name": "SentinelForge Detection Lab \u2014 29 Techniques Covered",
+  "name": "SentinelForge Detection Lab \u2014 28 Techniques Covered",
   "versions": {
     "attack": "16",
     "navigator": "4.9",
     "layer": "4.5"
   },
   "domain": "enterprise-attack",
-  "description": "Auto-generated from the SentinelForge autonomous rule engine. 29 techniques covered as of 2026-10-05. Green = HIGH confidence, Orange = MEDIUM, Blue = LOW, Grey = not assessed.",
+  "description": "Auto-generated from the SentinelForge autonomous rule engine. 28 techniques covered as of 2026-10-05. Green = HIGH confidence, Orange = MEDIUM, Blue = LOW, Grey = not assessed.",
   "filters": {
     "platforms": [
       "Windows",
@@ -53,14 +53,6 @@
       "techniqueID": "T1016.001",
       "color": "#4caf50",
       "comment": "Deployed: 2026-05-10 | Confidence: HIGH | Tactic: Discovery | Rules: 1",
-      "enabled": true,
-      "score": 1,
-      "metadata": []
-    },
-    {
-      "techniqueID": "T1016",
-      "color": "#ff9800",
-      "comment": "Deployed: 2026-05-15 | Confidence: MEDIUM | Tactic: Discovery | Rules: 2",
       "enabled": true,
       "score": 1,
       "metadata": []
@@ -194,6 +186,14 @@
       "metadata": []
     },
     {
+      "techniqueID": "T1016",
+      "color": "#ff9800",
+      "comment": "Deployed: 2026-05-15 | Confidence: MEDIUM | Tactic: Discovery | Rules: 1",
+      "enabled": true,
+      "score": 1,
+      "metadata": []
+    },
+    {
       "techniqueID": "T1083",
       "color": "#4caf50",
       "comment": "Deployed: 2026-05-10 | Confidence: HIGH | Tactic: Discovery | Rules: 1",
@@ -245,14 +245,6 @@
       "techniqueID": "T1560.001",
       "color": "#4caf50",
       "comment": "Deployed: 2026-05-10 | Confidence: HIGH | Tactic: Collection | Rules: 1",
-      "enabled": true,
-      "score": 1,
-      "metadata": []
-    },
-    {
-      "techniqueID": "T1564.001",
-      "color": "#4caf50",
-      "comment": "Deployed: 2026-05-10 | Confidence: HIGH | Tactic: Defense Evasion | Rules: 1",
       "enabled": true,
       "score": 1,
       "metadata": []

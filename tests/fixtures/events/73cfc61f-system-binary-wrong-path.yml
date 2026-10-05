@@ -1,0 +1,52 @@
+id: 73cfc61f-1ee0-4dcc-ad78-edb3fda1ed6c
+positive:
+- name: whoami.exe in C:\Users\Public
+  event: &ev
+    event.code: "1"
+    process.name: whoami.exe
+    process.executable: C:\Users\Public\whoami.exe
+    process.command_line: whoami.exe
+- name: svchost.exe in a user-writable subfolder of System32
+  event:
+    <<: *ev
+    process.name: svchost.exe
+    process.executable: C:\Windows\System32\spool\drivers\color\svchost.exe
+- name: name ending in svchost.exe placed directly in System32
+  event:
+    <<: *ev
+    process.name: evilsvchost.exe
+    process.executable: C:\Windows\System32\evilsvchost.exe
+- name: HOSTNAME.EXE (real on-disk casing) from Windows\Temp
+  event:
+    <<: *ev
+    process.name: HOSTNAME.EXE
+    process.executable: C:\Windows\Temp\HOSTNAME.EXE
+- name: lower-case hostname.exe from Windows\Temp
+  event:
+    <<: *ev
+    process.name: hostname.exe
+    process.executable: C:\Windows\Temp\hostname.exe
+negative:
+- name: genuine svchost.exe
+  event:
+    <<: *ev
+    process.name: svchost.exe
+    process.executable: C:\Windows\System32\svchost.exe
+- name: genuine 32-bit whoami.exe
+  event:
+    <<: *ev
+    process.executable: C:\Windows\SysWOW64\whoami.exe
+- name: genuine HOSTNAME.EXE (upper-case on disk)
+  event:
+    <<: *ev
+    process.name: HOSTNAME.EXE
+    process.executable: C:\Windows\System32\HOSTNAME.EXE
+- name: servicing copy under WinSxS
+  event:
+    <<: *ev
+    process.executable: C:\Windows\WinSxS\amd64_microsoft-windows-whoami_31bf3856ad364e35_10.0.26100.1_none_0a\whoami.exe
+- name: unrelated binary in a temp folder
+  event:
+    <<: *ev
+    process.name: notepad.exe
+    process.executable: C:\Users\Public\notepad.exe

@@ -1,0 +1,28 @@
+id: e1bed71c-47d5-4f71-b9f0-a1b6717c06e2
+positive:
+- name: 7z.exe archives the user profile recursively from cmd.exe
+  event: &ev
+    event.code: "1"
+    process.name: 7z.exe
+    process.executable: C:\Program Files\7-Zip\7z.exe
+    process.command_line: 7z.exe a -r C:\Windows\Temp\out.7z C:\Users\bob\Documents
+    process.parent.name: cmd.exe
+- name: Rar.exe from powershell.exe with %USERPROFILE%
+  event:
+    <<: *ev
+    process.name: Rar.exe
+    process.command_line: Rar.exe a -r x.rar %USERPROFILE%\Desktop
+    process.parent.name: powershell.exe
+negative:
+- name: parent is Explorer
+  event:
+    <<: *ev
+    process.parent.name: explorer.exe
+- name: no recursion flag
+  event:
+    <<: *ev
+    process.command_line: 7z.exe a C:\Windows\Temp\out.7z C:\Users\bob\a.txt
+- name: not a user-profile path
+  event:
+    <<: *ev
+    process.command_line: 7z.exe a -r D:\backup\out.7z D:\data

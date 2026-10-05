@@ -1,8 +1,8 @@
-title: Scheduled Task Creation via Schtasks with Logon or Startup Triggers
+title: Scheduled Task Creation via schtasks.exe with a Logon or Startup Trigger
 id: 9aa53a2b-66bc-4f8d-a40f-b6962cf9c927
 status: experimental
 description: |
-  Detects schtasks.exe creating scheduled tasks with onlogon or onstart triggers, particularly when spawned from cmd.exe or non-administrative user sessions. This behavior is associated with persistence establishment via T1053.005.
+  Detects schtasks.exe creating a scheduled task (/create) with an ONLOGON or ONSTART schedule (/sc), a common persistence mechanism (T1053.005). The parent process is no longer restricted to cmd.exe: the earlier rule required cmd.exe although the description said "particularly when" it is the parent, so tasks created from PowerShell, script hosts or implants never alerted. Switches are listed in lower-case and upper-case spellings because the converted query is case-sensitive; mixed-case spellings such as /Sc OnLogon are missed. Level medium because installers and administrators also create logon and startup tasks with schtasks.exe.
 
   Defender notes:
   - Hardening control: Restrict scheduled task creation to administrators and alert on logon or startup triggered tasks created from user context.
@@ -10,6 +10,7 @@ description: |
   - Risk treatment: Mitigate: least privilege on task creation; accept the residual risk for approved software installers.
 author: Jahsean Meikle
 date: 2026/05/10
+modified: 2026/10/05
 references:
 - https://attack.mitre.org/techniques/T1053/005/
 tags:
@@ -36,17 +37,23 @@ detection:
     event.code: '1'
     process.name: schtasks.exe
   selection_create:
-    process.command_line|contains: /create
+    process.command_line|contains:
+    - /create
+    - /Create
+    - /CREATE
   selection_triggers:
     process.command_line|contains:
     - /sc onlogon
+    - /sc ONLOGON
     - /sc onstart
-    - /sc onstartup
-  selection_parent:
-    process.parent.name: cmd.exe
-  condition: selection_process and selection_create and selection_triggers and selection_parent
+    - /sc ONSTART
+    - /SC onlogon
+    - /SC ONLOGON
+    - /SC onstart
+    - /SC ONSTART
+  condition: selection_process and selection_create and selection_triggers
 falsepositives:
 - Legitimate software installations or administrative scripts that create scheduled tasks with logon or startup triggers via cmd.exe
 - System management tools or deployment frameworks that automate task scheduling
 - IT automation scripts run by administrators during provisioning workflows
-level: high
+level: medium

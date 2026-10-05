@@ -1,0 +1,21 @@
+id: 1bab9cc9-362e-4106-9b1a-ce23d86833cc
+positive:
+- name: powershell.exe starts whoami.exe
+  event: &ev
+    event.code: "1"
+    process.executable: C:\Windows\System32\whoami.exe
+    process.parent.executable: C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe
+- name: pwsh.exe starts wmic.exe
+  event:
+    <<: *ev
+    process.executable: C:\Windows\System32\wbem\WMIC.exe
+    process.parent.executable: C:\Program Files\PowerShell\7\pwsh.exe
+negative:
+- name: Explorer starts whoami.exe
+  event:
+    <<: *ev
+    process.parent.executable: C:\Windows\explorer.exe
+- name: powershell.exe starts notepad.exe
+  event:
+    <<: *ev
+    process.executable: C:\Windows\System32\notepad.exe

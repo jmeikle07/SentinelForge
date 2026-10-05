@@ -1,20 +1,24 @@
-title: Internet Connection Discovery via Network Enumeration Tools Under cmd.exe
+title: Network Configuration Tools Spawned by cmd.exe (Superseded, Was Tagged Internet Connection Discovery)
 id: f7f59eb3-ad8b-4d57-b1cc-fe60a5418b39
-status: experimental
+status: deprecated
+related:
+- id: 99975fcf-52cb-4595-a905-0c45242c30db
+  type: similar
 description: |
-  Detects cmd.exe spawning common network enumeration tools (ipconfig, netsh, arp, nbtstat, net) consistent with T1016.001 Internet Connection Discovery.
+  Deprecated: strict subset of 99975fcf-52cb-4595-a905-0c45242c30db (T1082, which also carries the T1016 tag): the same cmd.exe parent and a longer tool list that includes all of these. Detects cmd.exe spawning ipconfig, netsh, arp, nbtstat, net or net1. These tools show the host network configuration (T1016), not whether the internet is reachable, so the former T1016.001 Internet Connection Discovery tag was wrong. Literals are lower-case; ARP.EXE (its upper-case on-disk name) was never matched.
 
   Defender notes:
   - Hardening control: Log command lines for cmd.exe children and restrict network utilities that standard users do not need.
   - IR step: Determine what launched cmd.exe, review commands run in the same session, and check outbound connections afterwards.
-  - Risk treatment: Accept with monitoring: connectivity checks are frequently benign; escalate only with other attacker behaviour.
+  - Risk treatment: Accept with monitoring: network configuration lookups are frequently benign; escalate only with other attacker behaviour.
 author: Jahsean Meikle
 date: 2026/05/10
+modified: 2026/10/05
 references:
-- https://attack.mitre.org/techniques/T1016/001/
+- https://attack.mitre.org/techniques/T1016/
 tags:
 - attack.discovery
-- attack.t1016.001
+- attack.t1016
 - cert.secplus.2.4
 - cert.secplus.4.4
 - cert.isc2cc.d4

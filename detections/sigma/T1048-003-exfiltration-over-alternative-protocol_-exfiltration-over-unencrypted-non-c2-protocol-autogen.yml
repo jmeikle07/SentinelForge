@@ -1,8 +1,8 @@
-title: PowerShell HTTP POST Exfiltration via Invoke-WebRequest
+title: PowerShell POST of Data to a Plain http:// URL (Unencrypted Exfiltration)
 id: 723b2878-ced4-4052-ab1c-05629a5f4127
 status: experimental
 description: |
-  Detects PowerShell processes executing Invoke-WebRequest or Invoke-RestMethod with HTTP POST methods transmitting data, indicative of T1048.003 exfiltration over unencrypted HTTP.
+  Detects powershell.exe or pwsh.exe running Invoke-WebRequest, Invoke-RestMethod or the iwr, irm and curl aliases with -Method POST (written POST, Post or post) that sends data (-Body or -InFile) to a URL that starts with http://, i.e. data sent over an unencrypted protocol (T1048.003). HTTPS posts are intentionally not matched, because the technique is about unencrypted channels. Limits: the http:// literal may appear anywhere in the command line, not necessarily as the target; a URL held in a variable, a script file or an encoded command is not visible in the command line; the method must be spelled -Method POST/Post/post with that exact spacing (other casings and the abbreviated -Me are missed). Level medium because internal automation POSTs to plain-HTTP APIs.
 
   Defender notes:
   - Hardening control: Use egress filtering with an allowlist, inspect outbound HTTP at the proxy, and deploy data loss prevention for sensitive stores.
@@ -10,6 +10,7 @@ description: |
   - Risk treatment: Mitigate: egress control and DLP; for confirmed loss, treat as a reportable incident and involve legal.
 author: Jahsean Meikle
 date: 2026/05/10
+modified: 2026/10/05
 references:
 - https://attack.mitre.org/techniques/T1048/003/
 tags:
@@ -30,21 +31,34 @@ logsource:
   category: process_creation
   product: windows
 detection:
-  selection_invoke:
-    process.name|endswith: powershell.exe
+  selection_interpreter:
+    process.name:
+    - powershell.exe
+    - pwsh.exe
+  selection_cmdlet:
     process.command_line|contains:
     - Invoke-WebRequest
     - Invoke-RestMethod
+    - 'iwr '
+    - 'irm '
+    - 'curl '
   selection_post:
-    process.command_line|contains: POST
+    process.command_line|contains:
+    - -Method POST
+    - -Method Post
+    - -Method post
   selection_body:
-    process.command_line|contains: Body
-  condition: selection_invoke and selection_post and selection_body
+    process.command_line|contains:
+    - -Body
+    - -InFile
+  selection_plain_http:
+    process.command_line|contains: http://
+  condition: selection_interpreter and selection_cmdlet and selection_post and selection_body and selection_plain_http
 falsepositives:
 - Legitimate automation scripts using PowerShell to POST data to internal or approved external APIs
 - Security testing or red team exercises involving HTTP data transmission
 - Monitoring or telemetry agents that use Invoke-WebRequest to send diagnostics
-level: high
+level: medium
 fields:
 - process.name
 - process.command_line

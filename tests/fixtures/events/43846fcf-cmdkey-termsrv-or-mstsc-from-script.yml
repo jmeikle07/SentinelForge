@@ -1,0 +1,32 @@
+id: 43846fcf-f24e-420e-8469-6a61e6201646
+positive:
+- name: cmdkey TERMSRV credential from cmd.exe
+  event: &ev
+    event.code: "1"
+    process.name: cmdkey.exe
+    process.executable: C:\Windows\System32\cmdkey.exe
+    process.command_line: cmdkey /generic:TERMSRV/10.0.0.5 /user:CORP\admin /pass:Winter2026!
+    process.parent.name: cmd.exe
+- name: mstsc with /v launched by powershell.exe
+  event:
+    <<: *ev
+    process.name: mstsc.exe
+    process.executable: C:\Windows\System32\mstsc.exe
+    process.command_line: mstsc /v:10.0.0.5
+    process.parent.name: powershell.exe
+negative:
+- name: cmdkey run by Explorer
+  event:
+    <<: *ev
+    process.parent.name: explorer.exe
+- name: mstsc without /v
+  event:
+    <<: *ev
+    process.name: mstsc.exe
+    process.command_line: mstsc C:\Users\bob\work.rdp
+- name: mstsc with /v started by Explorer
+  event:
+    <<: *ev
+    process.name: mstsc.exe
+    process.command_line: mstsc /v:10.0.0.5
+    process.parent.name: explorer.exe
