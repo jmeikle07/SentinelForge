@@ -1,70 +1,50 @@
+"""Deploy a Sigma rule to Kibana as a detection-engine rule.
+
+Configuration comes from the environment via lab.config (ELASTIC_URL, KIBANA_URL,
+ELASTIC_API_KEY, LAB_INSECURE_TLS). Library code raises DeployError; only main() exits.
+"""
+import logging
 import sys
-import json
-import os
+
 import requests
 import yaml
-import urllib3
-from sigma.collection import SigmaCollection
-from sigma.backends.elasticsearch import LuceneBackend
-from sigma.pipelines.sysmon import sysmon_pipeline
-from sigma.pipelines.windows import windows_logsource_pipeline as windows_pipeline
-from sigma.processing.resolver import ProcessingPipelineResolver
-from sigma.processing.pipeline import ProcessingPipeline, ProcessingItem
-from sigma.processing.transformations import FieldMappingTransformation, DropDetectionItemTransformation
-from sigma.processing.conditions import IncludeFieldCondition
 
-urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+from lab import ecs
+from lab.config import ConfigError, Settings, load
+from lab.http import session as make_session
+
+log = logging.getLogger("sf.deploy")
+
+RULES_PATH = "/api/detection_engine/rules"
 
 
-def ecs_fieldmap_pipeline():
-    """Translate raw Sysmon event-log field names to ECS, because our Elastic data is
-    ECS-normalized (event.code, process.executable) but the pySigma sysmon pipeline emits
-    raw Sysmon names (EventID, Image, ParentImage, Channel). Without this, deployed rules
-    are enabled and scheduled yet match nothing. Runs late (high priority number)."""
-    return ProcessingPipeline(name="sysmon-to-ecs-fieldmap", priority=100, items=[
-        ProcessingItem(
-            transformation=DropDetectionItemTransformation(),
-            field_name_conditions=[IncludeFieldCondition(fields=["Channel"])],
-        ),
-        ProcessingItem(transformation=FieldMappingTransformation({
-            "EventID": "event.code",
-            "Image": "process.executable",
-            "ParentImage": "process.parent.executable",
-            "CommandLine": "process.command_line",
-            "ParentCommandLine": "process.parent.command_line",
-            "TargetFilename": "file.path",
-            "DestinationIp": "destination.ip",
-            "DestinationPort": "destination.port",
-            "User": "user.name",
-        })),
-    ])
+class DeployError(RuntimeError):
+    """The rule could not be converted or Kibana rejected it."""
+
 
 def convert_sigma(rule_path):
-    resolver = ProcessingPipelineResolver()
-    resolver.add_pipeline_class(windows_pipeline())
-    resolver.add_pipeline_class(sysmon_pipeline())
-    resolved = resolver.resolve(resolver.pipelines) + ecs_fieldmap_pipeline()
-    backend = LuceneBackend(processing_pipeline=resolved)
-    rules = SigmaCollection.load_ruleset([rule_path])
-    result = backend.convert(rules)
+    """Sigma file -> Lucene query (ECS field names) using the shared lab.ecs pipeline."""
+    with open(rule_path, "r", encoding="utf-8") as f:
+        result = ecs.convert(f.read())
     return result[0] if result else None
 
 
 def load_rule_metadata(rule_path):
-    with open(rule_path, "r") as f:
+    with open(rule_path, "r", encoding="utf-8") as f:
         return yaml.safe_load(f)
 
 
-def deploy_to_kibana(rule_path):
-    elastic_url = os.environ["ELASTIC_URL"]
-    api_key = os.environ["ELASTIC_API_KEY"]
-
-    metadata = load_rule_metadata(rule_path)
-    query = convert_sigma(rule_path)
+def deploy_to_kibana(path: str, settings: Settings, session=None) -> dict:
+    metadata = load_rule_metadata(path)
+    if not isinstance(metadata, dict):
+        raise DeployError(f"{path}: not a Sigma rule mapping")
+    try:
+        query = convert_sigma(path)
+    except Exception as exc:  # pySigma raises many distinct error types
+        raise DeployError(f"could not convert {path}: {exc}") from exc
 
     if not query:
-        print(f"FAIL: Could not convert {rule_path}")
-        sys.exit(1)
+        raise DeployError(f"could not convert {path}: no query produced")
 
     severity_map = {
         "critical": "critical",
@@ -88,6 +68,8 @@ def deploy_to_kibana(rule_path):
     for tag in metadata.get("tags", []):
         tags.append(str(tag))
 
+    author = metadata.get("author")
+
     kibana_rule = {
         "type": "query",
         "language": "lucene",
@@ -102,7 +84,7 @@ def deploy_to_kibana(rule_path):
         "max_signals": 100,
         "tags": tags,
         "references": metadata.get("references", []),
-        "author": [metadata.get("author", "1xLoZec")],
+        "author": [str(author)] if author else [],
         "index": [
             "logs-*",
             "winlogbeat-*",
@@ -116,32 +98,50 @@ def deploy_to_kibana(rule_path):
         "version": 1,
     }
 
-    kibana_base = elastic_url.replace(":9200", ":5601").replace("https://", "http://").replace("https://", "http://")
-    url = f"{kibana_base}/api/detection_engine/rules"
-
+    url = f"{settings.kibana_url.rstrip('/')}{RULES_PATH}"
     headers = {
-        "Authorization": f"ApiKey {api_key}",
+        "Authorization": f"ApiKey {settings.elastic_api_key}",
         "Content-Type": "application/json",
-        "kbn-xsrf": "true"
+        "kbn-xsrf": "true",
     }
+    http = session or make_session()
+    title = metadata.get("title")
 
-    response = requests.post(url, headers=headers, json=kibana_rule, verify=False)
-
-    if response.status_code in [200, 201]:
-        print(f"SUCCESS: Deployed '{metadata.get('title')}' to Kibana")
-    elif response.status_code == 409:
-        rule_id = metadata.get("id", "")
-        put_url = f"{url}?rule_id={rule_id}&overwrite=true"
-        response = requests.put(put_url, headers=headers, json=kibana_rule, verify=False)
-        if response.status_code in [200, 201]:
-            print(f"SUCCESS: Updated '{metadata.get('title')}' in Kibana")
+    try:
+        response = http.post(url, headers=headers, json=kibana_rule)
+        if response.status_code in (200, 201):
+            log.info("Deployed '%s' to Kibana", title)
+        elif response.status_code == 409:
+            # Update API: PUT with rule_id in the body (no query-string overwrite).
+            response = http.put(url, headers=headers, json=kibana_rule)
+            if response.status_code not in (200, 201):
+                raise DeployError(f"could not update rule: {response.status_code} {response.text[:300]}")
+            log.info("Updated '%s' in Kibana", title)
         else:
-            print(f"FAIL: Could not update rule: {response.status_code} {response.text}")
-            sys.exit(1)
-    else:
-        print(f"FAIL: Deployment failed with status {response.status_code}: {response.text}")
+            raise DeployError(f"deployment failed with status {response.status_code}: {response.text[:300]}")
+    except requests.RequestException as exc:
+        raise DeployError(f"Kibana request failed: {exc}") from exc
+
+    try:
+        return response.json()
+    except ValueError:
+        return {}
+
+
+def main(argv=None):
+    argv = sys.argv[1:] if argv is None else argv
+    logging.basicConfig(level="INFO", format="%(message)s")
+    if len(argv) != 1:
+        print("usage: deploy_rule.py <sigma-rule.yml>", file=sys.stderr)
+        sys.exit(2)
+    try:
+        settings = load()
+        deploy_to_kibana(argv[0], settings)
+    except (ConfigError, DeployError) as exc:
+        print(f"FAIL: {exc}", file=sys.stderr)
         sys.exit(1)
+    print(f"SUCCESS: deployed {argv[0]}")
 
 
 if __name__ == "__main__":
-    deploy_to_kibana(sys.argv[1])
+    main()
