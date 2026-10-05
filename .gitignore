@@ -18,3 +18,9 @@ htmlcov/
 *.corrupt
 elastalert/build/
 state/sf/*.txn
+
+# lab.state advisory-lock files (runtime artefacts, created on any state read/write)
+state/*.lock
+state/**/*.lock
+docs/*.lock
+*.json.lock
