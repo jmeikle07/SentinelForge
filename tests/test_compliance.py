@@ -340,3 +340,339 @@ def test_main_reports_unmapped_technique_cleanly(workdir, capsys):
 def test_main_requires_a_mode(workdir):
     with pytest.raises(SystemExit):
         run(workdir)
+
+
+# ------------------------------------------------- per-rule overrides (tmp data)
+
+RULE_ID = "ffaa3523-eeb1-4706-aff3-d1d59b16b0d9"
+
+
+def small_mapping(rules=None):
+    m = {
+        "tactics": {},
+        "techniques": {
+            "t1003.002": {
+                "secplus": ["2.4"], "isc2cc": [3], "nist": ["si-4"], "cis": ["8.5"],
+                "hardening": "H-tech", "ir": "IR-tech", "risk": "R-tech",
+            }
+        },
+    }
+    if rules is not None:
+        m["rules"] = rules
+    return m
+
+
+def small_objectives():
+    return {
+        "secplus": {"objectives": {"2.4": "a", "4.4": "b"}},
+        "isc2cc": {"domains": {"3": "x", "5": "y"}},
+        "nist_800_53": {"controls": {"si-4": "a", "ac-6": "b"}},
+        "cis_v8": {"safeguards": {"8.5": "a", "5.4": "b"}},
+    }
+
+
+def test_rule_override_replaces_tags_per_field():
+    m = small_mapping({RULE_ID: {"secplus": ["4.4"], "nist": ["ac-6"]}})
+    tags = tc.tag_rule(sample_rule(), m)["tags"]
+    assert "cert.secplus.4.4" in tags and "cert.secplus.2.4" not in tags
+    assert "nist.800-53.ac-6" in tags and "nist.800-53.si-4" not in tags
+    # fields not overridden keep the technique-level value
+    assert "cert.isc2cc.d3" in tags and "cis.v8.8.5" in tags
+
+
+def test_rule_override_add_mode_unions_tags():
+    m = small_mapping({RULE_ID: {"mode": "add", "secplus": ["4.4"], "cis": ["5.4"]}})
+    tags = tc.tag_rule(sample_rule(), m)["tags"]
+    assert {"cert.secplus.2.4", "cert.secplus.4.4", "cis.v8.8.5", "cis.v8.5.4"} <= set(tags)
+
+
+def test_rule_override_text_wins_and_other_text_kept():
+    m = small_mapping({RULE_ID: {"hardening": "H-rule"}})
+    desc = tc.tag_rule(sample_rule(), m)["description"]
+    assert "H-rule" in desc and "H-tech" not in desc
+    assert "IR-tech" in desc and "R-tech" in desc
+
+
+def test_override_only_applies_to_its_rule():
+    m = small_mapping({"00000000-0000-0000-0000-000000000000": {"secplus": ["4.4"]}})
+    tags = tc.tag_rule(sample_rule(), m)["tags"]
+    assert "cert.secplus.4.4" not in tags and "cert.secplus.2.4" in tags
+
+
+def test_override_is_idempotent_and_does_not_mutate_mapping():
+    m = small_mapping({RULE_ID: {"mode": "add", "secplus": ["4.4"]}})
+    before = copy.deepcopy(m)
+    once = tc.tag_rule(sample_rule(), m)
+    assert tc.tag_rule(once, m) == once
+    assert m == before
+
+
+def test_validate_mapping_rejects_unknown_rule_id():
+    m = small_mapping({"11111111-1111-1111-1111-111111111111": {"secplus": ["4.4"]}})
+    errs = tc.validate_mapping(m, small_objectives(), rule_ids={RULE_ID})
+    assert any("11111111-1111-1111-1111-111111111111" in e and "unknown rule" in e for e in errs)
+
+
+def test_validate_mapping_accepts_known_rule_id_and_checks_its_ids():
+    m = small_mapping({RULE_ID: {"secplus": ["4.4"]}})
+    assert tc.validate_mapping(m, small_objectives(), rule_ids={RULE_ID}) == []
+    m = small_mapping({RULE_ID: {"secplus": ["9.9"], "mode": "bogus"}})
+    joined = "\n".join(tc.validate_mapping(m, small_objectives(), rule_ids={RULE_ID}))
+    assert "9.9" in joined and "mode" in joined
+
+
+def test_validate_mapping_rejects_malformed_rules_section():
+    errs = tc.validate_mapping(small_mapping({RULE_ID: "oops"}), small_objectives(), rule_ids={RULE_ID})
+    assert errs
+
+
+# ------------------------------------------------- main(): CLI behaviour
+
+
+@pytest.fixture
+def mini(tmp_path):
+    """A tiny self-contained lab: one rule, small mapping and objectives."""
+    rules = tmp_path / "sigma"
+    rules.mkdir()
+    (tmp_path / "mapping.yml").write_text(yaml.safe_dump(small_mapping()), encoding="utf-8")
+    (tmp_path / "objectives.yml").write_text(yaml.safe_dump(small_objectives()), encoding="utf-8")
+    (rules / "a.yml").write_text(yaml.safe_dump(sample_rule()), encoding="utf-8")
+    return tmp_path
+
+
+def mini_run(mini, *flags):
+    return tc.main(
+        [
+            *flags,
+            "--rules-dir", str(mini / "sigma"),
+            "--mapping", str(mini / "mapping.yml"),
+            "--objectives", str(mini / "objectives.yml"),
+            "--coverage", str(mini / "COVERAGE.md"),
+        ]
+    )
+
+
+def second_rule(rid="22222222-2222-2222-2222-222222222222", tags=None):
+    r = sample_rule(tags)
+    r["id"], r["title"] = rid, "Second rule"
+    return r
+
+
+def test_main_applies_per_rule_override(mini):
+    m = small_mapping({RULE_ID: {"secplus": ["4.4"]}})
+    (mini / "mapping.yml").write_text(yaml.safe_dump(m), encoding="utf-8")
+    assert mini_run(mini, "--write") == 0
+    tags = yaml.safe_load((mini / "sigma" / "a.yml").read_text(encoding="utf-8"))["tags"]
+    assert "cert.secplus.4.4" in tags and "cert.secplus.2.4" not in tags
+    assert mini_run(mini, "--check") == 0
+
+
+def test_main_unknown_override_rule_id_exit_2(mini, capsys):
+    m = small_mapping({"33333333-3333-3333-3333-333333333333": {"secplus": ["4.4"]}})
+    (mini / "mapping.yml").write_text(yaml.safe_dump(m), encoding="utf-8")
+    assert mini_run(mini, "--check") == 2
+    assert "33333333-3333-3333-3333-333333333333" in capsys.readouterr().err
+
+
+def assert_clean_error(capsys, *needles):
+    err = capsys.readouterr().err.strip()
+    assert err and len(err.splitlines()) == 1, err
+    assert "Traceback" not in err
+    for n in needles:
+        assert n in err
+
+
+def test_main_empty_rule_file_is_clean_error(mini, capsys):
+    (mini / "sigma" / "empty.yml").write_text("", encoding="utf-8")
+    assert mini_run(mini, "--check") == 2
+    assert_clean_error(capsys, "empty.yml")
+
+
+def test_main_non_mapping_rule_file_is_clean_error(mini, capsys):
+    (mini / "sigma" / "list.yml").write_text("- 1\n- 2\n", encoding="utf-8")
+    assert mini_run(mini, "--check") == 2
+    assert_clean_error(capsys, "list.yml")
+
+
+def test_main_invalid_yaml_rule_is_one_line(mini, capsys):
+    (mini / "sigma" / "bad.yml").write_text("a: [unclosed\nb: {\n", encoding="utf-8")
+    assert mini_run(mini, "--check") == 2
+    assert_clean_error(capsys, "bad.yml")
+
+
+def test_main_missing_note_text_is_clean_error(mini, capsys):
+    m = small_mapping()
+    del m["techniques"]["t1003.002"]["ir"]
+    (mini / "mapping.yml").write_text(yaml.safe_dump(m), encoding="utf-8")
+    assert mini_run(mini, "--check") == 2
+    err = capsys.readouterr().err
+    assert "Traceback" not in err and "ir" in err
+
+
+def test_main_mapping_without_techniques_is_clean_error(mini, capsys):
+    (mini / "mapping.yml").write_text("tactics: {}\n", encoding="utf-8")
+    assert mini_run(mini, "--check") == 2
+    err = capsys.readouterr().err
+    assert "Traceback" not in err and err.strip()
+
+
+@pytest.mark.parametrize("content", ["", "- a\n", "techniques: [1]\n", "techniques: {t1003.002: oops}\n"])
+def test_main_bad_mapping_file_is_clean_error(mini, capsys, content):
+    (mini / "mapping.yml").write_text(content, encoding="utf-8")
+    assert mini_run(mini, "--check") == 2
+    err = capsys.readouterr().err
+    assert "Traceback" not in err and err.strip()
+    assert "mapping" in err
+
+
+def test_main_bad_objectives_file_is_clean_error(mini, capsys):
+    (mini / "objectives.yml").write_text("secplus: {}\n", encoding="utf-8")
+    assert mini_run(mini, "--check") == 2
+    err = capsys.readouterr().err
+    assert "objectives" in err and "Traceback" not in err
+
+
+def test_main_missing_mapping_file_is_clean_error(mini, capsys):
+    (mini / "mapping.yml").unlink()
+    assert mini_run(mini, "--check") == 2
+    assert_clean_error(capsys, "mapping.yml")
+
+
+def test_main_malformed_tag_reports_file(mini, capsys):
+    (mini / "sigma" / "mal.yml").write_text(
+        yaml.safe_dump(second_rule(tags=["attack.t1003.002", "cis.v8.eight"])), encoding="utf-8"
+    )
+    assert mini_run(mini, "--check") == 2
+    assert_clean_error(capsys, "mal.yml", "cis.v8.eight")
+
+
+def test_files_option_writes_only_selected_rules(mini):
+    (mini / "sigma" / "b.yml").write_text(yaml.safe_dump(second_rule()), encoding="utf-8")
+    b_before = (mini / "sigma" / "b.yml").read_bytes()
+    assert mini_run(mini, "--write", "--files", str(mini / "sigma" / "a.yml")) == 0
+    assert (mini / "sigma" / "b.yml").read_bytes() == b_before
+    a = yaml.safe_load((mini / "sigma" / "a.yml").read_text(encoding="utf-8"))
+    assert "cert.secplus.2.4" in a["tags"]
+    assert not (mini / "COVERAGE.md").exists()  # subset runs never touch COVERAGE.md
+
+
+def test_files_option_check_looks_only_at_selected(mini):
+    (mini / "sigma" / "b.yml").write_text(yaml.safe_dump(second_rule()), encoding="utf-8")
+    mini_run(mini, "--write", "--files", str(mini / "sigma" / "a.yml"))
+    assert mini_run(mini, "--check", "--files", str(mini / "sigma" / "a.yml")) == 0
+    assert mini_run(mini, "--check", "--files", str(mini / "sigma" / "b.yml")) == 1
+    assert mini_run(mini, "--check") == 1
+
+
+def test_files_option_missing_path_is_clean_error(mini, capsys):
+    assert mini_run(mini, "--check", "--files", str(mini / "sigma" / "nope.yml")) == 2
+    assert_clean_error(capsys, "nope.yml")
+
+
+def test_allow_untagged_warns_and_exits_zero(mini, capsys):
+    assert mini_run(mini, "--check") == 1
+    capsys.readouterr()
+    assert mini_run(mini, "--check", "--allow-untagged") == 0
+    err = capsys.readouterr().err
+    assert "warning" in err and "a.yml" in err
+
+
+def test_allow_untagged_still_fails_on_drift_in_tagged_rule(mini):
+    mini_run(mini, "--write")
+    p = mini / "sigma" / "a.yml"
+    rule = yaml.safe_load(p.read_text(encoding="utf-8"))
+    rule["tags"].remove("cis.v8.8.5")
+    p.write_text(yaml.safe_dump(rule), encoding="utf-8")
+    assert mini_run(mini, "--check", "--allow-untagged") == 1
+
+
+def test_allow_untagged_still_fails_on_malformed_tags(mini):
+    (mini / "sigma" / "mal.yml").write_text(
+        yaml.safe_dump(second_rule(tags=["attack.t1003.002", "cis.v8.eight"])), encoding="utf-8"
+    )
+    assert mini_run(mini, "--check", "--allow-untagged") == 2
+
+
+def test_allow_untagged_tolerates_untagged_unmapped_technique(mini, capsys):
+    mini_run(mini, "--write")
+    (mini / "sigma" / "new.yml").write_text(
+        yaml.safe_dump(second_rule(tags=["attack.execution", "attack.t9999"])), encoding="utf-8"
+    )
+    capsys.readouterr()
+    assert mini_run(mini, "--check", "--allow-untagged") == 0
+    assert "new.yml" in capsys.readouterr().err
+    assert mini_run(mini, "--check") == 2
+
+
+def test_allow_untagged_unmapped_but_tagged_rule_still_fails(mini):
+    mini_run(mini, "--write")
+    (mini / "sigma" / "new.yml").write_text(
+        yaml.safe_dump(second_rule(tags=["attack.t9999", "cis.v8.8.5"])), encoding="utf-8"
+    )
+    assert mini_run(mini, "--check", "--allow-untagged") == 2
+
+
+def test_allow_untagged_only_valid_with_check(mini):
+    with pytest.raises(SystemExit):
+        mini_run(mini, "--write", "--allow-untagged")
+
+
+def test_help_documents_new_options(capsys):
+    with pytest.raises(SystemExit):
+        tc.main(["--help"])
+    out = " ".join(capsys.readouterr().out.split())
+    for word in ("--files", "--allow-untagged", "rules:", "mode"):
+        assert word in out
+    assert "per-rule" in (tc.__doc__ or "")
+
+
+def test_write_does_not_touch_already_correct_rule(mini):
+    p = mini / "sigma" / "a.yml"
+    mini_run(mini, "--write")
+    # hand-formatted but semantically correct: comments and layout must survive
+    p.write_bytes(b"# keep me\n" + p.read_bytes())
+    snapshot = p.read_bytes()
+    cov = (mini / "COVERAGE.md").read_bytes()
+    assert mini_run(mini, "--write") == 0
+    assert p.read_bytes() == snapshot
+    assert (mini / "COVERAGE.md").read_bytes() == cov
+
+
+# ------------------------------------------------- reference data accuracy
+
+
+def test_cis_13_5_title_is_remote_assets(objectives):
+    assert objectives["cis_v8"]["safeguards"]["13.5"] == "Manage Access Control for Remote Assets"
+
+
+def test_isc2cc_outline_recorded_exactly(objectives):
+    cc = objectives["isc2cc"]
+    assert cc["domains"] == {
+        "1": "Security Principles",
+        "2": "Security Governance",
+        "3": "Identity and Access Management (IAM) Concepts",
+        "4": "Networking and Cloud Security Concepts",
+        "5": "Security Operations and Incident Response",
+    }
+    assert str(cc["effective_date"]) == "2026-09-01"
+    assert re.match(r"\d{4}-\d{2}-\d{2}$", str(cc["retrieved"]))
+    assert sum(cc["weights"].values()) == pytest.approx(100, abs=0.2)  # official page rounds to 1 decimal
+
+
+def test_every_id_referenced_in_mapping_exists_in_objectives(mapping, objectives):
+    """Independent of validate_mapping: techniques, tactics and rules sections."""
+    valid = {
+        "secplus": set(objectives["secplus"]["objectives"]),
+        "isc2cc": {int(k) for k in objectives["isc2cc"]["domains"]},
+        "nist": set(objectives["nist_800_53"]["controls"]),
+        "cis": set(objectives["cis_v8"]["safeguards"]),
+    }
+    seen = 0
+    for section in ("tactics", "techniques", "rules"):
+        for key, entry in (mapping.get(section) or {}).items():
+            for field, ok in valid.items():
+                for value in entry.get(field, []):
+                    seen += 1
+                    norm = int(value) if field == "isc2cc" else str(value).lower()
+                    assert norm in ok, f"{section}.{key}.{field}: {value!r}"
+    assert seen > 100

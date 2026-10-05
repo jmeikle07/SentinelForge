@@ -10,6 +10,27 @@ regenerates docs/compliance/COVERAGE.md.
 
     python tools/tag_compliance.py --check   # exit 1 on drift, 2 on errors
     python tools/tag_compliance.py --write   # rewrite rules + COVERAGE.md
+    python tools/tag_compliance.py --check --allow-untagged   # CI: new rules may lack tags
+    python tools/tag_compliance.py --write --files detections/sigma/x.yml   # subset
+
+Exit codes: 0 ok, 1 drift, 2 bad input (unmapped technique, malformed tag or YAML,
+bad mapping.yml). Errors are one line on stderr, never a traceback.
+
+Per-rule overrides (per-rule): mapping.yml may carry a top-level ``rules:`` section keyed by
+the Sigma rule ``id`` (UUID). An entry accepts the same fields as a technique
+entry (any subset of secplus/isc2cc/nist/cis/hardening/ir/risk) plus an optional
+``mode``. The override wins per field over the technique-level entry. For the
+tag fields, ``mode: replace`` (default) replaces the technique value for that
+field, ``mode: add`` unions the override with it; hardening/ir/risk text always
+replaces. An override for a rule id that does not exist in the rules directory
+is a mapping error (exit 2).
+
+--files PATH...    --write/--check only look at (and only write) these rule
+                   files; COVERAGE.md is neither checked nor written.
+--allow-untagged   with --check: a rule that has no cert/nist/cis tags yet is a
+                   warning (exit 0). Malformed tags and drift in already-tagged
+                   rules still fail. COVERAGE.md is not compared while untagged
+                   rules exist.
 
 Tag formats:
     attack.*                       (kept as-is)
@@ -51,6 +72,11 @@ MANAGED = {
     "nist.800-53.": re.compile(r"^nist\.800-53\.[a-z]{2}-\d+(?:\.\d+)?$"),
     "cis.v8.": re.compile(r"^cis\.v8\.\d+\.\d+$"),
 }
+MANAGED_PREFIXES = tuple(MANAGED)
+
+_TAG_FIELDS = ("secplus", "isc2cc", "nist", "cis")
+_TEXT_FIELDS = ("hardening", "ir", "risk")
+_MODES = ("replace", "add")
 
 
 class TaggerError(Exception):
@@ -90,6 +116,9 @@ def _classify(tag: object) -> str:
 
 
 def _notes(entry: dict) -> str:
+    for field in _TEXT_FIELDS:
+        if not entry.get(field):
+            raise TaggerError(f"mapping entry is missing the {field!r} text")
     return (
         f"{NOTES_MARKER}\n"
         f"- Hardening control: {entry['hardening']}\n"
@@ -98,12 +127,33 @@ def _notes(entry: dict) -> str:
     )
 
 
+def _override_for(rule: dict, mapping: dict) -> dict:
+    overrides = mapping.get("rules")
+    if not isinstance(overrides, dict) or rule.get("id") is None:
+        return {}
+    entry = overrides.get(str(rule["id"]))
+    return entry if isinstance(entry, dict) else {}
+
+
+def has_compliance_tags(rule: object) -> bool:
+    """True if ``rule`` carries any cert./nist./cis. tag (valid or not)."""
+    tags = rule.get("tags") if isinstance(rule, dict) else None
+    return isinstance(tags, list) and any(
+        isinstance(t, str) and t.startswith(MANAGED_PREFIXES) for t in tags
+    )
+
+
 def tag_rule(rule: dict, mapping: dict) -> dict:
     """Return a copy of ``rule`` with compliance tags and Defender notes applied.
 
     Pure and idempotent: previously generated tags/notes are discarded and
-    regenerated from ``mapping``.
+    regenerated from ``mapping``. A per-rule override (``mapping['rules'][id]``)
+    wins over the technique-level entry per field; see the module docstring.
     """
+    if not isinstance(rule, dict):
+        raise MalformedTagError("rule is not a YAML mapping (empty or wrong type)")
+    if not isinstance(mapping, dict):
+        raise TaggerError("mapping is not a YAML mapping")
     out = copy.deepcopy(rule)
     tags = out.get("tags")
     if not isinstance(tags, list):
@@ -127,20 +177,35 @@ def tag_rule(rule: dict, mapping: dict) -> dict:
         raise UnmappedTechniqueError(
             f"rule {out.get('title')!r} has no attack.tNNNN technique tag"
         )
-    known = mapping.get("techniques", {})
+    known = mapping.get("techniques")
+    if not isinstance(known, dict):
+        raise TaggerError("mapping has no 'techniques' section")
     for key in techniques:
         if key not in known:
             raise UnmappedTechniqueError(
                 f"technique {key} (rule {out.get('title')!r}) is not in mapping.yml"
             )
+        if not isinstance(known[key], dict):
+            raise TaggerError(f"mapping technique {key} is not a mapping")
 
+    tactic_map = mapping.get("tactics") or {}
     entries = [known[k] for k in techniques]
-    entries += [mapping.get("tactics", {})[t] for t in tactics if t in mapping.get("tactics", {})]
+    entries += [tactic_map[t] for t in tactics if isinstance(tactic_map.get(t), dict)]
+    override = _override_for(out, mapping)
+    add = override.get("mode", "replace") == "add"
 
-    secplus = {str(v) for e in entries for v in e.get("secplus", [])}
-    isc2 = {int(v) for e in entries for v in e.get("isc2cc", [])}
-    nist = {str(v).lower() for e in entries for v in e.get("nist", [])}
-    cis = {str(v) for e in entries for v in e.get("cis", [])}
+    values = {}
+    for field in _TAG_FIELDS:
+        base = [v for e in entries for v in e.get(field, [])]
+        if field in override:
+            mine = list(override[field] or [])
+            base = base + mine if add else mine
+        values[field] = base
+
+    secplus = {str(v) for v in values["secplus"]}
+    isc2 = {int(v) for v in values["isc2cc"]}
+    nist = {str(v).lower() for v in values["nist"]}
+    cis = {str(v) for v in values["cis"]}
 
     generated = (
         [f"cert.secplus.{v}" for v in sorted(secplus, key=_num_key)]
@@ -157,31 +222,67 @@ def tag_rule(rule: dict, mapping: dict) -> dict:
     elif base.startswith(NOTES_MARKER):
         base = ""
     base = base.rstrip()
-    notes = _notes(known[techniques[0]])
+    note_entry = dict(known[techniques[0]])
+    note_entry.update({f: override[f] for f in _TEXT_FIELDS if override.get(f)})
+    notes = _notes(note_entry)
     out["description"] = f"{base}\n\n{notes}\n" if base else f"{notes}\n"
     return out
 
 
-def validate_mapping(mapping: dict, objectives: dict) -> list[str]:
-    """Return a list of problems: mapping IDs absent from objectives.yml."""
-    valid = {
-        "secplus": set(objectives["secplus"]["objectives"]),
-        "isc2cc": {int(k) for k in objectives["isc2cc"]["domains"]},
-        "nist": set(objectives["nist_800_53"]["controls"]),
-        "cis": set(objectives["cis_v8"]["safeguards"]),
-    }
+def validate_mapping(mapping: object, objectives: object, rule_ids: object = None) -> list[str]:
+    """Return a list of problems: bad shape, IDs absent from objectives.yml and
+    bad per-rule overrides. ``rule_ids`` (when given) are the known Sigma rule
+    ids; an override for any other id is an error."""
+    if not isinstance(mapping, dict):
+        return ["mapping is not a YAML mapping"]
+    try:
+        valid = {
+            "secplus": set(objectives["secplus"]["objectives"]),
+            "isc2cc": {int(k) for k in objectives["isc2cc"]["domains"]},
+            "nist": set(objectives["nist_800_53"]["controls"]),
+            "cis": set(objectives["cis_v8"]["safeguards"]),
+        }
+    except (KeyError, TypeError, ValueError):
+        return ["objectives.yml is malformed: needs secplus.objectives, isc2cc.domains, "
+                "nist_800_53.controls and cis_v8.safeguards"]
+    known_rules = {str(r) for r in rule_ids} if rule_ids is not None else None
     errors = []
-    for section in ("tactics", "techniques"):
-        for key, entry in mapping.get(section, {}).items():
+    if not isinstance(mapping.get("techniques"), dict) or not mapping["techniques"]:
+        errors.append("mapping techniques: section missing or not a mapping")
+    for section in ("tactics", "techniques", "rules"):
+        block = mapping.get(section)
+        if block is None:
+            continue
+        if not isinstance(block, dict):
+            if section != "techniques":
+                errors.append(f"{section}: section is not a mapping")
+            continue
+        for key, entry in block.items():
+            if not isinstance(entry, dict):
+                errors.append(f"{section}.{key}: entry is not a mapping")
+                continue
+            if section == "rules":
+                if known_rules is not None and str(key) not in known_rules:
+                    errors.append(f"{section}.{key}: override for unknown rule id")
+                if entry.get("mode", "replace") not in _MODES:
+                    errors.append(f"{section}.{key}.mode: must be one of {', '.join(_MODES)}")
             for field, ok in valid.items():
-                for value in entry.get(field, []):
-                    norm = int(value) if field == "isc2cc" else str(value)
+                values = entry.get(field, [])
+                if not isinstance(values, list):
+                    errors.append(f"{section}.{key}.{field}: must be a list")
+                    continue
+                for value in values:
+                    try:
+                        norm = int(value) if field == "isc2cc" else str(value)
+                    except (TypeError, ValueError):
+                        errors.append(f"{section}.{key}.{field}: unknown ID {value!r}")
+                        continue
                     if field == "nist":
                         norm = norm.lower()
                     if norm not in ok:
                         errors.append(f"{section}.{key}.{field}: unknown ID {value!r}")
             if section == "techniques":
-                for field in ("hardening", "ir", "risk"):
+                for field in _TEXT_FIELDS:
                     if not entry.get(field):
                         errors.append(f"{section}.{key}.{field}: missing text")
     return errors
@@ -272,12 +373,42 @@ def dump_rule(rule: dict) -> str:
     return text
 
 
-def _read_yaml(path: Path):
-    return yaml.safe_load(path.read_text(encoding="utf-8"))
+def _oneline(text: object) -> str:
+    return " ".join(str(text).split())
 
 
-def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="SentinelForge compliance tagger")
+def _read_yaml(path: Path, label: str | None = None):
+    """Load YAML; any read/parse problem becomes a one-line TaggerError."""
+    label = label or path.name
+    try:
+        return yaml.safe_load(path.read_text(encoding="utf-8"))
+    except yaml.YAMLError as exc:
+        raise TaggerError(f"{label}: invalid YAML: {_oneline(exc)}") from None
+    except (OSError, UnicodeDecodeError) as exc:
+        raise TaggerError(f"{label}: cannot read: {_oneline(exc)}") from None
+
+
+def _known_rule_ids(rule_dir: Path) -> set[str]:
+    ids = set()
+    for path in rule_dir.glob("*.yml"):
+        try:
+            rule = yaml.safe_load(path.read_text(encoding="utf-8"))
+        except (yaml.YAMLError, OSError, UnicodeDecodeError):
+            continue  # reported when that file itself is processed
+        if isinstance(rule, dict) and rule.get("id") is not None:
+            ids.add(str(rule["id"]))
+    return ids
+
+
+def _build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        description="SentinelForge compliance tagger. mapping.yml may hold a top-level "
+        "'rules:' section keyed by rule id (UUID) with per-rule overrides of a technique "
+        "entry (same fields); the override wins per field; tag lists are replaced by "
+        "default or unioned with 'mode: add'; an unknown rule id is a mapping error "
+        "(exit 2).",
+        epilog="Exit codes: 0 ok, 1 drift, 2 bad input or mapping (one-line error).",
+    )
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument("--check", action="store_true", help="exit 1 if rules/COVERAGE.md drift")
     mode.add_argument("--write", action="store_true", help="rewrite tags, notes and COVERAGE.md")
@@ -285,50 +416,98 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--mapping", type=Path, default=DEFAULT_MAPPING)
     parser.add_argument("--objectives", type=Path, default=DEFAULT_OBJECTIVES)
     parser.add_argument("--coverage", type=Path, default=DEFAULT_COVERAGE)
-    args = parser.parse_args(argv)
+    parser.add_argument(
+        "--files", nargs="+", type=Path, metavar="PATH",
+        help="only check/write these rule files (COVERAGE.md is then neither checked nor written)",
+    )
+    parser.add_argument(
+        "--allow-untagged", action="store_true",
+        help="with --check: rules without any cert/nist/cis tag are warnings, not drift; "
+        "malformed tags and drift in already-tagged rules still fail",
+    )
+    return parser
 
-    mapping = _read_yaml(args.mapping)
-    objectives = _read_yaml(args.objectives)
-    problems = validate_mapping(mapping, objectives)
-    if problems:
-        for p in problems:
-            print(f"mapping error: {p}", file=sys.stderr)
+
+def main(argv: list[str] | None = None) -> int:
+    parser = _build_parser()
+    args = parser.parse_args(argv)
+    if args.allow_untagged and not args.check:
+        parser.error("--allow-untagged is only valid with --check")
+    try:
+        return _run(args)
+    except TaggerError as exc:
+        print(f"error: {_oneline(exc)}", file=sys.stderr)
         return 2
 
-    paths = sorted(args.rules_dir.glob("*.yml"))
-    originals, tagged = [], []
+
+def _run(args: argparse.Namespace) -> int:
+    mapping = _read_yaml(args.mapping, f"mapping {args.mapping}")
+    objectives = _read_yaml(args.objectives, f"objectives {args.objectives}")
+    problems = validate_mapping(mapping, objectives, _known_rule_ids(args.rules_dir))
+    if problems:
+        for p in problems:
+            print(f"mapping error: {_oneline(p)}", file=sys.stderr)
+        return 2
+
+    if args.files:
+        paths = list(args.files)
+        for path in paths:
+            if not path.is_file():
+                raise TaggerError(f"{path}: no such rule file")
+    else:
+        paths = sorted(args.rules_dir.glob("*.yml"))
+
+    originals, tagged, done, skipped = [], [], [], []
     for path in paths:
+        rule = None
         try:
             rule = _read_yaml(path)
             new = tag_rule(rule, mapping)
+        except UnmappedTechniqueError as exc:
+            if args.allow_untagged and not has_compliance_tags(rule):
+                print(f"warning: {path.name}: untagged and not mappable ({_oneline(exc)})",
+                      file=sys.stderr)
+                skipped.append(path)
+                continue
+            raise TaggerError(f"{path.name}: {exc}") from None
         except TaggerError as exc:
-            print(f"{path.name}: {exc}", file=sys.stderr)
-            return 2
-        except yaml.YAMLError as exc:
-            print(f"{path.name}: invalid YAML: {exc}", file=sys.stderr)
-            return 2
+            if str(exc).startswith(f"{path.name}:"):
+                raise
+            raise TaggerError(f"{path.name}: {exc}") from None
+        if args.allow_untagged and not has_compliance_tags(rule):
+            print(f"warning: {path.name}: no compliance tags yet (allowed by --allow-untagged)",
+                  file=sys.stderr)
+            skipped.append(path)
+            continue
+        done.append(path)
         originals.append(rule)
         tagged.append(new)
 
-    coverage = coverage_markdown(originals, mapping)
-    drift = [p.name for p, o, n in zip(paths, originals, tagged) if o != n]
-    cov_current = args.coverage.read_text(encoding="utf-8") if args.coverage.exists() else None
-    cov_drift = cov_current != coverage
+    drift = [p.name for p, o, n in zip(done, originals, tagged) if o != n]
+    check_coverage = not args.files and not skipped
+    coverage = coverage_markdown(originals, mapping) if check_coverage else None
+    cov_drift = False
+    if check_coverage:
+        cov_current = args.coverage.read_text(encoding="utf-8") if args.coverage.exists() else None
+        cov_drift = cov_current != coverage
 
     if args.check:
         for name in drift:
             print(f"drift: {name} needs --write", file=sys.stderr)
         if cov_drift:
             print(f"drift: {args.coverage} is out of date", file=sys.stderr)
+        if skipped and not args.files:
+            print("warning: COVERAGE.md not compared while untagged rules exist", file=sys.stderr)
         return 1 if drift or cov_drift else 0
 
-    for path, old, new in zip(paths, originals, tagged):
-        if old != new:
+    for path, old, new in zip(done, originals, tagged):
+        if old != new:  # semantically correct files are never rewritten
             path.write_bytes(dump_rule(new).encode("utf-8"))
     if cov_drift:
         args.coverage.parent.mkdir(parents=True, exist_ok=True)
         args.coverage.write_bytes(coverage.encode("utf-8"))
-    print(f"tagged {len(drift)} rule(s); coverage {'updated' if cov_drift else 'unchanged'}")
+    cov_msg = "skipped (--files)" if args.files else ("updated" if cov_drift else "unchanged")
+    print(f"tagged {len(drift)} rule(s); coverage {cov_msg}")
     return 0
 
 
