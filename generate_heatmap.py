@@ -18,13 +18,11 @@ Load in ATT&CK Navigator:
 
 import json
 import logging
-import re
 from pathlib import Path
 from datetime import datetime, timezone
 
-import yaml
 
-from lab import state as lab_state
+from lab import coverage, state as lab_state
 
 log = logging.getLogger(__name__)
 
@@ -33,26 +31,6 @@ STATE_FILE  = ROOT / "state" / "seen_techniques.json"
 OUTPUT_FILE = ROOT / "docs" / "coverage_layer.json"
 TOTAL_FILE  = ROOT / "docs" / "attack_enterprise_total.json"
 RULES_DIR   = ROOT / "detections" / "sigma"
-_TECHNIQUE_TAG = re.compile(r"attack\.(t\d{4}(?:\.\d{3})?)$", re.IGNORECASE)
-
-
-def rule_techniques(rules_dir: Path) -> dict:
-    """{technique id -> tactic from the same rule} for every attack.tNNNN[.NNN] tag in the rules."""
-    found = {}
-    for path in sorted(Path(rules_dir).glob("*.yml")):
-        try:
-            rule = yaml.safe_load(path.read_text(encoding="utf-8"))
-        except (OSError, yaml.YAMLError) as exc:
-            log.error("skipping unreadable rule %s: %s", path.name, exc)
-            continue
-        tags = [str(t) for t in (rule or {}).get("tags", [])]
-        tactic = next((t[7:] for t in tags
-                       if t.startswith("attack.") and not _TECHNIQUE_TAG.match(t)), "")
-        for t in tags:
-            m = _TECHNIQUE_TAG.match(t)
-            if m:
-                found.setdefault(m.group(1).upper(), tactic)
-    return found
 
 
 def load_total_techniques(total_file: Path = None):
@@ -78,25 +56,30 @@ def generate_layer(state_file: Path = None, output_file: Path = None, total_file
     output_file = Path(output_file) if output_file else OUTPUT_FILE
     seen = lab_state.read(state_file, default={})
     if rules_dir is not None:
-        seen = {tid: {**{"tactic": tactic}, **seen.get(tid, {})}
-                for tid, tactic in rule_techniques(rules_dir).items()}
+        seen = coverage.covered(rules_dir, seen)  # coverage = what the rules tag; state adds metadata only
     total = load_total_techniques(total_file)
 
     techniques = []
     for tid, meta in seen.items():
-        # Color by confidence: high=green, medium=yellow, low=light blue
-        confidence = meta.get("confidence", "medium").lower()
+        meta = meta if isinstance(meta, dict) else {}
+        confidence = (meta.get("confidence") or "").lower()
+        # Unassessed techniques (no state entry) stay neutral grey: no confidence is invented.
         color = {
             "high":   "#4caf50",   # green
             "medium": "#ff9800",   # orange
             "low":    "#42a5f5",   # blue
-        }.get(confidence, "#ff9800")
+        }.get(confidence, "#9e9e9e")
 
-        comment = (
-            f"Deployed: {meta.get('deployed_at','')[:10]} | "
-            f"Confidence: {confidence.upper()} | "
-            f"Tactic: {meta.get('tactic','').title()}"
-        )
+        tactics = meta.get("tactics") or ([meta["tactic"]] if meta.get("tactic") else [])
+        parts = []
+        if meta.get("deployed_at"):
+            parts.append(f"Deployed: {meta['deployed_at'][:10]}")
+        parts.append(f"Confidence: {confidence.upper()}" if confidence else "Confidence: not assessed")
+        if tactics:
+            parts.append("Tactic: " + ", ".join(t.replace("-", " ").title() for t in tactics))
+        if meta.get("rules"):
+            parts.append(f"Rules: {meta['rules']}")
+        comment = " | ".join(parts)
 
         techniques.append({
             "techniqueID": tid,
@@ -122,7 +105,7 @@ def generate_layer(state_file: Path = None, output_file: Path = None, total_file
             f"Auto-generated from the SentinelForge autonomous rule engine. "
             f"{len(seen)} techniques covered as of "
             f"{datetime.now(timezone.utc).strftime('%Y-%m-%d')}. "
-            f"Green = HIGH confidence, Orange = MEDIUM, Blue = LOW."
+            f"Green = HIGH confidence, Orange = MEDIUM, Blue = LOW, Grey = not assessed."
         ),
         "filters": {
             "platforms": [
@@ -153,6 +136,7 @@ def generate_layer(state_file: Path = None, output_file: Path = None, total_file
             {"label": "HIGH confidence",   "color": "#4caf50"},
             {"label": "MEDIUM confidence", "color": "#ff9800"},
             {"label": "LOW confidence",    "color": "#42a5f5"},
+            {"label": "Not assessed",      "color": "#9e9e9e"},
         ],
         "metadata": [],
         "links":    [],

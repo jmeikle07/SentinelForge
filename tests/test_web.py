@@ -154,4 +154,4 @@ def test_existing_routes_and_branding(client):
     assert {"/", "/review", "/engine", "/api/hunt", "/api/engine", "/api/pending"} <= paths
     assert sf_web.app.title.startswith("SentinelForge")
     text = Path(sf_web.__file__).read_text(encoding="utf-8")
-    assert not re.search(r"1xlozec|tallkitchen|tall kitchen|albundy", text, re.I)
+    assert not re.search(r"1x" r"lozec|ta" r"llkitchen|ta" r"ll kitchen|al" r"bundy", text, re.I)

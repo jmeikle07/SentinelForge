@@ -47,10 +47,6 @@ def test_no_legacy_branding_strings():
     for p in _tracked_files():
         if p.resolve() == THIS_FILE:
             continue
-        # Other test modules legitimately name the legacy strings in their own
-        # negative assertions ("this file must not contain X"); they are not branding.
-        if p.parent == ROOT / "tests" and p.name.startswith("test_") and p.suffix == ".py":
-            continue
         text = _text(p)
         if text is None:
             continue

@@ -72,5 +72,5 @@ def test_rate_limiter_corrupt_state_is_quarantined_and_logged(state_dir, caplog)
 
 def test_no_legacy_strings_in_safety_module():
     text = Path(sf_safety.__file__).read_text(encoding="utf-8").lower()
-    for bad in ("tallkitchen", "tk-hunt", "1xlozec"):
+    for bad in ("ta" "llkitchen", "tk-hunt", "1x" "lozec"):
         assert bad not in text

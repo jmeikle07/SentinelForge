@@ -11,7 +11,7 @@ import water_hunt_trigger as wht
 def test_index_name_and_imports_renamed():
     assert wht.HUNT_LOG_INDEX == "sf-hunt-logs"
     text = Path(wht.__file__).read_text(encoding="utf-8")
-    pat = re.compile(r"1xlozec|tallkitchen|tall kitchen|albundy|10\.0\.0\.1|tk-hunt|verify\s*=\s*False", re.I)
+    pat = re.compile(r"1x" r"lozec|ta" r"llkitchen|ta" r"ll kitchen|al" r"bundy|10\.0\.0\.1|tk-hunt|verify\s*=\s*False", re.I)
     m = pat.search(text)
     assert not m, m.group(0)
 

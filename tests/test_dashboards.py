@@ -10,7 +10,7 @@ import sf_web
 ROOT = Path(__file__).resolve().parent.parent
 PAGES = ["index.html", "review.html", "engine.html"]
 BRANDED_FILES = [ROOT / "web" / p for p in PAGES] + [ROOT / "topology.svg", ROOT / "docs" / "coverage_layer.json"]
-LEGACY = re.compile(r"1xlozec|tall\s?kitchen|hunt-and-water|albundy|\bwater\b", re.I)
+LEGACY = re.compile(r"1x" r"lozec|tall\s?kitchen|hunt-and-water|al" r"bundy|\bwater\b", re.I)
 
 
 def _read(rel):
@@ -119,15 +119,8 @@ def test_pages_link_to_engine_not_water():
 
 
 def _rule_techniques():
-    import glob
-    import yaml
-    ids = set()
-    for f in glob.glob(str(ROOT / "detections" / "sigma" / "*.yml")):
-        with open(f, encoding="utf-8") as fh:
-            for t in yaml.safe_load(fh).get("tags", []):
-                if re.match(r"attack\.t\d", str(t)):
-                    ids.add(str(t)[7:].upper())
-    return ids
+    from lab import coverage
+    return set(coverage.rule_techniques(ROOT / "detections" / "sigma"))
 
 
 def test_layer_technique_count_matches_shipped_rules():
@@ -153,3 +146,20 @@ def test_no_personal_links_in_pages():
         assert "github.com/" not in html
     assert "github.com/" not in _read("topology.svg")
     assert "demo." not in _read("topology.svg")
+
+
+def test_layer_comments_never_invent_deploy_dates_or_confidence():
+    layer = json.loads(_read("docs/coverage_layer.json"))
+    for t in layer["techniques"]:
+        assert "Deployed:  " not in t["comment"] and "Deployed: |" not in t["comment"], t
+        if "not assessed" in t["comment"]:
+            assert t["color"] == "#9e9e9e", t  # unassessed techniques are neutral, not "MEDIUM" orange
+        assert "Tactic:" in t["comment"] and "_" not in t["comment"], t  # human tactic names, no underscores
+
+
+def test_engine_api_coverage_matches_layer_and_rules():
+    client = TestClient(sf_web.app)
+    data = client.get("/api/engine").json()
+    layer = json.loads(_read("docs/coverage_layer.json"))
+    assert data["techniques_covered"] == len(layer["techniques"]) == len(_rule_techniques())
+    assert set(data["by_tactic"]) <= set(data["tactic_order"]), "only hyphenated ATT&CK tactic names"

@@ -25,6 +25,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 import sf_hunt as tk
+from lab import coverage
 from lab import state as lab_state
 
 log = logging.getLogger(__name__)
@@ -125,12 +126,7 @@ def api_hunt(ioc: str, request: Request):
 
 # ── Engine dashboard data ──────────────────────────────────────────────────────
 # Reads the rule engine's real state files. No invented data.
-TACTIC_ORDER = [
-    "reconnaissance", "resource-development", "initial-access", "execution",
-    "persistence", "privilege-escalation", "defense-evasion", "credential-access",
-    "discovery", "lateral-movement", "collection", "command-and-control",
-    "exfiltration", "impact",
-]
+TACTIC_ORDER = list(coverage.TACTICS)
 
 
 @app.get("/api/engine")
@@ -180,16 +176,22 @@ def api_engine():
         items.sort(key=lambda x: x.get("validated_at") or "", reverse=True)
         validations = items[:6]
 
-    # techniques grouped by tactic
+    # techniques grouped by tactic: coverage is what the shipped rules tag (lab.coverage),
+    # state only adds names / confidence / deploy time where it has them
+    try:
+        covered = coverage.covered(HERE / "detections" / "sigma", seen)
+    except coverage.CoverageError as exc:
+        log.error("coverage unavailable: %s", exc)
+        raise HTTPException(status_code=500, detail="coverage unavailable: a rule file is unreadable")
     by_tactic = {}
-    for tid, t in seen.items():
-        tac = (t.get("tactic") or "unknown")
-        by_tactic.setdefault(tac, []).append({
-            "id": tid,
-            "name": t.get("technique_name"),
-            "confidence": t.get("confidence"),
-            "deployed_at": t.get("deployed_at"),
-        })
+    for tid, t in covered.items():
+        for tac in (t["tactics"] or ["unknown"]):
+            by_tactic.setdefault(tac, []).append({
+                "id": tid,
+                "name": t.get("technique_name"),
+                "confidence": t.get("confidence"),
+                "deployed_at": t.get("deployed_at"),
+            })
     for tac in by_tactic:
         by_tactic[tac].sort(key=lambda x: x["id"])
 
@@ -212,7 +214,7 @@ def api_engine():
 
     return JSONResponse({
         "last_run": last_run,
-        "techniques_covered": len(seen),
+        "techniques_covered": len(covered),
         "tactic_order": TACTIC_ORDER,
         "by_tactic": by_tactic,
         "outcomes": outcomes,

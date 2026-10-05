@@ -109,7 +109,7 @@ def test_deploy_no_hardcoded_author_default(tmp_path):
     deploy_rule.deploy_to_kibana(str(p), _settings())
     body = json.loads(responses.calls[0].request.body)
     assert body["author"] == []
-    assert b"1xLoZec" not in responses.calls[0].request.body
+    assert b"1x" b"LoZec" not in responses.calls[0].request.body
 
 
 def test_main_exits_nonzero_on_deploy_error(rule_file, monkeypatch):

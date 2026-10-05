@@ -27,6 +27,7 @@ _logging.getLogger("httpx").setLevel(_logging.WARNING)
 from dotenv import load_dotenv
 
 from lab import config as lab_config
+from lab import coverage as lab_coverage
 from lab import state as lab_state
 from lab.es import search_all, SearchError
 from lab.http import session as make_session
@@ -235,7 +236,13 @@ def git_push_state():
         _git("push")
 
 def coverage_stats(seen):
-    covered_tactics = {v.get("tactic","") for v in seen.values() if v.get("tactic")}
+    """Tactic coverage of the shipped rules (lab.coverage); `seen` (state) only adds metadata."""
+    try:
+        by_rules = lab_coverage.covered(HERE / SIGMA_OUTPUT_DIR, seen)
+        covered_tactics = {tac for v in by_rules.values() for tac in v["tactics"]}
+    except lab_coverage.CoverageError as exc:
+        _log.error("coverage from rules unavailable, falling back to state: %s", exc)
+        covered_tactics = {v.get("tactic","") for v in seen.values() if v.get("tactic")}
     covered  = len(covered_tactics)
     total    = len(ALL_TACTICS)
     pct      = int((covered / total) * 100) if total else 0
@@ -425,7 +432,7 @@ def analyze_or_queue_failed(iocs, events_count, seen, lookback, now_ts):
 # ── Stage 2: Generate Sigma Rule ───────────────────────────────────────────────
 def generate_sigma_rule(iocs, analysis):
     client = get_client()
-    author = os.environ.get("SF_AUTHOR", "SentinelForge")
+    author = os.environ.get("SF_AUTHOR") or "SentinelForge"
     rule_id = str(uuid.uuid4())
     today   = datetime.now(timezone.utc).strftime("%Y/%m/%d")
     prompt  = f"""You are a detection engineer writing a Sigma rule for Elastic SIEM with Sysmon data using ECS field names.

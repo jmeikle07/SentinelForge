@@ -169,11 +169,29 @@ def test_generate_prompt_author_not_hardcoded(monkeypatch):
     monkeypatch.setenv("SF_AUTHOR", "Jahsean Meikle")
     generate_rule.generate_sigma_rule({}, ANALYSIS)
     prompt = fake.calls[0]["messages"][0]["content"]
-    assert "author: Jahsean Meikle" in prompt and "1xLoZec" not in prompt
+    assert "author: Jahsean Meikle" in prompt and "1x" "LoZec" not in prompt
 
 
 def test_no_legacy_branding_or_lab_ip_in_pipeline_scripts():
-    pat = re.compile(r"1xlozec|tallkitchen|tall kitchen|albundy|10\.0\.0\.1|tk-hunt|verify\s*=\s*False", re.I)
+    pat = re.compile(r"1x" r"lozec|ta" r"llkitchen|ta" r"ll kitchen|al" r"bundy|10\.0\.0\.1|tk-hunt|verify\s*=\s*False", re.I)
     for name in ("generate_rule.py", "validate_rule.py", "deploy_rule.py", "approve.py"):
         text = (ROOT / name).read_text(encoding="utf-8")
         assert not pat.search(text), f"legacy string in {name}: {pat.search(text).group(0)}"
+
+
+def test_empty_sf_author_env_falls_back_to_default(monkeypatch):
+    """`cp .env.example .env` with SF_AUTHOR= left blank must not blank the rule author."""
+    fake = FakeClient(["title: x"])
+    monkeypatch.setattr(generate_rule, "get_client", lambda: fake)
+    monkeypatch.setenv("SF_AUTHOR", "")
+    generate_rule.generate_sigma_rule({}, ANALYSIS)
+    prompt = fake.calls[0]["messages"][0]["content"]
+    assert "author: SentinelForge" in prompt
+
+
+def test_env_example_optional_variables_are_commented_out():
+    from pathlib import Path
+    text = (Path(__file__).resolve().parent.parent / ".env.example").read_text(encoding="utf-8")
+    for var in ("LAB_ADMIN_TOKEN", "SF_LAB_DIR", "SF_LOG_DIR", "SF_AUTHOR", "SF_REPO_URL", "MODEL_NAME"):
+        assert f"# {var}=" in text, var
+        assert f"\n{var}=" not in text, f"{var} must not be set empty by default"

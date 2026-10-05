@@ -59,7 +59,7 @@ def test_heatmap_has_no_legacy_branding(tmp_path):
     state, total_file = _write(tmp_path)
     layer = gh.generate_layer(state_file=state, output_file=tmp_path / "o.json", total_file=total_file)
     blob = json.dumps(layer).lower()
-    for bad in ("1xlozec", "tallkitchen", "tall kitchen"):
+    for bad in ("1x" "lozec", "ta" "llkitchen", "ta" "ll kitchen"):
         assert bad not in blob
     assert "SentinelForge" in layer["name"]
 
@@ -71,14 +71,29 @@ def test_layer_from_rules_dir_uses_rule_tags_not_state(tmp_path):
     rules = tmp_path / "rules"
     rules.mkdir()
     (rules / "a.yml").write_text(
-        "title: a\ntags:\n- attack.discovery\n- attack.t1082\n- attack.t1016\n", encoding="utf-8")
-    (rules / "b.yml").write_text("title: b\ntags:\n- attack.execution\n- attack.t1059.001\n", encoding="utf-8")
+        """title: a
+tags:
+- attack.discovery
+- attack.t1082
+- attack.t1016
+""", encoding="utf-8")
+    (rules / "b.yml").write_text(
+        """title: b
+tags:
+- attack.g0016
+- attack.defense_evasion
+- attack.t1059.001
+""", encoding="utf-8")
     state = tmp_path / "seen.json"
-    state.write_text(json.dumps({"T1082": {"confidence": "high"}, "T9999": {"confidence": "low"}}), encoding="utf-8")
+    state.write_text(json.dumps({"T1082": {"confidence": "high", "deployed_at": "2026-05-01T00:00:00+00:00"},
+                                 "T9999": {"confidence": "low"}}), encoding="utf-8")
     layer = gh.generate_layer(state_file=state, output_file=tmp_path / "out.json",
                               total_file=tmp_path / "none.json", rules_dir=rules)
-    ids = {t["techniqueID"] for t in layer["techniques"]}
-    assert ids == {"T1082", "T1016", "T1059.001"}  # T9999 only in state: not covered by a rule
-    colors = {t["techniqueID"]: t["color"] for t in layer["techniques"]}
-    assert colors["T1082"] == "#4caf50"  # state supplies confidence when present
+    by_id = {t["techniqueID"]: t for t in layer["techniques"]}
+    assert set(by_id) == {"T1082", "T1016", "T1059.001"}  # T9999 only in state: not covered by a rule
+    assert by_id["T1082"]["color"] == "#4caf50" and "Deployed: 2026-05-01" in by_id["T1082"]["comment"]
+    # no state entry: neutral colour, no empty date, no invented confidence, group tag is not a tactic
+    assert by_id["T1016"]["color"] == "#9e9e9e" and "not assessed" in by_id["T1016"]["comment"]
+    assert "Deployed" not in by_id["T1016"]["comment"]
+    assert "Defense Evasion" in by_id["T1059.001"]["comment"] and "G0016" not in by_id["T1059.001"]["comment"].upper()
     assert "3 Techniques" in layer["name"]

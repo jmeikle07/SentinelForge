@@ -143,7 +143,7 @@ def test_renamed_identifiers_and_paths():
 
 def test_no_legacy_strings_or_insecure_defaults_in_hunt_module():
     text = Path(sf_hunt.__file__).read_text(encoding="utf-8")
-    pat = re.compile(r"1xlozec|tallkitchen|tall kitchen|albundy|10\.0\.0\.1|tk-hunt|verify\s*=\s*False", re.I)
+    pat = re.compile(r"1x" r"lozec|ta" r"llkitchen|ta" r"ll kitchen|al" r"bundy|10\.0\.0\.1|tk-hunt|verify\s*=\s*False", re.I)
     m = pat.search(text)
     assert not m, m.group(0)
     assert "requests.get(" not in text and "requests.post(" not in text  # all HTTP via lab.http.session

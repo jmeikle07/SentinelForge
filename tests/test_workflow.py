@@ -177,4 +177,4 @@ def test_deploy_documents_self_hosted_reason():
 def test_no_legacy_branding():
     for p in WF_DIR.glob("*.yml"):
         low = p.read_text(encoding="utf-8").lower()
-        assert "1xlozec" not in low and "tallkitchen" not in low
+        assert "1x" "lozec" not in low and "ta" "llkitchen" not in low
