@@ -16,24 +16,44 @@ on:
 # Least privilege: nothing by default, each job requests what it needs.
 permissions: {}
 
+# Runs queue instead of cancelling each other (a cancelled run would skip the
+# validation of its push). GitHub keeps at most ONE pending run per group, so a
+# third rapid push replaces the pending second one; that run is simply dropped.
+# Nothing is lost because the diff base is not "this push's before sha" but the
+# head of the newest run of this workflow that SUCCEEDED (tools/ci_changes.py, via
+# the Actions API; falls back to github.event.before). A dropped run's rules are
+# therefore picked up by the next run, and so is a push whose run failed.
 concurrency:
   group: deploy-detections
   cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
 
 jobs:
   validate:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: self-hosted
+    timeout-minutes: 90
+    # contents: write ONLY because this job pushes the self-heal commit (scripts/ci_push.sh);
+    # actions: read lets tools/ci_changes.py look up the last successful run.
     permissions:
-      contents: write  # needed only to push self-healed rules back
+      contents: write
+      actions: read
     outputs:
-      head_sha: ${{ steps.heal.outputs.head_sha }}
-      any_changed: ${{ steps.changed-files.outputs.any_changed }}
+      head_sha: ${{ steps.head.outputs.head_sha }}
+      base_sha: ${{ steps.plan.outputs.base_sha }}
+      any_changed: ${{ steps.plan.outputs.any_changed }}
+      has_work: ${{ steps.plan.outputs.has_work }}
     steps:
+      # persist-credentials: false keeps the write token off disk while the (unpinned)
+      # pip install runs; the token is handed only to the push step below.
       - name: Checkout repository
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Set up Python
         uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
@@ -42,37 +62,26 @@ jobs:
           cache: 'pip'
           cache-dependency-path: 'requirements.txt'
 
+      # requirements.txt pins exact versions but not hashes; --require-hashes would need a
+      # fully hashed lock file including every transitive dependency (not maintained here).
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: Find changed Sigma rules
-        id: changed-files
+      - name: Find changed, removed and retagged Sigma rules
+        id: plan
         env:
           BEFORE_SHA: ${{ github.event.before }}
           AFTER_SHA: ${{ github.sha }}
+          GH_TOKEN: ${{ github.token }}
         run: |
-          # A new branch / unknown base shows up as all zeros or a missing
-          # commit; fall back to the first parent of the pushed commit.
-          if [ -z "$BEFORE_SHA" ] || [ "$BEFORE_SHA" = "0000000000000000000000000000000000000000" ] \
-             || ! git cat-file -e "$BEFORE_SHA^{commit}" 2>/dev/null; then
-            BEFORE_SHA=$(git rev-parse "$AFTER_SHA~1" 2>/dev/null || git hash-object -t tree /dev/null)
-          fi
-          CHANGED=$(git -c core.quotepath=off diff --name-only --diff-filter=ACMR "$BEFORE_SHA" "$AFTER_SHA" -- 'detections/sigma/*.yml')
-          {
-            echo "files<<CHANGED_EOF"
-            echo "$CHANGED"
-            echo "CHANGED_EOF"
-          } >> "$GITHUB_OUTPUT"
-          if [ -n "$CHANGED" ]; then
-            echo "any_changed=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "any_changed=false" >> "$GITHUB_OUTPUT"
-          fi
+          rm -rf "$RUNNER_TEMP/plan"
+          mkdir -p "$RUNNER_TEMP/plan"
+          python tools/ci_changes.py plan --after "$AFTER_SHA" --event-before "$BEFORE_SHA" \
+            --outdir "$RUNNER_TEMP/plan" >> "$GITHUB_OUTPUT"
 
       - name: Validate and self-heal each changed rule
-        if: steps.changed-files.outputs.any_changed == 'true'
+        if: steps.plan.outputs.any_changed == 'true'
         env:
-          CHANGED_FILES: ${{ steps.changed-files.outputs.files }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           MODEL_NAME: ${{ vars.MODEL_NAME }}
@@ -86,46 +95,46 @@ jobs:
           SMTP_FROM: ${{ secrets.SMTP_FROM }}
           SMTP_TO: ${{ secrets.SMTP_TO }}
           SF_REPO_URL: ${{ github.server_url }}/${{ github.repository }}
+        # Never stops at the first failure: passed.z / failed.z record the outcome and the
+        # job is failed in the last step, after the healed rules were published.
+        run: bash scripts/ci_validate.sh "$RUNNER_TEMP/plan"
+
+      - name: Tag and commit self-healed rules (rules that passed only)
+        id: heal
+        if: steps.plan.outputs.any_changed == 'true'
+        # The commit message carries [skip ci] and the push uses GITHUB_TOKEN, which does not
+        # start workflow runs, so the heal commit cannot retrigger this workflow.
+        run: bash scripts/ci_heal.sh "$RUNNER_TEMP/plan"
+
+      - name: Rebase and push healed rules
+        if: steps.heal.outputs.committed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        # Fails the job (and so the run) if the rebase conflicts or a protected main rejects the
+        # push: branch protection must allow github-actions[bot] (or use a PAT secret instead).
+        run: bash scripts/ci_push.sh main
+
+      - name: Record the commit to deploy
+        id: head
+        if: steps.plan.outputs.has_work == 'true'
+        run: echo "head_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Fail if any rule failed validation
+        if: steps.plan.outputs.any_changed == 'true'
         run: |
-          FAILED=0
-          while IFS= read -r file; do
-            [ -n "$file" ] || continue
-            [ -f "$file" ] || continue
-            echo "=========================================="
-            echo "Validating: $file"
-            echo "=========================================="
-            if ! python validate_rule.py "$file"; then
-              echo "CIRCUIT BREAKER: $file could not be validated or healed"
-              FAILED=1
-            fi
-          done <<< "$CHANGED_FILES"
-          if [ "$FAILED" -ne 0 ]; then
-            echo "One or more rules failed validation; deploy will not run"
+          if [ -s "$RUNNER_TEMP/plan/failed.z" ]; then
+            echo "::error::These rules failed validation (others were healed and published):"
+            tr '\0' '\n' < "$RUNNER_TEMP/plan/failed.z"
+            echo "Deploy will not run for this push."
             exit 1
           fi
 
-      - name: Commit any self-healed rules back to repo
-        id: heal
-        if: steps.changed-files.outputs.any_changed == 'true'
-        run: |
-          git config --local user.email "github-actions[bot]@users.noreply.github.com"
-          git config --local user.name "github-actions[bot]"
-          if ! git diff --quiet -- detections/sigma/; then
-            git add -- detections/sigma/
-            git commit -m "auto-heal: self-healed sigma rules [skip ci]"
-            git pull --rebase origin main
-            git push origin HEAD:main
-            echo "Healed rules committed back to repo"
-          else
-            echo "No rules were modified by self-healer"
-          fi
-          echo "head_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
-
   deploy:
-    # Runs only when validate succeeded (default success() semantics).
+    # Runs only when validate succeeded (default success() semantics): every changed rule passed.
     needs: validate
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.validate.outputs.any_changed == 'true'
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.validate.outputs.has_work == 'true'
     runs-on: self-hosted
+    timeout-minutes: 30
     permissions:
       contents: read
     steps:
@@ -146,37 +155,23 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: Find changed Sigma rules
-        id: changed-files
+      # Same plan as the validate job (same base), so exactly the validated set is deployed.
+      - name: Find changed, removed and retagged Sigma rules
+        id: plan
         env:
-          BEFORE_SHA: ${{ github.event.before }}
+          BASE_SHA: ${{ needs.validate.outputs.base_sha }}
           AFTER_SHA: ${{ github.sha }}
         run: |
-          if [ -z "$BEFORE_SHA" ] || [ "$BEFORE_SHA" = "0000000000000000000000000000000000000000" ] \
-             || ! git cat-file -e "$BEFORE_SHA^{commit}" 2>/dev/null; then
-            BEFORE_SHA=$(git rev-parse "$AFTER_SHA~1" 2>/dev/null || git hash-object -t tree /dev/null)
-          fi
-          CHANGED=$(git -c core.quotepath=off diff --name-only --diff-filter=ACMR "$BEFORE_SHA" "$AFTER_SHA" -- 'detections/sigma/*.yml')
-          {
-            echo "files<<CHANGED_EOF"
-            echo "$CHANGED"
-            echo "CHANGED_EOF"
-          } >> "$GITHUB_OUTPUT"
+          rm -rf "$RUNNER_TEMP/plan"
+          mkdir -p "$RUNNER_TEMP/plan"
+          python tools/ci_changes.py plan --after "$AFTER_SHA" --base-sha "$BASE_SHA" \
+            --outdir "$RUNNER_TEMP/plan" >> "$GITHUB_OUTPUT"
 
+      # deploy.z marks rules whose ATT&CK technique changed with --allow-retag; removed.z lists
+      # rule ids to retire with --delete (a pure rename keeps its id and is never deleted).
       - name: Deploy rules to Kibana
         env:
-          CHANGED_FILES: ${{ steps.changed-files.outputs.files }}
           ELASTIC_URL: ${{ secrets.ELASTIC_URL }}
           KIBANA_URL: ${{ secrets.KIBANA_URL }}
           ELASTIC_API_KEY: ${{ secrets.ELASTIC_API_KEY }}
-        run: |
-          FAILED=0
-          while IFS= read -r file; do
-            [ -n "$file" ] || continue
-            [ -f "$file" ] || continue
-            echo "Deploying: $file"
-            if ! python deploy_rule.py "$file"; then
-              FAILED=1
-            fi
-          done <<< "$CHANGED_FILES"
-          exit "$FAILED"
+        run: bash scripts/ci_deploy.sh "$RUNNER_TEMP/plan"

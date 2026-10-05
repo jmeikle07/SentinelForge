@@ -396,3 +396,266 @@ def test_cli_with_explicit_base_sha_skips_api(repo, tmp_path, capsys, monkeypatc
                           "--outdir", str(tmp_path / "o")])
     assert rc == 0
     assert len(zlist(tmp_path / "o" / "changed.z")) == 2
+
+
+# ---- shell scripts (scripts/ci_*.sh), run with bash against stub python ------
+
+import os  # noqa: E402
+import shutil  # noqa: E402
+
+BASH = shutil.which("bash")
+needs_bash = pytest.mark.skipif(BASH is None, reason="bash not available")
+SCRIPTS = ROOT / "scripts"
+
+FAKEPY = """#!/usr/bin/env bash
+# logs argv ('|' separated) and fails when FAKE_FAIL occurs in the arguments
+printf '%s\\n' "$(IFS='|'; echo "$*")" >> "$FAKE_LOG"
+if [ "${1:-}" = "tools/tag_compliance.py" ] && [ -n "${FAKE_TAG:-}" ]; then
+  last="${@: -1}"
+  if [ -n "${FAKE_TAG_FAIL:-}" ]; then
+    case "$last" in *"$FAKE_TAG_FAIL"*) exit 2;; esac
+  fi
+  echo "# compliance" >> "$last"
+fi
+if [ -n "${FAKE_FAIL:-}" ]; then
+  case "$*" in *"$FAKE_FAIL"*) exit 1;; esac
+fi
+exit 0
+"""
+
+
+def run_script(name, cwd, *args, env=None):
+    e = dict(os.environ, PYTHON="./fakepy", FAKE_LOG=str(Path(cwd) / "calls.log"))
+    e.update(env or {})
+    return subprocess.run([BASH, str(SCRIPTS / name), *args], cwd=str(cwd), env=e,
+                          capture_output=True, text=True, encoding="utf-8")
+
+
+def calls(cwd):
+    p = Path(cwd) / "calls.log"
+    return p.read_text(encoding="utf-8").splitlines() if p.exists() else []
+
+
+def write_z(path, items):
+    path.write_bytes(b"".join(s.encode("utf-8") + b"\0" for s in items))
+
+
+@pytest.fixture
+def work(tmp_path):
+    w = tmp_path / "w"
+    w.mkdir()
+    (w / "fakepy").write_text(FAKEPY, encoding="utf-8", newline="\n")
+    (w / "plan").mkdir()
+    return w
+
+
+SHELL_NAMES = ["plain.yml", "with space.yml", "semi;colon $(touch pwned).yml", "ünï.yml"]
+
+
+@needs_bash
+def test_deploy_script_flags_retag_only_and_handles_odd_names(work):
+    items = []
+    for i, n in enumerate(SHELL_NAMES):
+        (work / rel(n)).parent.mkdir(parents=True, exist_ok=True)
+        (work / rel(n)).write_text("x", encoding="utf-8")
+        items += ["retag" if i == 1 else "deploy", rel(n)]
+    write_z(work / "plan" / "deploy.z", items)
+    write_z(work / "plan" / "removed.z", [ID_A, ID_B])
+    r = run_script("ci_deploy.sh", work, "plan")
+    assert r.returncode == 0, r.stderr
+    assert calls(work) == [
+        f"deploy_rule.py|{rel('plain.yml')}",
+        f"deploy_rule.py|{rel('with space.yml')}|--allow-retag",
+        f"deploy_rule.py|{rel('semi;colon $(touch pwned).yml')}",
+        f"deploy_rule.py|{rel('ünï.yml')}",
+        f"deploy_rule.py|--delete|{ID_A}",
+        f"deploy_rule.py|--delete|{ID_B}",
+    ]
+    assert not (work / "pwned").exists()
+
+
+@needs_bash
+def test_deploy_script_keeps_going_and_fails_at_the_end(work):
+    for n in ("a.yml", "b.yml"):
+        (work / rel(n)).parent.mkdir(parents=True, exist_ok=True)
+        (work / rel(n)).write_text("x", encoding="utf-8")
+    write_z(work / "plan" / "deploy.z", ["deploy", rel("a.yml"), "deploy", rel("b.yml")])
+    write_z(work / "plan" / "removed.z", [ID_A])
+    r = run_script("ci_deploy.sh", work, "plan", env={"FAKE_FAIL": "a.yml"})
+    assert r.returncode == 1
+    assert len(calls(work)) == 3  # b.yml and the delete still ran
+
+
+@needs_bash
+def test_deploy_script_missing_file_fails(work):
+    write_z(work / "plan" / "deploy.z", ["deploy", rel("gone.yml")])
+    r = run_script("ci_deploy.sh", work, "plan")
+    assert r.returncode == 1 and calls(work) == []
+
+
+@needs_bash
+def test_validate_script_collects_failures_and_never_stops(work):
+    names = ["a.yml", "bad.yml", "c d.yml"]
+    for n in names:
+        (work / rel(n)).parent.mkdir(parents=True, exist_ok=True)
+        (work / rel(n)).write_text("x", encoding="utf-8")
+    write_z(work / "plan" / "changed.z", [rel(n) for n in names] + [rel("missing.yml")])
+    r = run_script("ci_validate.sh", work, "plan", env={"FAKE_FAIL": "bad.yml"})
+    assert r.returncode == 0
+    assert zlist(work / "plan" / "passed.z") == [rel("a.yml"), rel("c d.yml")]
+    assert zlist(work / "plan" / "failed.z") == [rel("bad.yml"), rel("missing.yml")]
+    assert calls(work) == [f"validate_rule.py|{rel(n)}" for n in names]
+
+
+@needs_bash
+def test_validate_script_with_no_changes(work):
+    r = run_script("ci_validate.sh", work, "plan")
+    assert r.returncode == 0 and zlist(work / "plan" / "passed.z") == []
+
+
+def git_in(path, *args):
+    r = subprocess.run(["git", *args], cwd=str(path), capture_output=True, text=True, encoding="utf-8")
+    assert r.returncode == 0, r.stderr
+    return r.stdout.strip()
+
+
+@pytest.fixture
+def healrepo(work):
+    git_in(work, "init", "-q")
+    git_in(work, "config", "user.name", "t")
+    git_in(work, "config", "user.email", "t@example.invalid")
+    git_in(work, "config", "core.autocrlf", "false")
+    git_in(work, "config", "commit.gpgsign", "false")
+    for n in ("good.yml", "bad.yml", "weird [1].yml"):
+        (work / rel(n)).parent.mkdir(parents=True, exist_ok=True)
+        (work / rel(n)).write_text("orig\n", encoding="utf-8", newline="\n")
+    (work / ".gitignore").write_text("calls.log\nfakepy\nplan/\nout.txt\n")
+    git_in(work, "add", "-A")
+    git_in(work, "commit", "-q", "-m", "init")
+    return work
+
+
+@needs_bash
+def test_heal_commits_passed_rules_tagged_and_restores_failed(healrepo):
+    w = healrepo
+    (w / rel("good.yml")).write_text("orig\n# healed\n", newline="\n")
+    (w / rel("weird [1].yml")).write_text("orig\n# healed\n", newline="\n")
+    (w / rel("bad.yml")).write_text("orig\n# half healed\n", newline="\n")
+    write_z(w / "plan" / "passed.z", [rel("good.yml"), rel("weird [1].yml")])
+    write_z(w / "plan" / "failed.z", [rel("bad.yml")])
+    r = run_script("ci_heal.sh", w, "plan", env={"FAKE_TAG": "1", "GITHUB_OUTPUT": str(w / "out.txt")})
+    assert r.returncode == 0, r.stderr
+    assert (w / "out.txt").read_text().strip() == "committed=true"
+    assert "[skip ci]" in git_in(w, "log", "-1", "--format=%B")
+    files = git_in(w, "show", "--name-only", "--format=", "HEAD").splitlines()
+    assert sorted(files) == sorted([rel("good.yml"), rel("weird [1].yml")])
+    assert "# compliance" in (w / rel("good.yml")).read_text()
+    assert (w / rel("bad.yml")).read_text() == "orig\n"          # restored, not committed
+    assert git_in(w, "status", "--porcelain") == ""
+    assert calls(w) == [
+        f"tools/tag_compliance.py|--write|--files|{rel('good.yml')}",
+        f"tools/tag_compliance.py|--write|--files|{rel('weird [1].yml')}"]
+
+
+@needs_bash
+def test_heal_unmapped_technique_logs_and_still_commits(healrepo):
+    w = healrepo
+    (w / rel("good.yml")).write_text("orig\n# healed\n", newline="\n")
+    write_z(w / "plan" / "passed.z", [rel("good.yml")])
+    write_z(w / "plan" / "failed.z", [])
+    r = run_script("ci_heal.sh", w, "plan",
+                   env={"FAKE_TAG": "1", "FAKE_TAG_FAIL": "good.yml", "GITHUB_OUTPUT": str(w / "out.txt")})
+    assert r.returncode == 0
+    assert "compliance tagging skipped" in r.stdout
+    assert "# compliance" not in (w / rel("good.yml")).read_text()
+    assert (w / "out.txt").read_text().strip() == "committed=true"
+
+
+@needs_bash
+def test_heal_nothing_to_commit(healrepo):
+    w = healrepo
+    write_z(w / "plan" / "passed.z", [rel("good.yml")])
+    write_z(w / "plan" / "failed.z", [])
+    before = git_in(w, "rev-parse", "HEAD")
+    r = run_script("ci_heal.sh", w, "plan", env={"GITHUB_OUTPUT": str(w / "out.txt")})
+    assert r.returncode == 0
+    assert git_in(w, "rev-parse", "HEAD") == before
+    assert (w / "out.txt").read_text().strip() == "committed=false"
+
+
+@pytest.fixture
+def pushrepo(tmp_path):
+    remote = tmp_path / "remote.git"
+    subprocess.run(["git", "init", "-q", "--bare", "-b", "main", str(remote)], check=True)
+    clone = tmp_path / "clone"
+    subprocess.run(["git", "clone", "-q", str(remote), str(clone)], check=True, capture_output=True)
+    for k, v in (("user.name", "t"), ("user.email", "t@example.invalid"), ("core.autocrlf", "false"),
+                 ("commit.gpgsign", "false")):
+        git_in(clone, "config", k, v)
+    git_in(clone, "checkout", "-q", "-B", "main")
+    (clone / "f.txt").write_text("base\n", newline="\n")
+    git_in(clone, "add", "-A")
+    git_in(clone, "commit", "-q", "-m", "base")
+    git_in(clone, "push", "-q", "origin", "main")
+    return remote, clone
+
+
+def run_push(clone, token="tok", args=("main",)):
+    env = {k: v for k, v in os.environ.items() if k != "GH_TOKEN"}
+    if token is not None:
+        env["GH_TOKEN"] = token
+    return subprocess.run([BASH, str(SCRIPTS / "ci_push.sh"), *args], cwd=str(clone), env=env,
+                          capture_output=True, text=True)
+
+
+def heal_commit(clone):
+    (clone / "g.txt").write_text("heal\n", newline="\n")
+    git_in(clone, "add", "-A")
+    git_in(clone, "commit", "-q", "-m", "heal")
+
+
+@needs_bash
+def test_push_script_publishes_without_storing_the_token(pushrepo):
+    remote, clone = pushrepo
+    heal_commit(clone)
+    r = run_push(clone, "s3cret-token")
+    assert r.returncode == 0, r.stderr
+    assert git_in(remote, "log", "-1", "--format=%s", "main") == "heal"
+    cfg = (clone / ".git" / "config").read_text()
+    assert "s3cret-token" not in cfg and "extraheader" not in cfg
+    assert "s3cret-token" not in r.stdout + r.stderr
+
+
+@needs_bash
+def test_push_script_fails_loudly_when_push_is_rejected(pushrepo):
+    remote, clone = pushrepo
+    (remote / "hooks" / "pre-receive").write_text("#!/bin/sh\necho 'protected branch' >&2\nexit 1\n",
+                                                  newline="\n")
+    heal_commit(clone)
+    r = run_push(clone)
+    out = r.stdout + r.stderr
+    assert r.returncode != 0
+    assert "branch protection" in out and "NOT published" in out
+
+
+@needs_bash
+def test_push_script_rebase_conflict_fails_and_aborts_rebase(pushrepo, tmp_path):
+    remote, clone = pushrepo
+    other = tmp_path / "other"
+    subprocess.run(["git", "clone", "-q", str(remote), str(other)], check=True, capture_output=True)
+    for k, v in (("user.name", "t"), ("user.email", "t@example.invalid"), ("core.autocrlf", "false")):
+        git_in(other, "config", k, v)
+    (other / "f.txt").write_text("theirs\n", newline="\n")
+    git_in(other, "commit", "-qam", "theirs")
+    git_in(other, "push", "-q", "origin", "main")
+    (clone / "f.txt").write_text("mine\n", newline="\n")
+    git_in(clone, "commit", "-qam", "heal")
+    r = run_push(clone)
+    assert r.returncode != 0 and "Could not rebase" in r.stdout + r.stderr
+    assert not (clone / ".git" / "rebase-merge").exists()
+
+
+@needs_bash
+def test_push_script_requires_token(pushrepo):
+    _, clone = pushrepo
+    assert run_push(clone, token=None).returncode != 0
