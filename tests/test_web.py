@@ -210,3 +210,13 @@ def test_existing_routes_and_branding(client):
     assert sf_web.app.title.startswith("SentinelForge")
     text = Path(sf_web.__file__).read_text(encoding="utf-8")
     assert not re.search(r"1x" r"lozec|ta" r"llkitchen|ta" r"ll kitchen|al" r"bundy", text, re.I)
+
+
+def test_every_active_rule_technique_has_plain_language_text():
+    """A retag must not leave reviewers with no plain-language meaning (T1035 -> T1569.002 did)."""
+    from lab import coverage
+    from pathlib import Path
+    root = Path(__file__).resolve().parent.parent
+    missing = [t for t in coverage.rule_techniques(root / "detections" / "sigma")
+               if t.lower() not in sf_web.TECHNIQUE_PLAIN]
+    assert not missing, f"techniques with no TECHNIQUE_PLAIN entry: {missing}"

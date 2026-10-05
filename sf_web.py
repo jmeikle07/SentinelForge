@@ -301,7 +301,10 @@ TECHNIQUE_PLAIN = {
     "t1547.001": "Someone is adding a program to the Windows startup list. Attackers do this so their code runs every time the machine boots.",
     "t1555.004": "Someone is trying to pull saved passwords out of the Windows Credential Manager. Attackers harvest these to log in as someone else.",
     "t1560.001": "Someone is bundling and compressing files, often a sign data is being packaged up to steal.",
+    "t1497.001": "A program is checking whether it is running inside a virtual machine or analysis sandbox. Malware does this to avoid being studied, and attackers do it to skip machines that look like traps.",
     "t1564.001": "Someone is hiding files or folders. Attackers do this to keep their tools out of sight.",
+    "t1569.002": "Someone is running a program by installing or starting a Windows service. Attackers do this to run code with high privileges and to keep it running.",
+    "t1595": "Someone outside is probing this network for open ports and services. This is early-stage reconnaissance, often automated internet-wide scanning, before any real attack.",
     "t1574.010": "Someone is exploiting weak permissions on a Windows service to run their own code. Attackers use this to gain higher privileges.",
     "t1614.001": "Someone is checking the machine's language and region settings. Some attackers use this to avoid hitting machines in certain countries.",
 }
