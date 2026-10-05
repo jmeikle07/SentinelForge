@@ -39,7 +39,6 @@ from sf_safety import (
     HUNT_VERDICT_MAX_AGE_HOURS,
     HUNT_TRIGGERED_DAILY_LIMIT,
     tag_provenance,
-    validate_hunt_record_for_water,
     water_should_generate_rule_from_verdict,
 )
 

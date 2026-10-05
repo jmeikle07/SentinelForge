@@ -443,3 +443,47 @@ def test_different_stage_for_same_hunt_is_a_separate_entry(harness, monkeypatch)
     monkeypatch.setattr(Path, "write_text", flaky)
     _run_with(harness, monkeypatch, lambda i, a: ("title: x", "rid"), [_good()], log)
     assert sorted(e["stage"] for e in _failures(log)) == ["generation", "write"]
+
+
+# ── gate rejection paths seen from the pass; module hygiene ──────────────────
+
+def _with_verdict(**v):
+    rec = _good()
+    rec["result"]["verdict"] = dict({"score": 90, "verdict": "malicious", "conflicts": []}, **v)
+    return rec
+
+
+@pytest.mark.parametrize("rec", [
+    _with_verdict(score=74, verdict="suspicious"),
+    _with_verdict(conflicts=["GreyNoise benign vs AbuseIPDB 90/100"]),
+    _with_verdict(safety_brake=True),
+    _with_verdict(verdict="benign"),
+    _good(provenance={"source": "water", "trust_level": "high"}),
+    _good(provenance={"source": "user", "trust_level": "medium"}),
+    _good(**{"@timestamp": "2020-01-01T00:00:00+00:00"}),
+    _good(ioc_type="domain"),
+], ids=["score74", "conflicts", "safety_brake", "benign", "water_source", "medium_trust", "stale", "not_ipv4"])
+def test_gate_rejections_generate_nothing_and_spend_nothing(harness, rec):
+    n, log = harness.run([rec])
+    assert n == 0 and harness.calls == [] and harness.lim.used == 0 and _files(harness) == [] and log == []
+
+
+def test_score_75_is_the_inclusive_boundary(harness):
+    n, _ = harness.run([_with_verdict(score=75, verdict="suspicious")])
+    assert n == 1
+
+
+def test_no_unused_imports_in_the_engine_modules():
+    import ast
+    import sf_safety
+    import hunt_water_rules
+    for mod in (sf_safety, wht, hunt_water_rules):
+        tree = ast.parse(Path(mod.__file__).read_text(encoding="utf-8"))
+        imported = set()
+        for n in ast.walk(tree):
+            if isinstance(n, ast.Import):
+                imported |= {(a.asname or a.name).split(".")[0] for a in n.names}
+            elif isinstance(n, ast.ImportFrom):
+                imported |= {a.asname or a.name for a in n.names}
+        used = {n.id for n in ast.walk(tree) if isinstance(n, ast.Name)}
+        assert not imported - used, (mod.__name__, sorted(imported - used))

@@ -53,12 +53,8 @@ the error becomes stronger with each iteration" — Knostic, Jan 2026).
 """
 
 import ipaddress
-import json
 import logging
-import os
 import re
-import threading
-import time
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone, timedelta
