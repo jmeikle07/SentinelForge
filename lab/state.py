@@ -1,6 +1,7 @@
 """Atomic, locked JSON state files. A corrupt file is quarantined, never overwritten."""
 from __future__ import annotations
 
+import copy
 import json
 import logging
 import os
@@ -49,18 +50,26 @@ def file_lock(lock_path, timeout: float | None = None):
     A kernel advisory lock on an open descriptor of `lock_path` (msvcrt.locking on Windows,
     fcntl.flock elsewhere). The OS releases it when the holder dies, so there is no stale-lock
     heuristic and no takeover race. The lock file is never deleted (deleting it is what makes
-    unlink-based locks racy). Re-entrant within a thread."""
+    unlink-based locks racy). Re-entrant within a thread.
+
+    Lock ordering: in-process, every file_lock is serialized by one global thread lock (waiting
+    for it honors `timeout`), so threads cannot deadlock however they nest locks. Across
+    processes there is no global order: never hold one file lock while waiting on another unless
+    all processes take them in the same order (sf_safety: <name>.txn then the state file's own
+    .lock). update() never nests. A violation surfaces as TimeoutError, not a hang."""
     lock_path = Path(lock_path)
     key = os.path.normcase(os.path.abspath(lock_path))
     if key in getattr(_held, "paths", ()):
         yield
         return
     timeout = LOCK_TIMEOUT if timeout is None else timeout
+    deadline = time.monotonic() + timeout
     lock_path.parent.mkdir(parents=True, exist_ok=True)
-    with _thread_lock:
+    if not _thread_lock.acquire(timeout=max(0.0, timeout)):
+        raise TimeoutError(f"could not lock {lock_path}")
+    try:
         fd = os.open(lock_path, os.O_RDWR | os.O_CREAT, 0o644)
         try:
-            deadline = time.monotonic() + timeout
             while True:
                 try:
                     if _msvcrt is not None:
@@ -87,6 +96,8 @@ def file_lock(lock_path, timeout: float | None = None):
                     _fcntl.flock(fd, _fcntl.LOCK_UN)
         finally:
             os.close(fd)
+    finally:
+        _thread_lock.release()
 
 
 def _locked(path: Path):
@@ -162,6 +173,6 @@ def update(path, fn, default: Any = _MISSING) -> Any:
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     with _locked(path):
-        new = fn(_read_unlocked(path, default))
+        new = fn(_read_unlocked(path, default if default is _MISSING else copy.deepcopy(default)))
         _write_unlocked(path, new)
         return new

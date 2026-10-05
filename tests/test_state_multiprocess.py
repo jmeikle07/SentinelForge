@@ -11,12 +11,32 @@ from lab import state
 
 ROOT = Path(__file__).resolve().parent.parent
 
-_INCREMENT = """
-import sys
+_GO = """
+import os, sys, time
+def wait_go(flag):
+    while not os.path.exists(flag):
+        time.sleep(0.001)
+"""
+
+_INCREMENT = _GO + """
 from lab import state
-path, m = sys.argv[1], int(sys.argv[2])
+path, m, go = sys.argv[1], int(sys.argv[2]), sys.argv[3]
+wait_go(go)
 for _ in range(m):
     state.update(path, lambda v: v + 1, default=0)
+"""
+
+# Control: the same workload as a NAIVE read-modify-write (no shared lock hold). It must lose
+# updates, which proves the harness really produces contention and can detect a broken lock.
+_NAIVE_INCREMENT = _GO + """
+import json
+from lab import state
+path, m, go = sys.argv[1], int(sys.argv[2]), sys.argv[3]
+wait_go(go)
+for _ in range(m):
+    v = state.read(path, default=0)
+    time.sleep(0.002)
+    state.write(path, v + 1)
 """
 
 _HOLD = """
@@ -36,17 +56,28 @@ def _spawn(code, *args):
                             stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
 
 
-def test_n_processes_m_increments_lose_nothing(tmp_path):
-    p = tmp_path / "counter.json"
-    n, m = 4, 25
-    procs = [_spawn(_INCREMENT, p, m) for _ in range(n)]
+def _run_workload(code, p, tmp_path, n, m):
+    go = tmp_path / "go"
+    procs = [_spawn(code, p, m, go) for _ in range(n)]
+    time.sleep(1.0)  # let every child import and park at the start barrier
+    go.write_text("go")
     for pr in procs:
-        _, err = pr.communicate(timeout=120)
+        _, err = pr.communicate(timeout=180)
         assert pr.returncode == 0, err
-    assert state.read(p) == n * m
+    return state.read(p)
 
 
-def test_killed_holder_does_not_block_others(tmp_path):
+def test_n_processes_m_increments_lose_nothing(tmp_path):
+    n, m = 5, 25
+    assert _run_workload(_INCREMENT, tmp_path / "counter.json", tmp_path, n, m) == n * m
+
+
+def test_control_naive_read_modify_write_loses_updates(tmp_path):
+    n, m = 4, 15
+    assert _run_workload(_NAIVE_INCREMENT, tmp_path / "counter.json", tmp_path, n, m) < n * m
+
+
+def test_killed_holder_does_not_block_others(tmp_path, monkeypatch):
     p = tmp_path / "counter.json"
     flag = tmp_path / "flag"
     holder = _spawn(_HOLD, p, flag)
@@ -55,6 +86,10 @@ def test_killed_holder_does_not_block_others(tmp_path):
         while not flag.exists():
             assert time.monotonic() < deadline, "holder never took the lock"
             time.sleep(0.05)
+        monkeypatch.setattr(state, "LOCK_TIMEOUT", 0.3)
+        with pytest.raises(TimeoutError):  # the lock really is held before the kill
+            state.update(p, lambda v: v + 1, default=0)
+        monkeypatch.setattr(state, "LOCK_TIMEOUT", 10.0)
         holder.kill()
         holder.wait(timeout=10)
         t0 = time.monotonic()
