@@ -151,7 +151,7 @@ def test_api_pending_detail_valid_uuid_returns_rule(client, tmp_path, monkeypatc
 
 def test_existing_routes_and_branding(client):
     paths = {r.path for r in sf_web.app.routes}
-    assert {"/", "/review", "/water", "/api/hunt", "/api/water", "/api/pending"} <= paths
+    assert {"/", "/review", "/engine", "/api/hunt", "/api/engine", "/api/pending"} <= paths
     assert sf_web.app.title.startswith("SentinelForge")
     text = Path(sf_web.__file__).read_text(encoding="utf-8")
     assert not re.search(r"1xlozec|tallkitchen|tall kitchen|albundy", text, re.I)

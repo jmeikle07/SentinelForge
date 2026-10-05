@@ -3,10 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Tall Kitchen Water</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+<title>SentinelForge Engine — autonomous detection engineering</title>
 <style>
   :root{
     --bg:#070c10; --panel:rgba(14,21,28,.74); --panel2:rgba(10,16,22,.92);
@@ -16,8 +13,8 @@
     --violet:#b66bff; --violet-l:#e9d5ff;
     --green:#34e2a8; --green-l:#7df5c8;
     --red:#ff5c6c; --amber:#fbb43a;
-    --mono:"Space Mono",ui-monospace,Menlo,monospace;
-    --disp:"Space Grotesk",system-ui,sans-serif;
+    --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace;
+    --disp:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
   }
   *{box-sizing:border-box;}
   html,body{margin:0;height:100%;}
@@ -42,7 +39,6 @@
   .brand{font-family:var(--disp); font-weight:700; font-size:30px; letter-spacing:-.5px;
     background:linear-gradient(120deg,var(--cyan) 0%,var(--cyan-l) 45%,var(--gold-l) 100%);
     -webkit-background-clip:text; background-clip:text; color:transparent;}
-  .brand .spoon{-webkit-text-fill-color:initial;}
   .ver{font-size:11px; color:var(--dim); border:1px solid var(--line); border-radius:20px; padding:2px 9px; letter-spacing:1px;}
   .tag{color:var(--dim); font-size:15px; margin:0 0 18px; max-width:680px; animation:rise .7s .08s both;}
   .tag b{color:var(--text); font-weight:400;}
@@ -61,14 +57,14 @@
   /* ── FLOW: clickable step boxes, left to right ── */
   .flow{background:var(--panel); backdrop-filter:blur(12px); border:1px solid rgba(34,211,238,.5); border-radius:18px; padding:34px 30px 28px; margin-bottom:30px; box-shadow:0 0 70px -18px rgba(34,211,238,.6), inset 0 1px 0 rgba(125,240,255,.08); animation:cardin .6s both;}
   .clue{font-size:12px; color:var(--gold-l); margin-bottom:18px; display:flex; align-items:center; gap:8px;}
-  .clue .tap{display:inline-flex; width:16px;height:16px; border:1px solid var(--gold); border-radius:50%; align-items:center; justify-content:center; font-size:9px; color:var(--gold);}
+  .clue .tap{display:inline-flex; width:16px;height:16px; border:1px solid var(--gold); border-radius:50%; align-items:center; justify-content:center; font-size:11px; color:var(--gold);}
   .stage{display:flex; align-items:stretch; gap:0; flex-wrap:nowrap;}
   .box{flex:1; min-width:0; cursor:pointer; border:1px solid rgba(120,150,170,.3); border-radius:13px; padding:16px 12px 14px; text-align:center; background:rgba(10,16,22,.62); transition:all .2s; position:relative;}
   .box:hover{transform:translateY(-3px);}
   .box .num{position:absolute; top:-9px; left:50%; transform:translateX(-50%); width:20px;height:20px; border-radius:50%; font-family:var(--disp); font-weight:700; font-size:11px; display:flex; align-items:center; justify-content:center; color:#06121a;}
   .box .ic{width:30px;height:30px; margin:4px auto 9px; display:block; fill:none; stroke-width:1.7; stroke-linecap:round; stroke-linejoin:round;}
   .box .bt{font-family:var(--disp); font-weight:700; font-size:13px; color:var(--text); line-height:1.25;}
-  .box .more{font-size:10px; color:var(--faint); margin-top:7px; display:flex; align-items:center; justify-content:center; gap:4px;}
+  .box .more{font-size:11px; color:var(--faint); margin-top:7px; display:flex; align-items:center; justify-content:center; gap:4px;}
   .box .more .car{transition:transform .3s;}
   .box.open .more .car{transform:rotate(180deg);}
   /* per-step color */
@@ -87,13 +83,13 @@
   .detail-in .dt{font-family:var(--disp); font-weight:700; font-size:15px; color:var(--text); margin-bottom:6px;}
   .detail-in .dwhat{font-size:13px; color:var(--dim); margin-bottom:11px; line-height:1.55;}
   .detail-in .dwhy{font-size:13px; color:var(--text); line-height:1.6;}
-  .detail-in .dwhy b{color:var(--dac,var(--gold)); font-weight:700; font-size:10.5px; letter-spacing:1px; text-transform:uppercase; display:block; margin-bottom:3px;}
+  .detail-in .dwhy b{color:var(--dac,var(--gold)); font-weight:700; font-size:11px; letter-spacing:1px; text-transform:uppercase; display:block; margin-bottom:3px;}
   .ais{display:flex; gap:8px; margin:11px 0; flex-wrap:wrap;}
   .ai{border:1px solid var(--line); border-radius:9px; padding:7px 11px; background:rgba(10,16,22,.6); display:flex; align-items:center; gap:8px;}
   .ai .dot{width:8px;height:8px;border-radius:50%;}
   .ai.a1 .dot{background:var(--violet);} .ai.a2 .dot{background:var(--cyan);} .ai.a3 .dot{background:var(--gold);}
   .ai .an{font-family:var(--disp); font-size:12px; font-weight:700; color:var(--text);}
-  .ai .ar{font-size:10px; color:var(--faint);}
+  .ai .ar{font-size:11px; color:var(--faint);}
 
   /* ── STATS (distinct colors) ── */
   .stats{display:grid; grid-template-columns:repeat(auto-fit,minmax(160px,1fr)); gap:14px; margin-bottom:28px;}
@@ -122,18 +118,18 @@
   .email-bar .ef{margin-left:8px; font-size:11px; color:var(--gold-l);}
   .email-body{padding:16px; font-size:12px; max-height:430px; overflow-y:auto;}
   .esubject{font-family:var(--disp); font-weight:700; font-size:13px; color:var(--text); line-height:1.35;}
-  .emeta{font-size:10.5px; color:var(--faint); margin:6px 0 14px; border-bottom:1px solid var(--line); padding-bottom:12px;}
+  .emeta{font-size:11px; color:var(--faint); margin:6px 0 14px; border-bottom:1px solid var(--line); padding-bottom:12px;}
   .ehero{background:linear-gradient(135deg,rgba(52,226,168,.12),rgba(52,226,168,.03)); border:1px solid rgba(52,226,168,.3); border-radius:9px; padding:13px; margin-bottom:13px;}
   .ehero .ed{font-family:var(--disp); font-weight:700; font-size:13px; color:var(--green-l); margin-bottom:6px;}
   .ehero p{margin:0; font-size:11.5px; color:var(--dim); line-height:1.5;}
   .epills{display:grid; grid-template-columns:repeat(3,1fr); gap:7px; margin-bottom:13px;}
   .epill{background:rgba(120,150,170,.05); border:1px solid var(--line); border-radius:7px; padding:7px 9px;}
-  .epill .pk{font-size:9px; color:var(--faint); text-transform:uppercase; letter-spacing:.5px;}
+  .epill .pk{font-size:11px; color:var(--faint); text-transform:uppercase; letter-spacing:.5px;}
   .epill .pv{font-family:var(--disp); font-weight:700; font-size:12px; color:var(--text); margin-top:2px;}
   .eblock{margin-bottom:12px;}
-  .eblock h5{font-family:var(--disp); font-size:10px; color:var(--cyan-l); text-transform:uppercase; letter-spacing:1px; margin:0 0 5px;}
+  .eblock h5{font-family:var(--disp); font-size:11px; color:var(--cyan-l); text-transform:uppercase; letter-spacing:1px; margin:0 0 5px;}
   .eblock p{margin:0; font-size:11.5px; color:var(--dim); line-height:1.55;}
-  .ecode{font-family:var(--mono); font-size:10.5px; color:var(--gold-l); background:rgba(0,0,0,.3); padding:2px 5px; border-radius:4px; word-break:break-all;}
+  .ecode{font-family:var(--mono); font-size:11px; color:var(--gold-l); background:rgba(0,0,0,.3); padding:2px 5px; border-radius:4px; word-break:break-all;}
   .email-tell{background:rgba(251,191,36,.08); border:1px solid rgba(251,191,36,.3); border-radius:9px; padding:11px 14px; margin-bottom:14px; font-size:12px; color:var(--text); line-height:1.5;}
   .email-tell b{color:var(--gold-l);}
 
@@ -155,7 +151,7 @@
   .tl .tl-top{font-size:13px; color:var(--text);}
   .tl .tl-top .tl-id{color:var(--cyan-l); font-weight:700;}
   .tl .tl-meta{font-size:11px; color:var(--faint); margin-top:2px; display:flex; gap:10px; flex-wrap:wrap;}
-  .tl .rtag{font-size:10px; letter-spacing:.5px; padding:1px 7px; border-radius:5px; font-weight:700;}
+  .tl .rtag{font-size:11px; letter-spacing:.5px; padding:1px 7px; border-radius:5px; font-weight:700;}
   .rt-deployed{background:rgba(52,226,168,.15); color:var(--green);} .rt-skipped{background:rgba(251,180,58,.15); color:var(--amber);}
   .rt-pending{background:rgba(182,107,255,.15); color:var(--violet-l);} .rt-failed{background:rgba(255,92,108,.15); color:var(--red);}
   .showall{margin-top:16px; background:transparent; border:1px solid var(--line); color:var(--cyan-l); border-radius:9px; padding:9px 16px; font-family:var(--mono); font-size:13px; cursor:pointer; transition:all .2s;}
@@ -196,7 +192,7 @@
   .stat{padding:14px 16px;}
   .stat .n{font-size:27px;}
   .stat .l{font-size:11.5px; color:var(--dim); margin-top:6px;}
-  .stat .ls{font-size:10.5px; color:var(--faint); margin-top:2px; line-height:1.35;}
+  .stat .ls{font-size:11px; color:var(--faint); margin-top:2px; line-height:1.35;}
   .stats-explain{margin:16px 0 8px; font-size:12px;}
   /* hero treatment for the flow */
   .flow-hero-title{font-family:var(--disp); font-weight:700; font-size:32px; color:var(--text); margin:0 0 5px; letter-spacing:-.5px;}
@@ -221,7 +217,7 @@
   .rcpt{border:1px solid var(--line); border-radius:11px; padding:14px 16px; margin-bottom:12px; background:rgba(120,150,170,.04);}
   .rcpt-top{display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:12px;}
   .rcpt-title{flex:1; font-size:13.5px; color:var(--text); min-width:0;}
-  .rcpt-tag{font-family:var(--mono); font-size:10.5px; padding:3px 9px; border-radius:20px; font-weight:700; letter-spacing:.5px;}
+  .rcpt-tag{font-family:var(--mono); font-size:11px; padding:3px 9px; border-radius:20px; font-weight:700; letter-spacing:.5px;}
   .rcpt-tag.ok{background:rgba(34,211,238,.12); color:var(--cyan-l); border:1px solid rgba(34,211,238,.4);}
   .rcpt-tag.heal{background:rgba(251,191,36,.12); color:var(--amber); border:1px solid rgba(251,191,36,.4);}
   .att{margin-top:10px;}
@@ -234,29 +230,38 @@
   .vote.approve .vs{color:var(--cyan-l);}
   .vote.reject{border-color:rgba(248,113,113,.4);}
   .vote.reject .vs{color:#f87171;}
-  .vote .vv{font-size:9px; letter-spacing:.5px; font-family:var(--mono); margin-top:2px;}
+  .vote .vv{font-size:11px; letter-spacing:.5px; font-family:var(--mono); margin-top:2px;}
   .vote.approve .vv{color:var(--cyan-l);} .vote.reject .vv{color:#f87171;}
   .rcpt-foot{font-size:11.5px; color:var(--faint); margin-top:12px; line-height:1.5;}
   .rcpt-foot b{color:var(--dim); font-weight:400;}
+
+  .sr-only{position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap;}
+  .skip{position:absolute; left:12px; top:-60px; z-index:100; background:var(--gold-l); color:#000; padding:8px 14px; border-radius:8px; text-decoration:none; font-size:14px;}
+  .skip:focus{top:12px;}
+  :focus-visible{outline:3px solid var(--gold-l); outline-offset:2px;}
+  button{color:inherit; font:inherit;}
+  @media (prefers-reduced-motion: reduce){
+    *,*::before,*::after{animation:none !important; transition:none !important; scroll-behavior:auto !important;}
+  }
 </style>
 </head>
 <body>
-<div class="bgfx"><div class="grid"></div><div class="orb c"></div><div class="orb g"></div><div class="orb v"></div></div>
+<a class="skip" href="#main">Skip to content</a>
+<div class="bgfx" aria-hidden="true"><div class="grid"></div><div class="orb c"></div><div class="orb g"></div><div class="orb v"></div></div>
 
-<div class="wrap">
-  <div class="head">
-    <span class="brand"><span class="spoon">🥄</span> tallkitchen water</span>
-    <span class="ver">WATER</span>
-  </div>
-  <p class="tag">Water is one half of Tall Kitchen. It runs on its own, around the clock. It watches the lab, learns how attackers behave, and writes new detection rules to catch them. Three separate AIs check the work before any of it is trusted, and if a rule is not good enough, Water rewrites it and tries again on its own.</p>
+<main class="wrap" id="main">
+  <header class="head">
+    <span class="brand">SentinelForge Engine</span>
+    <span class="ver">ENGINE</span>
+  </header>
+  <p class="tag">The engine is one half of SentinelForge. It runs on its own, around the clock. It watches the lab, learns how attackers behave, and writes new detection rules to catch them. Three separate AIs check the work before any of it is trusted, and if a rule is not good enough, the engine rewrites it and tries again on its own.</p>
   <div class="links">
     <a class="lk hunt" href="/"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg> Meet Hunt, the other half</a>
-    <a class="lk gh" href="https://github.com/1xLoZec/detection-lab" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 1a11 11 0 00-3.5 21.4c.55.1.75-.24.75-.53v-1.9c-3 .65-3.7-1.4-3.7-1.4-.5-1.3-1.2-1.6-1.2-1.6-1-.68.08-.66.08-.66 1.1.08 1.7 1.13 1.7 1.13 1 1.7 2.6 1.2 3.2.93.1-.72.4-1.2.7-1.5-2.4-.27-5-1.2-5-5.3 0-1.2.42-2.13 1.1-2.88-.1-.27-.48-1.35.1-2.8 0 0 .9-.3 3 1.1a10.4 10.4 0 015.5 0c2.1-1.4 3-1.1 3-1.1.6 1.45.2 2.53.1 2.8.7.75 1.1 1.7 1.1 2.88 0 4.1-2.6 5-5 5.3.4.36.75 1 .75 2.05v3c0 .3.2.64.76.53A11 11 0 0012 1z"/></svg> See the code</a>
   </div>
 
   <!-- FLOW -->
   <div class="flow">
-    <h2 class="flow-hero-title">How Water works</h2>
+    <h2 class="flow-hero-title">How the engine works</h2>
     <p class="flow-hero-sub">Five steps, all automatic. A human only steps in when something needs a second look.</p>
     <div class="clue"><span class="tap">+</span> Tap any step to see why it matters</div>
     <div class="stage">
@@ -311,14 +316,14 @@
     </div>
     <div class="panel">
       <div class="section-label">The email it sends you</div>
-      <div class="email-tell">When Water finishes the whole process, it emails you a plain summary. <b>This is exactly what lands in your inbox.</b></div>
+      <div class="email-tell">When the engine finishes the whole process, it emails you a plain summary. <b>This is exactly what lands in your inbox.</b></div>
       <div class="email">
-        <div class="email-bar"><span class="d"></span><span class="d"></span><span class="d"></span><span class="ef">your inbox · from Water</span></div>
+        <div class="email-bar"><span class="d"></span><span class="d"></span><span class="d"></span><span class="ef">your inbox · from the engine</span></div>
         <div class="email-body">
           <div class="esubject">[MEDIUM] New rule deployed: System Language Discovery</div>
           <div class="emeta">to you · from your detection lab</div>
           <div class="ehero"><div class="ed">A new detection rule went live</div>
-            <p>An attacker used built-in Windows tools to gather system and hardware details. They do this to study a machine before the next stage of an attack. Water just wrote a rule to catch it.</p></div>
+            <p>An attacker used built-in Windows tools to gather system and hardware details. They do this to study a machine before the next stage of an attack. The engine just wrote a rule to catch it.</p></div>
           <div class="epills">
             <div class="epill"><div class="pk">Technique</div><div class="pv">T1614.001</div></div>
             <div class="epill"><div class="pk">Severity</div><div class="pv" style="color:var(--amber)">MEDIUM</div></div>
@@ -335,7 +340,7 @@
     <div class="section-label">Do the rules actually catch attacks?</div>
     <div class="section-sub">loading…</div>
   </div>
-  <div class="footer">tall kitchen · <b>water</b> — autonomous detection engineering · built by 1xLoZec</div>
+  <footer class="footer">SentinelForge · <b>engine</b> — autonomous detection engineering · by Jahsean Meikle</footer>
 </div>
 <script>
 function esc(s){return String(s ?? '').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
@@ -347,10 +352,10 @@ const COLORS={1:'var(--cyan)',2:'var(--gold)',3:'var(--violet)',4:'var(--green)'
 const STEPS={
   1:{t:"It spots the attack",
      what:"Every computer in the lab keeps a diary of what happens on it. All those diaries get collected in one place (a tool called Elastic) so nothing gets missed. When someone tries to break in, that activity shows up here.",
-     why:"The lab is connected to the open internet on purpose, so real attackers try to break in every single day. That gives Water a constant supply of real attacks to learn from, which most training setups never have."},
+     why:"The lab is connected to the open internet on purpose, so real attackers try to break in every single day. That gives the engine a constant supply of real attacks to learn from, which most training setups never have."},
   2:{t:"It writes the defense",
      what:"An AI (Claude) looks at what the attacker did and writes a short instruction that tells the security system how to catch that same move next time. Think of it as writing a new rule for a security guard: 'if you ever see this, raise the alarm.'",
-     why:"Normally a trained analyst writes these by hand, and a single good one can take most of a workday. Water writes them in seconds, so the lab keeps up with attackers instead of falling behind."},
+     why:"Normally a trained analyst writes these by hand, and a single good one can take most of a workday. The engine writes them in seconds, so the lab keeps up with attackers instead of falling behind."},
   3:{t:"Three AIs double-check it",
      what:"Before that new rule is trusted, three different AIs each read it and grade it, like three teachers grading the same paper. The rule only passes if at least two of them agree it is good.",
      ais:true,
@@ -359,7 +364,7 @@ const STEPS={
      what:"A rule that passes gets added to the live security dashboard automatically, so it is watching for that attack from then on. This handoff runs through the same trusted, automated process that professional software teams use, so every change is tracked and nothing is done by hand.",
      why:"This is how a real security team ships its work, not a one-off script on someone's laptop. It shows the whole thing is built to professional standard, start to finish."},
   5:{t:"The Self Healing Loop",
-     what:"This is the loop hiding inside the last step. When the three AIs reject a rule, Water treats it like a teacher handing back a paper with notes. It reads the notes, rewrites the rule, and submits it again. It will try three times before it gives up.",
+     what:"This is the loop hiding inside the last step. When the three AIs reject a rule, the engine treats it like a teacher handing back a paper with notes. It reads the notes, rewrites the rule, and submits it again. It will try three times before it gives up.",
      why:"People learn by getting feedback and trying again, and this works the same way. It will not push a weak rule through just to look busy, and it will not quietly fail either. If it truly cannot get it right, it stops and emails you instead of pretending everything is fine. Scroll down to see exactly what that email looks like."}
 };
 
@@ -367,7 +372,7 @@ const detail=document.getElementById('detail');
 let openStep=null;
 function buildDetail(n){
   const s=STEPS[n], c=COLORS[n];
-  let h='<div class="detail-in" style="--dac:'+c+'"><div class="dt">'+esc(s.t)+'</div>'
+  let h='<div class="detail-in" style="--dac:'+esc(c)+'"><div class="dt">'+esc(s.t)+'</div>'
     +'<div class="dwhat">'+esc(s.what)+'</div>';
   if(s.ais){
     h+='<div class="ais">'
@@ -378,14 +383,20 @@ function buildDetail(n){
   h+='<div class="dwhy"><b>Why it matters</b>'+esc(s.why)+'</div></div>';
   return h;
 }
+detail.setAttribute('aria-live','polite');
+document.querySelectorAll('.arrow').forEach(a=>a.setAttribute('aria-hidden','true'));
 document.querySelectorAll('.box').forEach(box=>{
-  box.onclick=()=>{
+  box.setAttribute('role','button'); box.setAttribute('tabindex','0');
+  box.setAttribute('aria-expanded','false'); box.setAttribute('aria-controls','detail');
+  const toggle=()=>{
     const n=box.dataset.step;
-    document.querySelectorAll('.box').forEach(b=>b.classList.remove('open'));
+    document.querySelectorAll('.box').forEach(b=>{ b.classList.remove('open'); b.setAttribute('aria-expanded','false'); });
     if(openStep===n){ detail.classList.remove('show'); openStep=null; return; }
     detail.innerHTML=buildDetail(n);
-    detail.classList.add('show'); box.classList.add('open'); openStep=n;
+    detail.classList.add('show'); box.classList.add('open'); box.setAttribute('aria-expanded','true'); openStep=n;
   };
+  box.onclick=toggle;
+  box.addEventListener('keydown',e=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); toggle(); } });
 });
 
 const OUT={deployed:['Rules written and deployed','deployed'],
@@ -403,9 +414,9 @@ function fillReceipts(d){
   const el=document.getElementById('receipts');
   const v=d.validations;
   if(!v||!v.length){ el.innerHTML='<div class="section-label">The three AIs, on the record</div>'
-    +'<div class="section-sub">No validation receipts yet. They appear here as Water validates rules.</div>'; return; }
+    +'<div class="section-sub">No validation receipts yet. They appear here as the engine validates rules.</div>'; return; }
   let h='<div class="section-label">The three AIs, on the record</div>';
-  h+='<div class="rcpt-sub">Every rule is scored by three separate AIs. At least two must agree, or Water rewrites the rule and tries again. These are the real scores, not a claim.</div>';
+  h+='<div class="rcpt-sub">Every rule is scored by three separate AIs. At least two must agree, or the engine rewrites the rule and tries again. These are the real scores, not a claim.</div>';
   v.forEach(r=>{
     const healed=r.healed;
     h+='<div class="rcpt">';
@@ -415,16 +426,16 @@ function fillReceipts(d){
     h+='</div>';
     (r.attempts||[]).forEach(a=>{
       h+='<div class="att">';
-      if((r.attempts||[]).length>1) h+='<div class="att-label">attempt '+a.attempt+(a.attempt<r.final_attempt?' · not enough agreement':' · approved')+'</div>';
+      if((r.attempts||[]).length>1) h+='<div class="att-label">attempt '+esc(a.attempt)+(a.attempt<r.final_attempt?' · not enough agreement':' · approved')+'</div>';
       h+='<div class="votes">';
       Object.keys(a.votes||{}).forEach(name=>{
         const vote=a.votes[name], ap=vote.approve;
         h+='<div class="vote '+(ap?'approve':'reject')+'"><span class="vn">'+esc(name)+'</span>'
-          +'<span style="text-align:right"><div class="vs">'+vote.score+'</div><div class="vv">'+(ap?'APPROVE':'REJECT')+'</div></span></div>';
+          +'<span style="text-align:right"><div class="vs">'+esc(vote.score)+'</div><div class="vv">'+(ap?'APPROVE':'REJECT')+'</div></span></div>';
       });
       h+='</div></div>';
     });
-    h+='<div class="rcpt-foot">Final: <b>2 of 3 agreed, average '+r.avg_score+'/10</b>. Tested against <b>'+r.backtest_hits+' real events</b> before approval.</div>';
+    h+='<div class="rcpt-foot">Final: <b>2 of 3 agreed, average '+esc(r.avg_score)+'/10</b>. Tested against <b>'+esc(r.backtest_hits)+' real events</b> before approval.</div>';
     h+='</div>';
   });
   el.innerHTML=h;
@@ -438,27 +449,27 @@ function fillEfficacy(d){
   let h='<div class="section-label">Do the rules actually catch attacks?</div>';
   h+='<div class="section-sub">Every deployed rule, checked against real alerts in the lab. This is measured, not assumed.</div>';
   h+='<div class="eff-top">'
-    +'<div class="eff-stat fired"><div class="en">'+fired+'</div><div class="el">rules have caught real activity</div></div>'
-    +'<div class="eff-stat dormant"><div class="en">'+dormant+'</div><div class="el">deployed and waiting</div></div>'
-    +'<div class="eff-stat"><div class="en">'+total+'</div><div class="el">rules watching in total</div></div>'
+    +'<div class="eff-stat fired"><div class="en">'+esc(fired)+'</div><div class="el">rules have caught real activity</div></div>'
+    +'<div class="eff-stat dormant"><div class="en">'+esc(dormant)+'</div><div class="el">deployed and waiting</div></div>'
+    +'<div class="eff-stat"><div class="en">'+esc(total)+'</div><div class="el">rules watching in total</div></div>'
     +'</div>';
   h+='<div class="eff-note">Waiting does not mean broken. A rule only fires when its specific attack actually happens in the lab. These rules are live and correct, they just have not seen their attack yet.</div>';
   (e.fired||[]).forEach(r=>{
     h+='<div class="eff-row"><span class="eff-id">'+esc(r.id)+'</span>'
       +'<span class="eff-name">'+esc(r.name||'')+'</span>'
-      +'<span class="eff-count">'+r.count+'<span>'+(r.count===1?'time':'times')+'</span></span></div>';
+      +'<span class="eff-count">'+esc(r.count)+'<span>'+(r.count===1?'time':'times')+'</span></span></div>';
   });
-  if(e.measured_at) h+='<div class="eff-when">last measured: '+fmtDate(e.measured_at)+'</div>';
+  if(e.measured_at) h+='<div class="eff-when">last measured: '+esc(fmtDate(e.measured_at))+'</div>';
   el.innerHTML=h;
 }
 function fill(d){
   const total=Object.values(d.outcomes).reduce((a,b)=>a+b,0)||1;
   let dec='<div class="section-label">Every decision it made</div>'
-    +'<div class="section-sub">Out of '+total+' runs. Water does not blindly deploy. Skipping and waiting are the point, not failures.</div><div class="bars">';
+    +'<div class="section-sub">Out of '+esc(total)+' runs. The engine does not blindly deploy. Skipping and waiting are the point, not failures.</div><div class="bars">';
   ['deployed','confidence_too_low','already_covered','hunt_triggered_pending_review','hunt_triggered_generation_failed'].forEach(k=>{
     if(!d.outcomes[k]) return;
     const [label,cls]=OUT[k]||[k,'skipped'], n=d.outcomes[k], pct=Math.round(n/total*100);
-    dec+='<div class="bar2"><div class="blabel">'+esc(label)+'</div><div class="btrack"><div class="bfill bf-'+cls+'" data-w="'+pct+'">'+n+'</div></div></div>';
+    dec+='<div class="bar2"><div class="blabel">'+esc(label)+'</div><div class="btrack"><div class="bfill bf-'+esc(cls)+'" data-w="'+esc(pct)+'">'+esc(n)+'</div></div></div>';
   });
   dec+='</div>';
   document.getElementById('decisions').innerHTML=dec;
@@ -470,8 +481,8 @@ function fill(d){
 }
 
 async function load(){
-  try{ const r=await fetch('/api/water'); fill(await r.json()); }
-  catch(e){ document.getElementById('decisions').innerHTML='<div class="loadingbig">Could not load Water data.<br><span style="font-size:12px;color:var(--faint)">'+esc(e.message)+'</span></div>'; }
+  try{ const r=await fetch('/api/engine'); fill(await r.json()); }
+  catch(e){ document.getElementById('decisions').innerHTML='<div class="loadingbig">Could not load engine data.<br><span style="font-size:12px;color:var(--faint)">'+esc(e.message)+'</span></div>'; }
 }
 load();
 </script>

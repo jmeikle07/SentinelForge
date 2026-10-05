@@ -3,10 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Tall Kitchen Review</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+<title>SentinelForge Review — rule approval queue</title>
 <style>
   :root{
     --bg:#070c10; --panel:rgba(14,21,28,.74); --panel2:rgba(10,16,22,.92);
@@ -16,8 +13,8 @@
     --violet:#b66bff; --violet-l:#e9d5ff;
     --green:#34e2a8; --green-l:#7df5c8;
     --red:#ff5c6c; --amber:#fbb43a;
-    --mono:"Space Mono",ui-monospace,Menlo,monospace;
-    --disp:"Space Grotesk",system-ui,sans-serif;
+    --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace;
+    --disp:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
   }
   *{box-sizing:border-box;}
   html,body{margin:0;height:100%;}
@@ -36,14 +33,13 @@
   .brand{font-family:var(--disp); font-weight:700; font-size:30px; letter-spacing:-.5px;
     background:linear-gradient(120deg,var(--cyan) 0%,var(--cyan-l) 45%,var(--gold-l) 100%);
     -webkit-background-clip:text; background-clip:text; color:transparent;}
-  .brand .spoon{-webkit-text-fill-color:initial;}
   .ver{font-size:11px; color:var(--dim); border:1px solid var(--line); border-radius:20px; padding:2px 9px; letter-spacing:1px;}
   .tag{color:var(--dim); font-size:15px; margin:0 0 18px; max-width:680px;}
   .tag b{color:var(--text); font-weight:400;}
   .links{display:flex; gap:10px; flex-wrap:wrap; margin-bottom:30px;}
   .lk{display:inline-flex; align-items:center; gap:8px; text-decoration:none; border-radius:10px; padding:9px 16px; font-size:13px; transition:all .2s;}
-  .lk.water{background:rgba(34,211,238,.12); border:1px solid rgba(34,211,238,.4); color:var(--cyan-l);}
-  .lk.water:hover{background:rgba(34,211,238,.22);}
+  .lk.engine{background:rgba(34,211,238,.12); border:1px solid rgba(34,211,238,.4); color:var(--cyan-l);}
+  .lk.engine:hover{background:rgba(34,211,238,.22);}
   .section-label{font-family:var(--disp); font-size:11px; color:var(--cyan-l); text-transform:uppercase; letter-spacing:2px; margin:0 0 6px; display:flex; align-items:center; gap:8px;}
   .section-label::after{content:""; flex:1; height:1px; background:linear-gradient(90deg,var(--line),transparent);}
   .section-sub{color:var(--faint); font-size:12.5px; margin:0 0 22px;}
@@ -55,7 +51,7 @@
   .card-name:hover{color:var(--cyan-l);}
   .card-caret{font-size:11px; color:var(--faint); margin-left:7px; transition:color .15s;}
   .card-name:hover .card-caret{color:var(--cyan-l);}
-  .card-conf{font-size:10.5px; font-family:var(--mono); letter-spacing:.5px; padding:2px 9px; border-radius:20px;}
+  .card-conf{font-size:11px; font-family:var(--mono); letter-spacing:.5px; padding:2px 9px; border-radius:20px;}
   .conf-high{color:var(--red); background:rgba(255,92,108,.13); border:1px solid rgba(255,92,108,.4);}
   .conf-medium{color:var(--amber); background:rgba(251,180,58,.12); border:1px solid rgba(251,180,58,.35);}
   .conf-low{color:var(--green-l); background:rgba(52,226,168,.12); border:1px solid rgba(52,226,168,.35);}
@@ -79,17 +75,17 @@
   .yaml{display:none; margin-top:12px; padding:12px; background:var(--panel2); border:1px solid var(--line); border-radius:8px; font-size:11.5px; color:var(--dim); white-space:pre-wrap; max-height:300px; overflow:auto;}
   .rdetail{margin-top:12px; padding:12px 14px; background:var(--panel2); border:1px solid var(--line); border-radius:9px;}
   .rdetail .d-desc{font-size:13px; color:var(--dim); line-height:1.6; margin:0 0 10px;}
-  .rdetail .d-label{font-size:10.5px; color:var(--faint); text-transform:uppercase; letter-spacing:1px; margin:0 0 4px;}
+  .rdetail .d-label{font-size:11px; color:var(--faint); text-transform:uppercase; letter-spacing:1px; margin:0 0 4px;}
   .rdetail pre{font-size:11px; color:var(--dim); white-space:pre-wrap; margin:0; max-height:240px; overflow:auto;}
   .d-meaning{font-size:14.5px; color:var(--text); line-height:1.65; margin:0 0 10px; font-weight:400;}
   .d-ai{font-size:12.5px; color:var(--dim); line-height:1.6; margin:0 0 10px; padding:9px 12px; background:rgba(182,107,255,.07); border:1px solid rgba(182,107,255,.25); border-radius:8px;}
-  .d-ai-tag{display:inline-block; font-family:var(--disp); font-size:9.5px; font-weight:700; letter-spacing:1px; color:var(--violet-l); background:rgba(182,107,255,.18); border-radius:5px; padding:2px 7px; margin-right:8px; vertical-align:1px;}
+  .d-ai-tag{display:inline-block; font-family:var(--disp); font-size:11px; font-weight:700; letter-spacing:1px; color:var(--violet-l); background:rgba(182,107,255,.18); border-radius:5px; padding:2px 7px; margin-right:8px; vertical-align:1px;}
   .d-simple{font-size:14px; color:var(--text); line-height:1.6; margin:0 0 10px;}
   .d-more{display:inline-block; font-family:var(--disp); font-size:12px; color:var(--cyan-l); cursor:pointer; padding:4px 0; border-bottom:1px solid rgba(34,211,238,.3);}
   .d-more:hover{border-bottom-color:var(--cyan-l);}
   .d-full{margin-top:14px; padding-top:14px; border-top:1px solid var(--line);}
   .d-row{margin-bottom:14px;}
-  .d-h{font-family:var(--disp); font-size:10.5px; color:var(--cyan-l); text-transform:uppercase; letter-spacing:1.5px; margin:0 0 6px;}
+  .d-h{font-family:var(--disp); font-size:11px; color:var(--cyan-l); text-transform:uppercase; letter-spacing:1.5px; margin:0 0 6px;}
   .d-p{font-size:13.5px; color:var(--text); line-height:1.65; margin:0;}
   .d-list{margin:0; padding:0; list-style:none;}
   .d-list li{font-size:13.5px; color:var(--text); line-height:1.55; padding:5px 0 5px 18px; position:relative;}
@@ -100,6 +96,7 @@
   .d-raw-toggle{display:inline-block; font-size:11.5px; color:var(--faint); cursor:pointer; margin-top:6px; border-bottom:1px dashed var(--line);}
   .d-raw-toggle:hover{color:var(--cyan-l);}
   .d-yaml{margin-top:10px; padding:12px; background:rgba(3,7,10,.6); border:1px solid var(--line); border-radius:8px; font-size:11px; color:var(--faint); white-space:pre-wrap; max-height:260px; overflow:auto;}
+  .footer{margin-top:40px; color:var(--faint); font-size:12px; text-align:center;}
   .empty{text-align:center; color:var(--faint); padding:50px 20px; font-size:14px;}
   .empty .big{font-family:var(--disp); font-size:18px; color:var(--dim); margin-bottom:8px;}
   .flash{padding:11px 14px; border-radius:9px; font-size:13px; margin-bottom:14px; display:none;}
@@ -119,13 +116,32 @@
   .mbtn.confirm.approve:hover{background:rgba(52,226,168,.26);}
   .mbtn.confirm.reject{background:rgba(255,92,108,.12); border-color:rgba(255,92,108,.45); color:var(--red);}
   .mbtn.confirm.reject:hover{background:rgba(255,92,108,.24);}
+
+  .sr-only{position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap;}
+  .skip{position:absolute; left:12px; top:-60px; z-index:100; background:var(--gold-l); color:#000; padding:8px 14px; border-radius:8px; text-decoration:none; font-size:14px;}
+  .skip:focus{top:12px;}
+  :focus-visible{outline:3px solid var(--gold-l); outline-offset:2px;}
+  button{color:inherit; font:inherit;}
+  @media (prefers-reduced-motion: reduce){
+    *,*::before,*::after{animation:none !important; transition:none !important; scroll-behavior:auto !important;}
+  }
+  button.card-name{background:none; border:0; padding:0; text-align:left; font:inherit; color:var(--text);}
+  .d-more,.d-raw-toggle{background:none; border-top:0; border-left:0; border-right:0; padding:4px 0; text-align:left;}
+  .tokenbar{border:1px solid var(--line); border-radius:13px; padding:14px 18px; margin-bottom:22px; background:var(--panel);}
+  .tokenbar label{display:block; font-size:13px; color:var(--dim); margin-bottom:8px;}
+  .tokenrow{display:flex; gap:10px; flex-wrap:wrap;}
+  .tokenrow input{flex:1; min-width:200px; background:var(--panel2); border:1px solid var(--dim); border-radius:9px; color:var(--text); padding:10px 12px; font-family:var(--mono); font-size:14px;}
+  .tokenrow button{background:rgba(34,211,238,.12); border:1px solid rgba(34,211,238,.5); color:var(--cyan-l); border-radius:9px; padding:10px 16px; font-family:var(--disp); font-size:14px; cursor:pointer;}
+  .tokenrow button:hover{background:rgba(34,211,238,.22);}
+  .tokenstate{font-size:12.5px; color:var(--dim); margin:8px 0 0;}
 </style>
 </head>
 <body>
-<div class="bgfx"><div class="grid"></div><div class="orb c"></div><div class="orb g"></div></div>
+<a class="skip" href="#main">Skip to content</a>
+<div class="bgfx" aria-hidden="true"><div class="grid"></div><div class="orb c"></div><div class="orb g"></div></div>
 <div id="modal">
   <div id="modal-backdrop"></div>
-  <div class="modal-box">
+  <div class="modal-box" role="dialog" aria-modal="true" aria-labelledby="modal-q" aria-describedby="modal-note">
     <p class="modal-q" id="modal-q">Are you sure?</p>
     <div class="modal-name" id="modal-name"></div>
     <p class="modal-note" id="modal-note"></p>
@@ -135,19 +151,30 @@
     </div>
   </div>
 </div>
-<div class="wrap">
-  <div class="head">
-    <span class="brand"><span class="spoon">🥄</span> Tall Kitchen</span>
+<main class="wrap" id="main">
+  <header class="head">
+    <span class="brand">SentinelForge Review</span>
     <span class="ver">REVIEW</span>
-  </div>
-  <p class="tag">Rules Water wants to deploy. <b>Nothing goes live until you approve it here.</b> Three AIs scored each one. You make the final call.</p>
-  <div class="links"><a class="lk water" href="/water">← Back to Water</a></div>
+  </header>
+  <p class="tag">Rules the SentinelForge engine wants to deploy. <b>Nothing goes live until you approve it here.</b> Three AIs scored each one. You make the final call.</p>
+  <div class="links"><a class="lk engine" href="/engine">← Back to the Engine</a></div>
 
-  <div class="section-label">Waiting for your call</div>
-  <div class="section-sub">Tap a rule to see exactly what it would catch before you decide.</div>
-  <div id="flash" class="flash"></div>
-  <div id="queue"><div class="empty">Loading…</div></div>
-</div>
+  <h2 class="section-label">Waiting for your call</h2>
+  <p class="section-sub">Tap a rule to see exactly what it would catch before you decide.</p>
+  <section class="tokenbar" aria-labelledby="tok-h">
+    <h2 class="sr-only" id="tok-h">Admin token</h2>
+    <label for="admintoken">Admin token (needed to approve or reject; kept for this browser tab only)</label>
+    <div class="tokenrow">
+      <input id="admintoken" type="password" autocomplete="off" spellcheck="false">
+      <button type="button" id="tokensave">Save token</button>
+      <button type="button" id="tokenclear">Forget token</button>
+    </div>
+    <p class="tokenstate" id="tokenstate" role="status"></p>
+  </section>
+  <div id="flash" class="flash" role="status" aria-live="polite"></div>
+  <div id="queue" aria-live="polite"><div class="empty">Loading…</div></div>
+  <footer class="footer">SentinelForge · <b>review</b> — human approval gate · by Jahsean Meikle</footer>
+</main>
 <script>
 function esc(s){return (s==null?'':String(s)).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
 
@@ -160,14 +187,14 @@ async function load(){
 
 function render(rules){
   const q=document.getElementById('queue');
-  if(!rules.length){ q.innerHTML='<div class="empty"><div class="big">All clear.</div>No rules waiting. When Water finds something new, it shows up here.</div>'; return; }
+  if(!rules.length){ q.innerHTML='<div class="empty"><div class="big">All clear.</div>No rules waiting. When the engine finds something new, it shows up here.</div>'; return; }
   let h='';
   rules.forEach(r=>{
     const last=(r.votes&&r.votes.length)?r.votes[r.votes.length-1]:null;
     const conf=(r.confidence||'medium').toLowerCase();
     h+='<div class="card" id="card-'+esc(r.rule_id)+'">';
     h+='<div class="card-top"><span class="card-id">'+esc((r.rule_id||'').slice(0,8))+'</span>'
-      +'<span class="card-name" data-detail="'+esc(r.rule_id)+'">'+esc(r.technique_id)+' · '+esc(r.technique_name)+'<span class="card-caret">▸</span></span>'
+      +'<button type="button" class="card-name" aria-expanded="false" data-detail="'+esc(r.rule_id)+'">'+esc(r.technique_id)+' · '+esc(r.technique_name)+'<span class="card-caret" aria-hidden="true">▸</span></button>'
       +'<span class="card-conf conf-'+esc(conf)+'">'+esc(conf.toUpperCase())+'</span></div>';
     if(last&&last.votes){
       h+='<div class="votes">';
@@ -196,8 +223,8 @@ function render(rules){
 async function toggleDetail(id, nameEl){
   const box=document.getElementById('det-'+id);
   const caret=nameEl.querySelector('.card-caret');
-  if(box.style.display==='block'){ box.style.display='none'; if(caret) caret.textContent='\u25b8'; return; }
-  box.innerHTML='<p class="d-loading">Loading…</p>'; box.style.display='block';
+  if(box.style.display==='block'){ box.style.display='none'; nameEl.setAttribute('aria-expanded','false'); if(caret) caret.textContent='\u25b8'; return; }
+  box.innerHTML='<p class="d-loading">Loading…</p>'; box.style.display='block'; nameEl.setAttribute('aria-expanded','true');
   if(caret) caret.textContent='\u25be';
   try{
     const d=await (await fetch('/api/pending-detail/'+id)).json();
@@ -209,8 +236,8 @@ async function toggleDetail(id, nameEl){
     if(d.triggers && d.triggers.length){ trig = 'Flags it when ' + d.triggers.join(', and ') + '.'; }
     else if(d.summary){ trig = d.summary; }
     if(trig){ h+='<p class="d-simple">'+esc(trig)+'</p>'; }
-    h+='<span class="d-more" data-more="'+id+'">See full detail</span>';
-    h+='<div class="d-full" id="full-'+id+'" style="display:none">';
+    h+='<button type="button" class="d-more" aria-expanded="false" data-more="'+esc(id)+'">See full detail</button>';
+    h+='<div class="d-full" id="full-'+esc(id)+'" style="display:none">';
     if(d.triggers && d.triggers.length){
       h+='<div class="d-row"><div class="d-h">It fires when</div><ul class="d-list">';
       d.triggers.forEach(t=>{ h+='<li>'+esc(t)+'</li>'; });
@@ -224,8 +251,8 @@ async function toggleDetail(id, nameEl){
     if(d.level){
       h+='<div class="d-row"><div class="d-h">Seriousness</div><p class="d-p">'+esc(String(d.level).charAt(0).toUpperCase()+String(d.level).slice(1))+'</p></div>';
     }
-    h+='<span class="d-raw-toggle" data-raw="'+id+'">Show the raw rule</span>';
-    h+='<pre class="d-yaml" id="raw-'+id+'" style="display:none">'+esc(d.yaml)+'</pre>';
+    h+='<button type="button" class="d-raw-toggle" aria-expanded="false" data-raw="'+esc(id)+'">Show the raw rule</button>';
+    h+='<pre class="d-yaml" id="raw-'+esc(id)+'" style="display:none">'+esc(d.yaml)+'</pre>';
     h+='</div>';
     box.innerHTML=h;
 
@@ -233,22 +260,49 @@ async function toggleDetail(id, nameEl){
       const full=document.getElementById('full-'+id);
       const show=full.style.display==='none';
       full.style.display=show?'block':'none';
-      this.textContent=show?'Hide detail':'See full detail';
+      this.textContent=show?'Hide detail':'See full detail'; this.setAttribute('aria-expanded', show?'true':'false');
     });
     const rt=box.querySelector('.d-raw-toggle');
     rt.addEventListener('click',function(){
       const pre=document.getElementById('raw-'+id);
       const show=pre.style.display==='none';
       pre.style.display=show?'block':'none';
-      this.textContent=show?'Hide the raw rule':'Show the raw rule';
+      this.textContent=show?'Hide the raw rule':'Show the raw rule'; this.setAttribute('aria-expanded', show?'true':'false');
     });
   }catch(e){ box.innerHTML='<p class="d-p">Could not load detail.</p>'; }
 }
 
-function flash(msg, ok){const f=document.getElementById('flash'); f.textContent=msg; f.className='flash '+(ok?'ok':'err'); f.style.display='block'; setTimeout(()=>{f.style.display='none';},4000);}
+function flash(msg, ok){const f=document.getElementById('flash'); f.textContent=msg; f.className='flash '+(ok?'ok':'err'); f.style.display='block'; setTimeout(()=>{f.style.display='none';}, ok?4000:12000);}
 
-let _pending=null;
+const TOKEN_KEY='sf_admin_token';
+let _memToken='';
+function getToken(){
+  try{ return sessionStorage.getItem(TOKEN_KEY) || _memToken; }
+  catch(e){ return _memToken; }
+}
+function setToken(t){
+  _memToken=t;
+  try{ if(t){ sessionStorage.setItem(TOKEN_KEY,t); } else { sessionStorage.removeItem(TOKEN_KEY); } }
+  catch(e){ /* storage blocked: token is kept in memory for this page only */ }
+}
+function showTokenState(){
+  document.getElementById('tokenstate').textContent = getToken() ? 'A token is saved for this tab.' : 'No token saved. Approve and reject need one.';
+}
+document.getElementById('tokensave').addEventListener('click',()=>{
+  const inp=document.getElementById('admintoken'); setToken(inp.value.trim()); inp.value=''; showTokenState();
+});
+document.getElementById('tokenclear').addEventListener('click',()=>{ setToken(''); showTokenState(); });
+document.getElementById('admintoken').addEventListener('keydown',e=>{ if(e.key==='Enter'){ document.getElementById('tokensave').click(); } });
+showTokenState();
+
+let _pending=null, _opener=null;
 function act(id, kind, btn){
+  if(!getToken()){
+    flash('Enter your admin token above and press Save token first.', false);
+    document.getElementById('admintoken').focus();
+    return;
+  }
+  _opener=btn;
   const card=document.getElementById('card-'+id);
   const nm=card.querySelector('.card-name');
   const name=nm ? nm.textContent.replace('\u25b8','').replace('\u25be','').trim() : id;
@@ -268,8 +322,22 @@ function openModal(kind, name){
     ? 'This rule will go live and start matching real traffic. Move to the corner and confirm only if you are sure.'
     : 'This rule will be permanently discarded.';
   m.style.display='flex';
+  document.getElementById('modal-cancel').focus();
 }
-function closeModal(){ document.getElementById('modal').style.display='none'; _pending=null; }
+function closeModal(){
+  document.getElementById('modal').style.display='none'; _pending=null;
+  if(_opener && document.body.contains(_opener)){ _opener.focus(); }
+}
+document.addEventListener('keydown',e=>{
+  const m=document.getElementById('modal');
+  if(m.style.display!=='flex') return;
+  if(e.key==='Escape'){ closeModal(); return; }
+  if(e.key==='Tab'){
+    const f=[document.getElementById('modal-cancel'),document.getElementById('modal-confirm')];
+    if(e.shiftKey && document.activeElement===f[0]){ e.preventDefault(); f[1].focus(); }
+    else if(!e.shiftKey && document.activeElement===f[1]){ e.preventDefault(); f[0].focus(); }
+  }
+});
 
 async function fire(){
   if(!_pending) return;
@@ -278,13 +346,23 @@ async function fire(){
   closeModal();
   if(card){ card.querySelectorAll('button').forEach(b=>b.disabled=true); }
   try{
-    const r=await (await fetch('/api/'+kind+'/'+id,{method:'POST'})).json();
+    const resp=await fetch('/api/'+encodeURIComponent(kind)+'/'+encodeURIComponent(id),{method:'POST',headers:{'X-Admin-Token':getToken()}});
+    if(resp.status===401 || resp.status===403){
+      flash(resp.status===401
+        ? 'Not authorised (401): the admin token is missing or wrong. Enter it again above.'
+        : 'Refused (403): approvals are disabled on the server (LAB_ADMIN_TOKEN is not set there).', false);
+      if(resp.status===401){ setToken(''); showTokenState(); document.getElementById('admintoken').focus(); }
+      if(card){ card.querySelectorAll('button').forEach(b=>b.disabled=false); }
+      return;
+    }
+    let r={};
+    try{ r=await resp.json(); }catch(e){ r={ok:false, output:'HTTP '+resp.status}; }
     if(r.ok){
       flash(kind==='approve'?'Rule approved and deployed.':'Rule rejected and discarded.', true);
       if(card){ card.style.transition='opacity .4s'; card.style.opacity='0'; }
       setTimeout(()=>{ load(); }, 450);
     }else{
-      flash('Something went wrong: '+(r.output||'unknown'), false);
+      flash('Something went wrong: '+(r.output||r.detail||'unknown'), false);
       if(card){ card.querySelectorAll('button').forEach(b=>b.disabled=false); }
     }
   }catch(e){ flash('Request failed: '+e.message, false); if(card){ card.querySelectorAll('button').forEach(b=>b.disabled=false); } }

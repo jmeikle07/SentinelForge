@@ -3,10 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Tall Kitchen Hunt — what is this thing?</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+<title>SentinelForge Hunt — threat indicator lookup</title>
 <style>
   :root{
     --bg:#070a0f; --panel:rgba(17,22,31,.74); --panel2:rgba(13,18,26,.9);
@@ -16,8 +13,8 @@
     --gold:#fbbf24; --gold-l:#fcd34d;
     --red:#ff5c6c; --red-glow:rgba(255,92,108,.5);
     --amber:#fbb43a; --gray:#93a2b8; --green:#34e2a8; --green-glow:rgba(52,226,168,.45);
-    --mono:"Space Mono",ui-monospace,Menlo,monospace;
-    --disp:"Space Grotesk",system-ui,sans-serif;
+    --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace;
+    --disp:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
   }
   *{box-sizing:border-box;}
   html,body{margin:0;height:100%;}
@@ -47,7 +44,6 @@
   .brand{font-family:var(--disp); font-weight:700; font-size:30px; letter-spacing:-.5px;
     background:linear-gradient(120deg,var(--gold) 0%,var(--gold-l) 40%,var(--violet-l) 100%);
     -webkit-background-clip:text; background-clip:text; color:transparent;}
-  .brand .spoon{-webkit-text-fill-color:initial;}
   .ver{font-size:11px; color:var(--dim); border:1px solid var(--line); border-radius:20px;
     padding:2px 9px; letter-spacing:1px;}
   .whatbtn{margin-left:auto; display:inline-flex; align-items:center; gap:7px;
@@ -125,7 +121,7 @@
   .ring .num{position:absolute; inset:0; display:flex; flex-direction:column; align-items:center;
     justify-content:center; font-family:var(--disp); font-weight:700;}
   .ring .num b{font-size:24px; line-height:1; color:var(--text);}
-  .ring .num span{font-size:9px; color:var(--faint); letter-spacing:1px;}
+  .ring .num span{font-size:11px; color:var(--faint); letter-spacing:1px;}
   .vmeta{display:flex; flex-direction:column; gap:8px;}
   .badge{display:inline-flex; align-items:center; gap:9px; align-self:flex-start; padding:9px 18px;
     border-radius:10px; font-family:var(--disp); font-weight:700; font-size:21px; letter-spacing:1.5px;}
@@ -162,7 +158,7 @@
   .led-mut{background:var(--faint);}
   .src-name{color:var(--violet-l); font-weight:700; min-width:120px;}
   .src-verdict{flex:1; text-align:right; font-size:13px;}
-  .src-verdict .tagword{font-size:10px; letter-spacing:1px; padding:2px 7px; border-radius:5px;
+  .src-verdict .tagword{font-size:11px; letter-spacing:1px; padding:2px 7px; border-radius:5px;
     margin-left:8px; font-weight:700;}
   .tw-bad{background:rgba(255,92,108,.15); color:var(--red);}
   .tw-ok{background:rgba(52,226,168,.15); color:var(--green);}
@@ -224,8 +220,8 @@
   .hlk{display:inline-flex; align-items:center; gap:8px; text-decoration:none; border-radius:10px;
     padding:9px 16px; font-family:var(--mono); font-size:13px; transition:all .2s;}
   .hlk svg{width:15px;height:15px;}
-  .hlk.water{background:rgba(34,211,238,.1); border:1px solid rgba(34,211,238,.4); color:#7df0ff;}
-  .hlk.water:hover{background:rgba(34,211,238,.2);}
+  .hlk.engine{background:rgba(34,211,238,.1); border:1px solid rgba(34,211,238,.4); color:#7df0ff;}
+  .hlk.engine:hover{background:rgba(34,211,238,.2);}
   .hlk.gh{background:rgba(130,150,170,.07); border:1px solid var(--line); color:var(--dim);}
   .hlk.gh:hover{border-color:var(--line-bright); color:var(--violet-l);}
 
@@ -256,23 +252,32 @@
   .exdrop{max-height:0; overflow:hidden; transition:max-height .4s ease; margin:0 0 0;}
   .exdrop.show{max-height:260px; margin:0 0 28px;}
   .exlbl{color:var(--faint); font-size:12px; margin:4px 2px 9px;}
+
+  .sr-only{position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap;}
+  .skip{position:absolute; left:12px; top:-60px; z-index:100; background:var(--gold-l); color:#000; padding:8px 14px; border-radius:8px; text-decoration:none; font-size:14px;}
+  .skip:focus{top:12px;}
+  :focus-visible{outline:3px solid var(--gold-l); outline-offset:2px;}
+  button{color:inherit; font:inherit;}
+  @media (prefers-reduced-motion: reduce){
+    *,*::before,*::after{animation:none !important; transition:none !important; scroll-behavior:auto !important;}
+  }
 </style>
 </head>
 <body>
-<div class="bgfx"><div class="grid"></div><div class="orb v"></div><div class="orb g"></div></div>
-<div class="scan"></div>
+<a class="skip" href="#main">Skip to content</a>
+<div class="bgfx" aria-hidden="true"><div class="grid"></div><div class="orb v"></div><div class="orb g"></div></div>
+<div class="scan" aria-hidden="true"></div>
 
-<div class="wrap">
-  <div class="head">
-    <span class="brand"><span class="spoon">🥄</span> tallkitchen hunt</span>
+<main class="wrap" id="main">
+  <header class="head">
+    <span class="brand">SentinelForge Hunt</span>
     <span class="ver">HUNT</span>
-    <button class="whatbtn" id="whatbtn"><span class="q">?</span> What is this?</button>
-  </div>
-  <p class="tag">Hunt is one half of Tall Kitchen. Paste in anything suspicious, a website, a file's fingerprint, or an IP address, and Hunt checks it against the world's threat databases and gives you <b>one clear answer: safe, or not</b>.</p>
+    <button class="whatbtn" id="whatbtn" aria-haspopup="dialog"><span class="q">?</span> What is this?</button>
+  </header>
+  <p class="tag">Hunt is one half of SentinelForge. Paste in anything suspicious, a website, a file's fingerprint, or an IP address, and Hunt checks it against the world's threat databases and gives you <b>one clear answer: safe, or not</b>.</p>
   <div class="hlinks">
-    <a class="hlk water" href="/water"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3c4 4.5 6 7.5 6 10.5a6 6 0 01-12 0C6 10.5 8 7.5 12 3z"/></svg> Meet Water, the other half</a>
-    <a class="hlk gh" href="https://github.com/1xLoZec/detection-lab" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 1a11 11 0 00-3.5 21.4c.55.1.75-.24.75-.53v-1.9c-3 .65-3.7-1.4-3.7-1.4-.5-1.3-1.2-1.6-1.2-1.6-1-.68.08-.66.08-.66 1.1.08 1.7 1.13 1.7 1.13 1 1.7 2.6 1.2 3.2.93.1-.72.4-1.2.7-1.5-2.4-.27-5-1.2-5-5.3 0-1.2.42-2.13 1.1-2.88-.1-.27-.48-1.35.1-2.8 0 0 .9-.3 3 1.1a10.4 10.4 0 015.5 0c2.1-1.4 3-1.1 3-1.1.6 1.45.2 2.53.1 2.8.7.75 1.1 1.7 1.1 2.88 0 4.1-2.6 5-5 5.3.4.36.75 1 .75 2.05v3c0 .3.2.64.76.53A11 11 0 0012 1z"/></svg> See the code</a>
-    <button class="hlk ex" id="exbtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18h6"/><path d="M10 22h4"/><path d="M12 2a7 7 0 00-4 12.7V17h8v-2.3A7 7 0 0012 2z"/></svg> Try an example <span class="excar">&#9662;</span></button>
+    <a class="hlk engine" href="/engine"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3c4 4.5 6 7.5 6 10.5a6 6 0 01-12 0C6 10.5 8 7.5 12 3z"/></svg> Meet the Engine, the other half</a>
+    <button class="hlk ex" id="exbtn" aria-expanded="false" aria-controls="exdrop"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18h6"/><path d="M10 22h4"/><path d="M12 2a7 7 0 00-4 12.7V17h8v-2.3A7 7 0 0012 2z"/></svg> Try an example <span class="excar">&#9662;</span></button>
   </div>
   <div class="exdrop" id="exdrop">
     <div class="exlbl">Tap one to see how Hunt works:</div>
@@ -295,6 +300,7 @@
   <div class="search">
     <div class="promptline">
       <span class="ps1">&gt;</span>
+      <label for="ioc" class="sr-only">Website, file hash or IP address to check</label>
       <input id="ioc" type="text" autocomplete="off" autocapitalize="off" spellcheck="false"
              placeholder="paste a website, file hash, or IP address…">
       <button class="go" id="go">check it</button>
@@ -303,16 +309,16 @@
 
   </div>
 
-  <div class="out" id="out"></div>
+  <div class="out" id="out" aria-live="polite"></div>
 
-  <div class="footer">tall kitchen · <b>hunt</b> — a SOC analyst's assistant · built by 1xLoZec</div>
+  <footer class="footer">SentinelForge · <b>hunt</b> — a SOC analyst's assistant · by Jahsean Meikle</footer>
 </div>
 
 <!-- What is this? modal -->
 <div class="modal" id="modal">
-  <div class="sheet">
-    <button class="close" id="close">×</button>
-    <h2>🥄 What is Hunt?</h2>
+  <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="sheet-title">
+    <button class="close" id="close" aria-label="Close dialog">×</button>
+    <h2 id="sheet-title">What is Hunt?</h2>
     <p class="plain" style="color:var(--dim);font-size:13.5px;margin-top:6px;">A helper for security analysts. You give it something suspicious, it does the boring lookup work for you.</p>
 
     <div class="qa">
@@ -343,19 +349,19 @@
       <p>No. The answer is worked out with simple math from real threat databases — <b style="color:var(--text)">not by an AI that could guess wrong</b>. The same clue always gives the same answer, and Hunt shows you exactly which sources it used.</p>
     </div>
 
-    <div class="links">
-      <a href="https://github.com/1xLoZec/detection-lab" target="_blank" rel="noopener">▸ See the code on GitHub</a>
-      <a href="https://github.com/1xLoZec/detection-lab#readme" target="_blank" rel="noopener">▸ How the lab is built</a>
-    </div>
+    
   </div>
 </div>
 <script>
 const out=document.getElementById('out'), input=document.getElementById('ioc'), go=document.getElementById('go');
 const modal=document.getElementById('modal');
-document.getElementById('whatbtn').onclick=()=>modal.classList.add('show');
-document.getElementById('close').onclick=()=>modal.classList.remove('show');
-modal.onclick=e=>{ if(e.target===modal) modal.classList.remove('show'); };
-document.addEventListener('keydown',e=>{ if(e.key==='Escape') modal.classList.remove('show'); });
+const whatbtn=document.getElementById('whatbtn'), closebtn=document.getElementById('close');
+function openSheet(){ modal.classList.add('show'); closebtn.focus(); }
+function closeSheet(){ if(!modal.classList.contains('show')) return; modal.classList.remove('show'); whatbtn.focus(); }
+whatbtn.onclick=openSheet;
+closebtn.onclick=closeSheet;
+modal.onclick=e=>{ if(e.target===modal) closeSheet(); };
+document.addEventListener('keydown',e=>{ if(e.key==='Escape') closeSheet(); });
 
 function esc(s){return String(s ?? '').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
 
@@ -400,7 +406,7 @@ function srcInfo(name,d){
       return {summary:'<span class="bad">'+esc(d.url_count)+' malware links found</span>'+(d.urls_online?', <span class="bad">'+esc(d.urls_online)+' still live</span>':''),led:'bad',tag:'bad',tagword:'BAD SITE',
         mean:"This site has been caught hosting malware. \u201cStill live\u201d means the danger is active right now, not just in the past."};
     case 'virustotal':{
-      const f=(d.malicious||0)+(d.suspicious||0), t=d.total_engines||0;
+      const f=(Number(d.malicious)||0)+(Number(d.suspicious)||0), t=Number(d.total_engines)||0;
       if(t===0) return {summary:'<span class="muted">not seen before</span>',led:'mut',tag:'mut',tagword:'UNSEEN',
         mean:"None of the antivirus engines have a record of this yet."};
       const tg=f>0?'bad':'ok';
@@ -410,16 +416,16 @@ function srcInfo(name,d){
     }
     case 'otx':
       if((d.pulse_count||0)>0) return {summary:'<span class="bad">named in '+esc(d.pulse_count)+' threat reports</span>',led:'bad',tag:'bad',tagword:'REPORTED',
-        mean:"Security researchers have mentioned this in "+d.pulse_count+" threat reports. Lots of mentions means it's been seen in real attacks."};
+        mean:"Security researchers have mentioned this in "+Number(d.pulse_count)+" threat reports. Lots of mentions means it's been seen in real attacks."};
       return {summary:'<span class="muted">no threat reports</span>',led:'ok',tag:'ok',tagword:'CLEAN',
         mean:"No researcher has filed a threat report mentioning this. Good sign."};
     case 'threatfox':
       if((d.match_count||0)>0) return {summary:'<span class="bad">'+esc(d.match_count)+' malware matches</span>',led:'bad',tag:'bad',tagword:'MATCH',
-        mean:"This clue appears "+d.match_count+" times in the community malware database, often tied to specific malware families."};
+        mean:"This clue appears "+Number(d.match_count)+" times in the community malware database, often tied to specific malware families."};
       return {summary:'<span class="muted">no malware matches</span>',led:'ok',tag:'ok',tagword:'CLEAN',
         mean:"Not found in the community malware database. Good sign."};
     case 'abuseipdb':{
-      const s=d.abuse_score||0, tg=s>=75?'bad':(s>=25?'mut':'ok');
+      const s=Number(d.abuse_score)||0, tg=s>=75?'bad':(s>=25?'mut':'ok');
       return {summary:'<span class="'+(tg==='bad'?'bad':(tg==='ok'?'ok':''))+'">abuse score '+s+' of 100</span>',led:tg,tag:tg,tagword:s>=75?'ABUSIVE':(s>=25?'SOME':'CLEAN'),
         mean:"People report IPs that attacked them here. "+s+" out of 100 means "+(s>=75?"many people flagged it — likely an attacker.":(s>=25?"a few reports — be a little cautious.":"almost nobody flagged it. Good sign."))};
     }
@@ -481,7 +487,7 @@ function render(data){
     +'<circle class="fill" cx="42" cy="42" r="'+R+'" fill="none" stroke-width="6" stroke-dasharray="'+C.toFixed(1)+'" stroke-dashoffset="'+C.toFixed(1)+'" id="ringfill"/></svg>'
     +'<div class="num"><b id="scorenum">0</b><span>/ 100</span></div></div>';
   h+='<div class="vmeta">'
-    +'<div class="vline"><span class="badge v-'+v.verdict+'"><span class="ico"></span>'+esc(v.verdict.toUpperCase())+'</span>'
+    +'<div class="vline"><span class="badge v-'+esc(v.verdict)+'"><span class="ico"></span>'+esc(v.verdict.toUpperCase())+'</span>'
     +'<span class="scoretag">'+esc(v.score)+' / 100</span></div>'
     +'<span class="action">what to do &middot; <b>'+esc(v.action)+'</b></span></div></div>';
 
@@ -489,7 +495,7 @@ function render(data){
   h+='<div class="bottomline">'+bottom+'</div>';
 
   // evidence behind a button
-  h+='<div class="ev-toggle"><button id="evbtn"><span>show the evidence</span><span class="car">&#9662;</span></button></div>';
+  h+='<div class="ev-toggle"><button id="evbtn" aria-expanded="false" aria-controls="evidence"><span>show the evidence</span><span class="car">&#9662;</span></button></div>';
   h+='<div class="evidence" id="evidence">';
   h+='<div class="why"><div class="sub">Each source below was checked live. Tap any one to learn what it is and what its result means.</div>';
   if(v.floors_applied&&v.floors_applied.length){
@@ -500,8 +506,8 @@ function render(data){
   let i=0;
   Object.keys(ext).forEach(k=>{
     const info=srcInfo(k,ext[k]);
-    h+='<div class="src" data-src="'+k+'">'
-      +'<div class="src-head"><span class="src-led led-'+info.led+'"></span>'
+    h+='<div class="src" data-src="'+esc(k)+'">'
+      +'<div class="src-head" role="button" tabindex="0" aria-expanded="false"><span class="src-led led-'+info.led+'"></span>'
       +'<span class="src-name">'+esc(LABELS[k]||k)+'</span>'
       +'<span class="src-verdict">'+info.summary+'<span class="tagword tw-'+info.tag+'">'+esc(info.tagword)+'</span></span>'
       +'<span class="src-caret">&#9662;</span></div>'
@@ -523,9 +529,14 @@ function render(data){
   });
 
   const evbtn=document.getElementById('evbtn'), evidence=document.getElementById('evidence');
-  evbtn.onclick=()=>{ evidence.classList.toggle('show'); evbtn.parentElement.classList.toggle('open');
+  evbtn.onclick=()=>{ evidence.classList.toggle('show'); evbtn.setAttribute('aria-expanded', evidence.classList.contains('show')?'true':'false'); evbtn.parentElement.classList.toggle('open');
     evbtn.querySelector('span').textContent = evidence.classList.contains('show')?'hide the evidence':'show the evidence'; };
-  out.querySelectorAll('.src').forEach(el=>{ el.querySelector('.src-head').onclick=()=>el.classList.toggle('open'); });
+  out.querySelectorAll('.src').forEach(el=>{
+    const hd=el.querySelector('.src-head');
+    const tog=()=>{ el.classList.toggle('open'); hd.setAttribute('aria-expanded', el.classList.contains('open')?'true':'false'); };
+    hd.onclick=tog;
+    hd.addEventListener('keydown',e=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); tog(); } });
+  });
 }
 
 async function run(){
@@ -542,7 +553,7 @@ go.onclick=run;
 input.addEventListener('keydown',e=>{ if(e.key==='Enter') run(); });
 document.getElementById('exbtn').onclick=()=>{
   const dd=document.getElementById('exdrop'), b=document.getElementById('exbtn');
-  dd.classList.toggle('show'); b.classList.toggle('open');
+  dd.classList.toggle('show'); b.classList.toggle('open'); b.setAttribute('aria-expanded', dd.classList.contains('show')?'true':'false');
 };
 document.getElementById('chips').addEventListener('click',e=>{
   const c=e.target.closest('.chip'); if(!c) return; input.value=c.dataset.ioc; run();

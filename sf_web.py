@@ -123,8 +123,8 @@ def api_hunt(ioc: str, request: Request):
     return JSONResponse(_run_hunt(ioc))
 
 
-# ── Water dashboard data ──────────────────────────────────────────────────────
-# Reads Water's real state files. No invented data.
+# ── Engine dashboard data ──────────────────────────────────────────────────────
+# Reads the rule engine's real state files. No invented data.
 TACTIC_ORDER = [
     "reconnaissance", "resource-development", "initial-access", "execution",
     "persistence", "privilege-escalation", "defense-evasion", "credential-access",
@@ -133,8 +133,8 @@ TACTIC_ORDER = [
 ]
 
 
-@app.get("/api/water")
-def api_water():
+@app.get("/api/engine")
+def api_engine():
     seen = _state("seen_techniques.json", {})
     hunt_log = _state("hunt_log.json", [])
     last_run_doc = _state("last_run.json", {})
@@ -419,9 +419,9 @@ def review_page():
     return FileResponse(WEB_DIR / "review.html")
 
 
-@app.get("/water")
-def water_page():
-    return FileResponse(WEB_DIR / "water.html")
+@app.get("/engine")
+def engine_page():
+    return FileResponse(WEB_DIR / "engine.html")
 
 
 @app.get("/")
