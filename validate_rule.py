@@ -11,12 +11,19 @@ Stages:
 
 Max 3 attempts. Healed rule written back to file for git commit.
 An unreachable Elasticsearch is a FAILED backtest (never a silent pass).
+
+Voting fails closed: a vote only counts as an approval when `approve` is a real boolean (or the
+exact strings "true"/"false"); malformed output is an "invalid response" scored 0, never an
+approval. A voter that is unreachable/unconfigured is EXCLUDED (not scored 0), but at least
+MIN_VALID_VOTERS well-formed votes are required. A healed rule must keep the original id and
+technique tag(s). The backtest hits the same indices the deploy payload uses.
 """
 
 import concurrent.futures
 import html as html_lib
 import json
 import logging
+import math
 import os
 import re
 import smtplib
@@ -32,15 +39,21 @@ from string import Template
 
 from lab import ecs
 from lab import config as lab_config
+from lab import es as lab_es
 from lab import state as lab_state
 from lab.http import session as make_session
+from lab.kibana_rule import INDICES, technique_tags
 
 log = logging.getLogger("sf.validate")
 
 HERE = Path(__file__).resolve().parent
 MODEL_DEFAULT = "claude-sonnet-4-6"
-BACKTEST_WINDOW = "now-7d"
+BACKTEST_DAYS = 7
 MAX_ATTEMPTS = 3
+MIN_VALID_VOTERS = 2        # well-formed votes required; fewer and the rule fails validation
+MAX_BACKTEST_HITS = 10000   # more matches than this in BACKTEST_DAYS days = obviously noisy rule
+VOTER_DEADLINE = 180        # seconds to wait for all voters before excluding the stragglers
+SCORE_MIN, SCORE_MAX = 0.0, 10.0
 
 
 class MissingApiKey(RuntimeError):
@@ -86,7 +99,9 @@ def lint_sigma_yaml(rule_text):
 
 def backtest_query(query):
     """
-    Run the Lucene query against logs-* over the last 7 days and count matches.
+    Count matches of the Lucene query over the last BACKTEST_DAYS days, against the same
+    indices the deployed rule searches (lab.kibana_rule.INDICES). The request itself lives in
+    lab.es.backtest_count (the single implementation).
     Returns (hit_count, error_message). error_message is set when Elasticsearch is
     unconfigured, unreachable or errors; callers must treat that as a FAILED backtest.
     A count of 0 with no error means field names are wrong or the logic is unreachable.
@@ -95,30 +110,111 @@ def backtest_query(query):
         settings = lab_config.load()
     except lab_config.ConfigError as e:
         return 0, f"Backtest not configured: {e}"
-
-    headers = {"Content-Type": "application/json"}
-    if settings.elastic_api_key:
-        headers["Authorization"] = f"ApiKey {settings.elastic_api_key}"
-    body = {"query": {"bool": {
-        "must": [{"query_string": {"query": query, "analyze_wildcard": True}}],
-        "filter": [{"range": {"@timestamp": {"gte": BACKTEST_WINDOW}}}],
-    }}}
     try:
-        resp = make_session(timeout=15).post(
-            f"{settings.elastic_url}/logs-*/_count", headers=headers, json=body)
-    except requests.RequestException as e:
-        return 0, f"Backtest connection error: {e}"
-    if resp.status_code != 200:
-        return 0, f"Elasticsearch returned {resp.status_code}: {resp.text[:200]}"
-    try:
-        return int(resp.json().get("count", 0)), None
-    except (ValueError, AttributeError) as e:
-        return 0, f"Backtest returned an unreadable response: {e}"
+        # a _count POST is read-only, so it is safe to let the session retry it
+        count = lab_es.backtest_count(
+            make_session(timeout=15, retry_post=True), query, days=BACKTEST_DAYS,
+            index=",".join(INDICES), base_url=settings.elastic_url, api_key=settings.elastic_api_key)
+    except lab_es.SearchError as e:
+        return 0, f"Backtest failed: {e}"
+    return count, None
 
 
-def passes(approvals, avg_score, hit_count, backtest_err):
-    """Pass condition: 2+ approvals, avg >= 6, and a SUCCESSFUL backtest with > 0 hits."""
-    return approvals >= 2 and avg_score >= 6 and backtest_err is None and hit_count > 0
+def passes(approvals, avg_score, hit_count, backtest_err, valid_voters=MIN_VALID_VOTERS):
+    """Pass: quorum of valid votes, 2+ approvals, avg >= 6, and a SUCCESSFUL backtest with
+    1..MAX_BACKTEST_HITS hits."""
+    return (valid_voters >= MIN_VALID_VOTERS and approvals >= 2 and avg_score >= 6
+            and backtest_err is None and 0 < hit_count <= MAX_BACKTEST_HITS)
+
+
+def failure_reasons(approvals, avg_score, hit_count, backtest_err, valid_voters):
+    reasons = []
+    if valid_voters < MIN_VALID_VOTERS:
+        reasons.append(f"quorum not met: {valid_voters} valid vote(s), need {MIN_VALID_VOTERS}")
+    if approvals < 2:
+        reasons.append(f"only {approvals} validator(s) approved (need 2)")
+    if avg_score < 6:
+        reasons.append(f"avg score {avg_score:.1f} < 6")
+    if backtest_err:
+        reasons.append(f"backtest failed: {backtest_err}")
+    elif hit_count == 0:
+        reasons.append("0 backtest hits - fields likely wrong")
+    elif hit_count > MAX_BACKTEST_HITS:
+        reasons.append(f"too many backtest hits ({hit_count} > {MAX_BACKTEST_HITS}) - rule is too noisy")
+    return reasons
+
+
+def describe_backtest(hit_count, backtest_err):
+    where = ", ".join(INDICES)
+    if backtest_err:
+        return f"The backtest against {where} could not run ({backtest_err})"
+    if hit_count > MAX_BACKTEST_HITS:
+        return (f"Query returned {hit_count} hits against {where} in {BACKTEST_DAYS}d: too many "
+                f"(limit {MAX_BACKTEST_HITS}). Narrow the detection with more specific conditions")
+    if hit_count > 0:
+        return f"Query returned {hit_count} hits against {where} - field names appear valid"
+    return (f"Query returned 0 hits against {where} - field names are likely wrong or the logic "
+            f"is unreachable")
+
+
+# -- Stage 4 support: vote normalisation (fail closed) ------------------------------------
+
+def _invalid_vote(reason, raw=None):
+    return {"score": 0, "approve": False, "valid": False,
+            "issues": [f"invalid response: {reason}"], "reasoning": str(raw)[:200] if raw is not None else ""}
+
+
+def _parse_approve(value):
+    """True/False for a real bool or the exact strings 'true'/'false' (any case); else None."""
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str) and value.strip().lower() in ("true", "false"):
+        return value.strip().lower() == "true"
+    return None
+
+
+def _parse_score(value):
+    """A finite number clamped to [SCORE_MIN, SCORE_MAX], or None when it is not numeric."""
+    if isinstance(value, bool) or value is None:
+        return None
+    if isinstance(value, str):
+        try:
+            value = float(value.strip())
+        except ValueError:
+            return None
+    if not isinstance(value, (int, float)) or not math.isfinite(value):
+        return None
+    if value >= SCORE_MAX:
+        return int(SCORE_MAX)
+    if value <= SCORE_MIN:
+        return int(SCORE_MIN)
+    return int(value) if float(value) == int(value) else float(value)
+
+
+def normalize_vote(raw):
+    """Turn whatever a voter returned into {score, approve, issues, reasoning, valid}.
+    Anything malformed becomes an 'invalid response': approve False, score 0, valid False."""
+    if not isinstance(raw, dict):
+        return _invalid_vote("not a JSON object", raw)
+    if raw.get("invalid"):
+        return _invalid_vote("; ".join(str(i) for i in raw.get("issues") or []) or "unparseable", raw.get("reasoning"))
+    approve = _parse_approve(raw.get("approve"))
+    if approve is None:
+        return _invalid_vote(f"approve={raw.get('approve')!r} is not a boolean", raw.get("reasoning"))
+    score = _parse_score(raw.get("score"))
+    if score is None:
+        return _invalid_vote(f"score={raw.get('score')!r} is not a number", raw.get("reasoning"))
+    issues = raw.get("issues")
+    issues = [] if issues is None else issues if isinstance(issues, list) else [issues]
+    reasoning = raw.get("reasoning")
+    return {"score": score, "approve": approve, "valid": True,
+            "issues": [str(i)[:300] for i in issues[:20]],
+            "reasoning": "" if reasoning is None else str(reasoning)[:500]}
+
+
+def count_valid(feedback):
+    """Number of well-formed votes (the quorum basis)."""
+    return sum(1 for r in feedback.values() if isinstance(r, dict) and r.get("valid") is True)
 
 
 # -- Stage 4: AI validators ----------------------------------------------------
@@ -148,14 +244,24 @@ def build_validation_prompt(rule_text, query):
 
 
 def parse_llm_response(text):
-    try:
+    """Parse a voter's JSON reply. Unparseable output is returned as a rejection flagged
+    "invalid": True (normalize_vote turns that into an invalid-response vote)."""
+    candidates = []
+    if isinstance(text, str):
         clean = text.replace("```json", "").replace("```", "").strip()
-        parsed = json.loads(clean)
+        candidates.append(clean)
+        a, b = clean.find("{"), clean.rfind("}")
+        if 0 <= a < b:
+            candidates.append(clean[a:b + 1])
+    for cand in candidates:
+        try:
+            parsed = json.loads(cand)
+        except ValueError:
+            continue
         if isinstance(parsed, dict):
             return parsed
-    except (ValueError, AttributeError):
-        pass
-    return {"score": 5, "approve": False, "issues": ["Could not parse response"], "reasoning": str(text)[:200]}
+    return {"score": 0, "approve": False, "invalid": True,
+            "issues": ["Could not parse response"], "reasoning": str(text)[:200]}
 
 
 def ask_ollama(rule_text, query):
@@ -201,41 +307,61 @@ def ask_gemini(rule_text, query):
         headers={"x-goog-api-key": key},
         json={"contents": [{"parts": [{"text": prompt}]}]},
     )
+    response.raise_for_status()
     resp = response.json()
-    if "candidates" not in resp:
-        return {"score": 5, "approve": False, "issues": ["Gemini API error"], "reasoning": str(resp)[:200]}
+    if not isinstance(resp, dict) or "candidates" not in resp:
+        # an API error / blocked prompt is not a vote: raise so the voter is excluded
+        raise RuntimeError(f"Gemini API returned no candidates: {str(resp)[:200]}")
     return parse_llm_response(resp["candidates"][0]["content"]["parts"][0]["text"])
 
 
 def validate_rule_text(rule_text, query):
     """Run the 3 validators concurrently. Returns approvals, avg_score, feedback_by_validator.
 
-    A voter whose API key is missing is skipped with a warning (not counted). A voter that
-    errors is logged and counted as a rejection with score 0."""
+    Every vote is normalised (normalize_vote): malformed output is an invalid response that
+    scores 0 and never approves. A voter that is unconfigured, unreachable, crashes, or misses
+    VOTER_DEADLINE is logged and EXCLUDED (absent from feedback and from the average). The
+    caller enforces the quorum via count_valid(feedback)."""
     voters = {"Ollama": ask_ollama, "Claude": ask_claude, "Gemini": ask_gemini}
-    feedback = {}
-    with concurrent.futures.ThreadPoolExecutor(max_workers=len(voters)) as pool:
-        futures = {pool.submit(fn, rule_text, query): name for name, fn in voters.items()}
-        results = {}
-        for fut in concurrent.futures.as_completed(futures):
+    results = {}
+    pool = concurrent.futures.ThreadPoolExecutor(max_workers=len(voters))
+    futures = {pool.submit(fn, rule_text, query): name for name, fn in voters.items()}
+    try:
+        for fut in concurrent.futures.as_completed(futures, timeout=VOTER_DEADLINE):
             name = futures[fut]
             try:
-                results[name] = fut.result()
+                raw = fut.result()
             except MissingApiKey as e:
                 log.warning("skipping %s validator: %s", name, e)
-            except (requests.RequestException, KeyError, IndexError, ValueError) as e:
-                log.error("%s validator failed: %s", name, e)
-                results[name] = {"score": 0, "approve": False,
-                                 "issues": [f"validator error: {e}"], "reasoning": str(e)[:200]}
+                continue
+            except Exception as e:  # one voter's failure must never crash the run
+                log.warning("%s validator unavailable, excluded from the vote: %s: %s",
+                            name, type(e).__name__, e)
+                continue
+            try:
+                results[name] = normalize_vote(raw)
+            except Exception as e:  # defensive: normalisation must not raise either
+                log.warning("%s validator output unusable, excluded: %s", name, e)
+    except concurrent.futures.TimeoutError:
+        for fut, name in futures.items():
+            if not fut.done():
+                log.warning("%s validator did not answer within %ss, excluded from the vote",
+                            name, VOTER_DEADLINE)
+    finally:
+        pool.shutdown(wait=False, cancel_futures=True)
+
+    feedback = {}
     for name in voters:  # stable order
         if name in results:
             feedback[name] = results[name]
-            print(f"  {name}:  score={results[name].get('score')} approve={results[name].get('approve')}")
+            print(f"  {name}:  score={results[name].get('score')} approve={results[name].get('approve')}"
+                  + ("" if results[name].get("valid") else "  (invalid response)"))
 
-    approvals = sum(bool(r.get("approve", False)) for r in feedback.values())
-    avg_score = (sum(r.get("score", 0) for r in feedback.values()) / len(feedback)) if feedback else 0.0
+    approvals = sum(1 for r in feedback.values() if r["approve"] is True)
+    avg_score = (sum(r["score"] for r in feedback.values()) / len(feedback)) if feedback else 0.0
 
-    print(f"  Results: {approvals}/{len(feedback)} approved - avg score {avg_score:.1f}/10")
+    print(f"  Results: {approvals}/{len(feedback)} approved - avg score {avg_score:.1f}/10 "
+          f"({count_valid(feedback)} valid vote(s), quorum {MIN_VALID_VOTERS})")
     return approvals, avg_score, feedback
 
 
@@ -285,21 +411,39 @@ fields:
     - process.parent.name
 
 RULES FOR YOUR REWRITE:
-1. Valid ECS fields ONLY: process.name, process.executable, process.command_line,
-   process.parent.name, process.parent.executable, registry.key, registry.value,
-   network.destination.ip, file.path, file.name, event.code, user.name, host.name
+1. Valid ECS fields ONLY: $ecs_fields
 2. BANNED modifiers — NEVER use: |in, |lowercasefield, |re — not supported by pySigma 0.11.23. Use contains, startswith, endswith, or exact match instead
 3. Simple, single selection block — one clear detection condition
 4. Keep the same ATT&CK technique ID in tags
 5. Keep the same rule id (UUID)
-6. If the backtest showed 0 hits, simplify the detection to match more broadly
+6. If the backtest showed 0 hits, check the field names first, then simplify the detection.
+   If it showed too many hits, narrow it with more specific conditions.
 
 Return ONLY the complete fixed Sigma YAML. No explanation. No markdown fences.""")
 
 
+# ECS names the rules may use that Sigma sources write directly in ECS form (not remapped
+# by lab.ecs). The remapped targets are read from lab.ecs itself so the two cannot drift.
+EXTRA_ECS_FIELDS = (
+    "process.name", "process.parent.name", "file.name", "registry.key", "registry.value",
+    "host.name", "dns.question.name", "winlog.event_data.*",
+)
+
+
+def ecs_field_names():
+    """Sorted ECS field list for the heal prompt: lab.ecs mapping targets plus EXTRA_ECS_FIELDS."""
+    names = set(EXTRA_ECS_FIELDS)
+    for item in ecs.pipeline().items:
+        mapping = getattr(item.transformation, "mapping", None)
+        if isinstance(mapping, dict):
+            names.update(v for v in mapping.values() if isinstance(v, str))
+    return sorted(names)
+
+
 def build_heal_prompt(rule_text, query, backtest_info, feedback, attempt):
     return HEAL_PROMPT.substitute(attempt=attempt, rule_text=rule_text, query=query,
-                                  backtest_info=backtest_info, feedback=feedback)
+                                  backtest_info=backtest_info, feedback=feedback,
+                                  ecs_fields=", ".join(ecs_field_names()))
 
 
 def heal_rule(rule_text, query, backtest_count, feedback_by_validator, attempt):
@@ -307,16 +451,12 @@ def heal_rule(rule_text, query, backtest_count, feedback_by_validator, attempt):
     structured = ""
     for validator, result in feedback_by_validator.items():
         structured += f"\n{validator} (score {result.get('score')}/10, approve={result.get('approve')}):\n"
-        for issue in result.get("issues", []):
+        for issue in result.get("issues") or []:
             structured += f"  - {issue}\n"
         if result.get("reasoning"):
-            structured += f"  reasoning: {result.get('reasoning')[:300]}\n"
+            structured += f"  reasoning: {str(result.get('reasoning'))[:300]}\n"
 
-    backtest_info = (
-        f"Query returned {backtest_count} hits against logs-* - field names appear valid"
-        if backtest_count > 0
-        else "Query returned 0 hits against logs-* (or the backtest could not run) - field names are likely wrong or logic is unreachable"
-    )
+    backtest_info = describe_backtest(backtest_count, None)
 
     prompt = build_heal_prompt(rule_text, query, backtest_info, structured, attempt)
 
@@ -357,6 +497,10 @@ def send_circuit_breaker_email(rule_path, attempts, feedback_history):
 
     now       = datetime.now(timezone.utc).strftime("%B %d, %Y at %I:%M %p UTC")
     rule_name = rule_path.split("/")[-1].replace(".yml", "").replace("-", " ").title()
+    # Everything below that comes from a model, a log, or a file name is attacker-influenced:
+    # escape it before it reaches the HTML (and keep the raw values for the plain-text part).
+    esc = html_lib.escape
+    rule_name_h, rule_path_h, attempts_h = esc(rule_name), esc(rule_path), esc(str(attempts))
 
     BG    = "#0d1117"
     CARD  = "#161b22"
@@ -367,15 +511,17 @@ def send_circuit_breaker_email(rule_path, attempts, feedback_history):
 
     feedback_rows = ""
     for i, fb in enumerate(feedback_history, 1):
-        feedback_rows += f"""<tr><td colspan="4" style="padding:8px 14px 2px;font-size:11px;font-weight:700;letter-spacing:1px;color:{MUTED};text-transform:uppercase;background:{CARD};">Attempt {i}</td></tr>"""
+        feedback_rows += f"""<tr><td colspan="4" style="padding:8px 14px 2px;font-size:11px;font-weight:700;letter-spacing:1px;color:{MUTED};text-transform:uppercase;background:{CARD};">Attempt {esc(str(i))}</td></tr>"""
         for validator, result in fb.items():
             score     = result.get("score", "?")
-            approved  = result.get("approve", False)
-            reasoning = (result.get("reasoning") or "")[:180]
+            approved  = result.get("approve") is True
+            reasoning = esc(str(result.get("reasoning") or "")[:180])
+            numeric   = isinstance(score, (int, float)) and not isinstance(score, bool)
             a_color   = "#4caf50" if approved else RED
             a_label   = "APPROVED" if approved else "REJECTED"
-            s_color   = "#4caf50" if (isinstance(score, int) and score >= 7) else "#ff9800" if (isinstance(score, int) and score >= 5) else RED
-            feedback_rows += f"""<tr style="border-bottom:1px solid {BORD};"><td style="padding:8px 14px;font-size:13px;color:{TEXT};font-weight:600;">{validator}</td><td style="padding:8px 14px;text-align:center;"><span style="background:{s_color}22;color:{s_color};border:1px solid {s_color}55;border-radius:4px;padding:2px 8px;font-size:11px;font-weight:700;font-family:monospace;">{score}/10</span></td><td style="padding:8px 14px;text-align:center;"><span style="background:{a_color}22;color:{a_color};border:1px solid {a_color}55;border-radius:4px;padding:2px 8px;font-size:11px;font-weight:700;font-family:monospace;">{a_label}</span></td><td style="padding:8px 14px;font-size:12px;color:{MUTED};font-style:italic;">{reasoning}</td></tr>"""
+            s_color   = "#4caf50" if (numeric and score >= 7) else "#ff9800" if (numeric and score >= 5) else RED
+            score_h, validator_h = esc(str(score)), esc(str(validator))
+            feedback_rows += f"""<tr style="border-bottom:1px solid {BORD};"><td style="padding:8px 14px;font-size:13px;color:{TEXT};font-weight:600;">{validator_h}</td><td style="padding:8px 14px;text-align:center;"><span style="background:{s_color}22;color:{s_color};border:1px solid {s_color}55;border-radius:4px;padding:2px 8px;font-size:11px;font-weight:700;font-family:monospace;">{score_h}/10</span></td><td style="padding:8px 14px;text-align:center;"><span style="background:{a_color}22;color:{a_color};border:1px solid {a_color}55;border-radius:4px;padding:2px 8px;font-size:11px;font-weight:700;font-family:monospace;">{a_label}</span></td><td style="padding:8px 14px;font-size:12px;color:{MUTED};font-style:italic;">{reasoning}</td></tr>"""
 
     repo_url = os.environ.get("SF_REPO_URL", "").rstrip("/")
     rule_link = ""
@@ -390,11 +536,11 @@ def send_circuit_breaker_email(rule_path, attempts, feedback_history):
 <table width="580" cellpadding="0" cellspacing="0" style="background:{CARD};border-radius:10px;border:1px solid {BORD};overflow:hidden;">
 <tr><td style="padding:22px 36px 16px;border-bottom:1px solid {BORD};"><p style="margin:0;font-size:10px;font-weight:600;letter-spacing:2px;color:{MUTED};text-transform:uppercase;">SentinelForge Detection Lab</p></td></tr>
 <tr><td style="padding:20px 36px;"><p style="margin:0;font-size:13px;color:{MUTED};">{now}</p><h1 style="margin:6px 0 0;font-size:20px;font-weight:700;color:{TEXT};">Circuit Breaker Fired</h1></td></tr>
-<tr><td style="padding:0 36px 20px;"><p style="margin:0;font-size:14px;color:{TEXT};line-height:1.7;padding:14px 16px;background:{BG};border-left:3px solid {RED};border-radius:0 6px 6px 0;">The self-healing pipeline tried to fix this rule <strong>{attempts} times</strong> and failed every attempt. Manual review or deletion required.</p></td></tr>
+<tr><td style="padding:0 36px 20px;"><p style="margin:0;font-size:14px;color:{TEXT};line-height:1.7;padding:14px 16px;background:{BG};border-left:3px solid {RED};border-radius:0 6px 6px 0;">The self-healing pipeline tried to fix this rule <strong>{attempts_h} times</strong> and failed every attempt. Manual review or deletion required.</p></td></tr>
 <tr><td style="padding:0 36px 20px;">
   <table width="100%" cellpadding="0" cellspacing="0" style="border:1px solid {BORD};border-radius:6px;overflow:hidden;background:{BG};"><tr>
-    <td style="padding:12px 8px;border-right:1px solid {BORD};text-align:center;"><p style="margin:0 0 4px;font-size:9px;letter-spacing:1.5px;color:{MUTED};text-transform:uppercase;">Rule</p><p style="margin:0;font-size:11px;font-weight:700;color:{RED};font-family:monospace;">{rule_name}</p></td>
-    <td style="padding:12px 8px;border-right:1px solid {BORD};text-align:center;"><p style="margin:0 0 4px;font-size:9px;letter-spacing:1.5px;color:{MUTED};text-transform:uppercase;">Attempts</p><p style="margin:0;font-size:20px;font-weight:700;color:{RED};">{attempts}</p></td>
+    <td style="padding:12px 8px;border-right:1px solid {BORD};text-align:center;"><p style="margin:0 0 4px;font-size:9px;letter-spacing:1.5px;color:{MUTED};text-transform:uppercase;">Rule</p><p style="margin:0;font-size:11px;font-weight:700;color:{RED};font-family:monospace;">{rule_name_h}</p></td>
+    <td style="padding:12px 8px;border-right:1px solid {BORD};text-align:center;"><p style="margin:0 0 4px;font-size:9px;letter-spacing:1.5px;color:{MUTED};text-transform:uppercase;">Attempts</p><p style="margin:0;font-size:20px;font-weight:700;color:{RED};">{attempts_h}</p></td>
     <td style="padding:12px 8px;text-align:center;"><p style="margin:0 0 4px;font-size:9px;letter-spacing:1.5px;color:{MUTED};text-transform:uppercase;">Status</p><p style="margin:0;font-size:11px;font-weight:700;color:{RED};font-family:monospace;">FAILED</p></td>
   </tr></table>
 </td></tr>
@@ -407,7 +553,7 @@ def send_circuit_breaker_email(rule_path, attempts, feedback_history):
 </td></tr>
 <tr><td style="padding:0 36px 28px;">
   <p style="margin:0 0 10px;font-size:10px;font-weight:600;letter-spacing:1.5px;color:{MUTED};text-transform:uppercase;">Action Required</p>
-  <p style="margin:0;font-size:14px;color:{TEXT};line-height:1.7;padding:14px 16px;background:{BG};border:1px solid {BORD};border-radius:6px;">Delete <code style="font-family:monospace;background:{CARD};padding:2px 6px;border-radius:3px;color:{RED};">{rule_path}</code> and let the SentinelForge rule engine regenerate, or manually fix the Sigma YAML.</p>
+  <p style="margin:0;font-size:14px;color:{TEXT};line-height:1.7;padding:14px 16px;background:{BG};border:1px solid {BORD};border-radius:6px;">Delete <code style="font-family:monospace;background:{CARD};padding:2px 6px;border-radius:3px;color:{RED};">{rule_path_h}</code> and let the SentinelForge rule engine regenerate, or manually fix the Sigma YAML.</p>
   <br>
   {rule_link}
 </td></tr>
@@ -467,13 +613,57 @@ def save_validation(rule_path, rule_text, feedback_history, approvals, avg_score
     lab_state.write(vfile, data)
 
 
-def _safe_heal(rule_text, query, hits, feedback, attempt):
-    """heal_rule that never raises: a failed heal keeps the current text for the next attempt."""
+_ID_LINE = re.compile(r"^id:\s*['\"]?([^'\"\s#]+)", re.MULTILINE)
+_TECH_TEXT = re.compile(r"attack\.t\d{4}(?:\.\d{3})?", re.IGNORECASE)
+
+
+def _identity(text):
+    """(id, technique tags) of a rule text; parsed YAML if possible, regex fallback otherwise."""
     try:
-        return heal_rule(rule_text, query, hits, feedback, attempt)
-    except (MissingApiKey, requests.RequestException, KeyError, IndexError, ValueError) as e:
-        log.error("self-heal failed: %s", e)
+        parsed = yaml.safe_load(text)
+    except yaml.YAMLError:
+        parsed = None
+    if isinstance(parsed, dict):
+        rid = str(parsed.get("id")).strip() if parsed.get("id") is not None else None
+        tags = parsed.get("tags")
+        return rid, technique_tags(tags if isinstance(tags, list) else [])
+    m = _ID_LINE.search(text or "")
+    return (m.group(1) if m else None), {t.lower() for t in _TECH_TEXT.findall(text or "")}
+
+
+def check_heal_invariants(original_text, healed_text):
+    """A healed rule must be the same rule: same id and same ATT&CK technique tag(s).
+    Returns (ok, reason). Constraints the original does not have are not imposed."""
+    try:
+        parsed = yaml.safe_load(healed_text)
+    except yaml.YAMLError as e:
+        return False, f"healed rule is not valid YAML: {e}"
+    if not isinstance(parsed, dict):
+        return False, "healed rule is not a YAML mapping"
+    old_id, old_tech = _identity(original_text)
+    new_id, new_tech = _identity(healed_text)
+    if old_id and new_id != old_id:
+        return False, f"healed rule changed the rule id ({old_id} -> {new_id})"
+    if old_tech and new_tech != old_tech:
+        return False, f"healed rule changed the technique tag(s) ({sorted(old_tech)} -> {sorted(new_tech)})"
+    return True, "OK"
+
+
+def _safe_heal(rule_text, query, hits, feedback, attempt, original_text=None):
+    """heal_rule that never raises: a failed or non-conforming heal returns None so the caller
+    keeps the current text for the next attempt. The result must keep the original id/technique."""
+    try:
+        healed = heal_rule(rule_text, query, hits, feedback, attempt)
+    except Exception as e:  # network, auth, malformed API payload: never crash the pipeline
+        log.error("self-heal failed: %s: %s", type(e).__name__, e)
         return None
+    if healed and original_text is not None:
+        ok, why = check_heal_invariants(original_text, healed)
+        if not ok:
+            log.error("self-heal result rejected: %s", why)
+            print(f"  Healed rule rejected: {why}")
+            return None
+    return healed
 
 
 def main():
@@ -504,7 +694,7 @@ def main():
                     rule_text, "N/A — YAML invalid", 0,
                     {"lint": {"score": 0, "approve": False,
                               "issues": [lint_msg], "reasoning": lint_msg}},
-                    attempt
+                    attempt, original_rule_text
                 ) or rule_text
                 continue
             else:
@@ -533,7 +723,7 @@ def main():
                     {"converter": {"score": 0, "approve": False,
                                    "issues": ["pySigma could not convert this rule"],
                                    "reasoning": "Rule could not be converted to Lucene query"}},
-                    attempt
+                    attempt, original_rule_text
                 ) or rule_text
                 continue
             else:
@@ -543,7 +733,7 @@ def main():
         print(f"  Query: {query[:120]}{'...' if len(query) > 120 else ''}")
 
         # Stage 3: Backtest against Elasticsearch
-        print("  Stage 3: Backtesting against logs-* (7d)...")
+        print(f"  Stage 3: Backtesting against {', '.join(INDICES)} ({BACKTEST_DAYS}d)...")
         hit_count, backtest_err = backtest_query(query)
         last_backtest = hit_count
 
@@ -551,6 +741,8 @@ def main():
             print(f"  Backtest FAILED: {backtest_err}")
         elif hit_count == 0:
             print("  Backtest: 0 hits — field names may be wrong")
+        elif hit_count > MAX_BACKTEST_HITS:
+            print(f"  Backtest: {hit_count} hits — too many (limit {MAX_BACKTEST_HITS}), rule is too noisy")
         else:
             print(f"  Backtest: {hit_count} hits — query matches real data ✓")
 
@@ -559,8 +751,9 @@ def main():
         approvals, avg_score, feedback = validate_rule_text(rule_text, query)
         feedback_history.append(feedback)
 
-        # Pass condition: 2 approvals + avg >= 6 + a successful backtest with > 0 hits
-        if passes(approvals, avg_score, hit_count, backtest_err):
+        # Pass: quorum of valid votes + 2 approvals + avg >= 6 + a successful, non-noisy backtest
+        valid_voters = count_valid(feedback)
+        if passes(approvals, avg_score, hit_count, backtest_err, valid_voters):
             # Write healed rule back if it changed
             if rule_text != original_rule_text:
                 with open(rule_path, "w", encoding="utf-8") as f:
@@ -570,22 +763,13 @@ def main():
             print(f"\nPASS: Rule approved on attempt {attempt} ✓")
             sys.exit(0)
 
-        # Build failure reason
-        reasons = []
-        if approvals < 2:
-            reasons.append(f"only {approvals}/3 validators approved")
-        if avg_score < 6:
-            reasons.append(f"avg score {avg_score:.1f} < 6")
-        if backtest_err:
-            reasons.append(f"backtest failed: {backtest_err}")
-        elif hit_count == 0:
-            reasons.append("0 backtest hits — fields likely wrong")
+        reasons = failure_reasons(approvals, avg_score, hit_count, backtest_err, valid_voters)
         print(f"  Failed: {', '.join(reasons)}")
 
         if attempt < MAX_ATTEMPTS:
             print(f"\n  Attempt {attempt} failed — Claude is rewriting the rule...")
             time.sleep(3)
-            healed = _safe_heal(rule_text, query, hit_count, feedback, attempt)
+            healed = _safe_heal(rule_text, query, hit_count, feedback, attempt, original_rule_text)
             if healed and len(healed) > 100:
                 rule_text = healed
                 print("  Rule rewritten — retrying...\n")

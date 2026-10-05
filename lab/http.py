@@ -8,6 +8,16 @@ from urllib3.util.retry import Retry
 from lab.config import insecure_tls_requested
 
 RETRY_STATUSES = (429, 502, 503, 504)
+# Methods safe to re-send after a read timeout / 5xx. POST is excluded unless the caller opts in
+# with session(retry_post=True): a retried LLM POST is generated and billed twice. (Connect
+# errors, where no request was sent, are retried for every method.)
+IDEMPOTENT_METHODS = frozenset({"GET", "HEAD", "OPTIONS", "PUT", "DELETE"})
+MAX_RETRY_AFTER = 30  # seconds; urllib3 would otherwise honour up to 6 h
+
+
+class _CappedRetry(Retry):
+    def parse_retry_after(self, retry_after):
+        return min(super().parse_retry_after(retry_after), MAX_RETRY_AFTER)
 
 
 class _TimeoutSession(requests.Session):
@@ -30,13 +40,13 @@ class _TimeoutSession(requests.Session):
 
 
 def session(retries: int = 3, timeout: float = 10.0, *, backoff_factor: float = 0.5,
-            verify: bool | None = None) -> requests.Session:
+            verify: bool | None = None, retry_post: bool = False) -> requests.Session:
     s = _TimeoutSession(timeout)
-    retry = Retry(
+    retry = _CappedRetry(
         total=retries,
         status_forcelist=RETRY_STATUSES,
         backoff_factor=backoff_factor,
-        allowed_methods=None,  # retry all verbs (ES _search POSTs are idempotent)
+        allowed_methods=None if retry_post else IDEMPOTENT_METHODS,
         respect_retry_after_header=True,
         raise_on_status=False,
     )
