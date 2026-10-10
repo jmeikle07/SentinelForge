@@ -37,7 +37,11 @@ jobs:
         run: pip install -r requirements-dev.txt
 
       - name: Create environment file
-        run: cp .env.example .env
+        run: |
+          echo "ELASTIC_URL=http://localhost:9200" > .env
+          echo "ELASTIC_API_KEY=mock_api_key_for_testing" >> .env
+          echo "KIBANA_URL=http://localhost:5601" >> .env
+          echo "LAB_INSECURE_TLS=0" >> .env
 
       - name: Run tests
         run: python -m pytest -q
