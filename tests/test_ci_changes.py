@@ -633,6 +633,7 @@ def test_push_script_fails_loudly_when_push_is_rejected(pushrepo):
     remote, clone = pushrepo
     (remote / "hooks" / "pre-receive").write_text("#!/bin/sh\necho 'protected branch' >&2\nexit 1\n",
                                                   newline="\n")
+    os.chmod(remote / "hooks" / "pre-receive", 0o755)
     heal_commit(clone)
     r = run_push(clone)
     out = r.stdout + r.stderr
