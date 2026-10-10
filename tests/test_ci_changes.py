@@ -444,7 +444,9 @@ def write_z(path, items):
 def work(tmp_path):
     w = tmp_path / "w"
     w.mkdir()
-    (w / "fakepy").write_text(FAKEPY, encoding="utf-8", newline="\n")
+    fakepy = w / "fakepy"
+    fakepy.write_text(FAKEPY, encoding="utf-8", newline="\n")
+    fakepy.chmod(0o755)
     (w / "plan").mkdir()
     return w
 
